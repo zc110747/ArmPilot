@@ -28,6 +28,11 @@ uint8_t arm_get_angle(uint8_t id);   /* 0 if bad id */
 servo_mode_t arm_get_mode(uint8_t id);
 bool arm_id_valid(uint8_t id);
 
+/* true when every servo has reached its target (no ramp currently in flight).
+   Used by the IR sequence engine to confirm a move settled before the next
+   step's hold gap elapses. */
+bool arm_all_reached(void);
+
 void arm_status(void);               /* print "S6=.. S7=.. S8=.. S9=.." + modes */
 
 #ifdef __cplusplus

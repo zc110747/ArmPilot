@@ -135,6 +135,12 @@ servo_mode_t arm_get_mode(uint8_t id) {
     return s ? s->mode : MODE_HOLD;
 }
 
+bool arm_all_reached(void) {
+    for (uint8_t i = 0; i < SERVO_COUNT; i++)
+        if (G[i].current != G[i].target) return false;
+    return true;
+}
+
 void arm_status(void) {
     char m6 = arm_get_mode(6) == MODE_AUTO ? 'A' : 'H';
     char m7 = arm_get_mode(7) == MODE_AUTO ? 'A' : 'H';

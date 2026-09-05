@@ -19,6 +19,12 @@ int8_t joystick_delta(uint8_t id, int raw); /* axis mapping: per-call step */
 void joystick_set_enabled(bool on);
 bool joystick_is_enabled(void);
 
+/* Returns true exactly once after a real joystick movement has been detected
+   since the last call (any axis produced a non-zero step). The IR sequence
+   engine polls this each loop so a joystick command ends the auto-loop (req 3).
+   Consumed (reset) by the call, so it only fires on a fresh movement edge. */
+bool joystick_consume_input(void);
+
 #ifdef __cplusplus
 }
 #endif

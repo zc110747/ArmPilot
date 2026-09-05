@@ -1,22 +1,22 @@
 @echo off
 setlocal EnableExtensions EnableDelayedExpansion
 REM =====================================================================
-REM  meArm 裸机 AVR 构建脚本 (无 Arduino 框架, 纯 avr-libc + 寄存器)
-REM  工具链由 PlatformIO 安装并统一收纳在 D:\tools\agent-tools 下
-REM  (toolchain-atmelavr / tool-avrdude). 版本子目录自动解析。
+REM  meArm bare-metal AVR build (no Arduino framework, pure avr-libc + regs)
+REM  Toolchain installed by PlatformIO under D:\tools\agent-tools
+REM  (toolchain-atmelavr / tool-avrdude). Version subdirs resolved auto.
 REM =====================================================================
 
 set "AGENT_TOOLS=D:\tools\agent-tools"
 set "PKGS=%AGENT_TOOLS%\platformio-core\packages"
 
-REM ---- 定位工具链 / avrdude (版本子目录自动解析) ----
+REM ---- locate toolchain / avrdude (version subdir auto-resolved) ----
 set "TC="
 for /d %%d in ("%PKGS%\toolchain-atmelavr*") do set "TC=%%d"
 set "AVRDUDE_DIR="
 for /d %%d in ("%PKGS%\tool-avrdude*") do set "AVRDUDE_DIR=%%d"
 
-if not defined TC ( echo [ERROR] 未找到 toolchain-atmelavr (请先运行 pio pkg install --global --platform platformio/atmelavr) & exit /b 1 )
-if not defined AVRDUDE_DIR ( echo [ERROR] 未找到 tool-avrdude & exit /b 1 )
+if not defined TC ( echo [ERROR] toolchain-atmelavr not found (run: pio pkg install --global --platform platformio/atmelavr) & exit /b 1 )
+if not defined AVRDUDE_DIR ( echo [ERROR] tool-avrdude not found & exit /b 1 )
 
 set "CC=%TC%\bin\avr-gcc.exe"
 set "CXX=%TC%\bin\avr-g++.exe"
@@ -38,7 +38,7 @@ set "CXXFLAGS=%CFLAGS% -fno-exceptions -fno-rtti"
 echo [BUILD] toolchain: %TC%
 echo [BUILD] project:   %PROJ%
 
-REM ---- 编译所有 .c 与 main.cpp ----
+REM ---- compile all .c and main.cpp ----
 set "OBJS="
 for %%f in (bsp\*.c core\*.c) do (
   set "o=%OUT%\%%~nf.o"
@@ -52,16 +52,16 @@ echo   CXX core\main.cpp
 if errorlevel 1 exit /b 1
 set "OBJS=!OBJS! %OUT%\main.o"
 
-REM ---- 链接 (avr-gcc 自动带 crt/avr-libc/libgcc) ----
+REM ---- link (avr-gcc pulls in crt/avr-libc/libgcc) ----
 echo [LINK] firmware.elf
 "%CC%" -mmcu=%MCU% !OBJS! -o "%OUT%\firmware.elf" -Wl,-Map="%OUT%\firmware.map" -lm
 if errorlevel 1 exit /b 1
 
-REM ---- 生成 hex ----
+REM ---- produce hex ----
 "%OBJCOPY%" -O ihex -R .eeprom "%OUT%\firmware.elf" "%OUT%\firmware.hex"
 if errorlevel 1 exit /b 1
 
-REM ---- 体积统计 (FLASH=.text+.data, RAM=.data+.bss) ----
+REM ---- size report (FLASH=.text+.data, RAM=.data+.bss) ----
 echo [SIZE]
 for /f "tokens=1,2" %%a in ('"%SIZE%" -A "%OUT%\firmware.elf" ^| findstr /C:".text" /C:".data" /C:".bss"') do (
   if "%%a"==".text" set /a TEXT=%%b

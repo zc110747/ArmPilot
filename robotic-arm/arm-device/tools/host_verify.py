@@ -188,27 +188,28 @@ def main():
     check("STOP 后角度保持", st_d.get(9, (None,))[0] == frozen, f"{frozen} -> {st_d.get(9)}")
 
     # 10) JOY 单轴步进 (逻辑同原 Arduino 摇杆 handleJoystickControl)
+    #     方向阈值保持一致; 但步进改为按偏移比例 (raw=900 -> 5 度/次, 远快于原 +/-1)
     send(ser, "RESET", 0.6); drain(ser, 0.3)
-    # base(9): raw>800 -> -1 ; raw<200 -> +1
+    # base(9): raw>800 -> -step ; raw<200 -> +step
     txt = send(ser, "JOY 9 900", 0.3)
-    check("JOY 9 900 -> S9=89", "OK JOY S9=89" in txt, txt.strip().replace("\r", " | "))
+    check("JOY 9 900 -> S9=85 (fast)", "OK JOY S9=85" in txt, txt.strip().replace("\r", " | "))
     st = get_status(ser)
-    check("JOY 9 900 后 S9=89", st.get(9, (None,))[0] == 89, f"{st.get(9)}")
+    check("JOY 9 900 后 S9=85", st.get(9, (None,))[0] == 85, f"{st.get(9)}")
     txt = send(ser, "JOY 9 100", 0.3)
     check("JOY 9 100 -> S9=90", "OK JOY S9=90" in txt, txt.strip().replace("\r", " | "))
-    # left(8): raw<200 -> -1 ; raw>800 -> +1
+    # left(8): raw<200 -> -step ; raw>800 -> +step (反向)
     txt = send(ser, "JOY 8 100", 0.3)
-    check("JOY 8 100 -> S8=89", "OK JOY S8=89" in txt, txt.strip().replace("\r", " | "))
+    check("JOY 8 100 -> S8=85 (fast)", "OK JOY S8=85" in txt, txt.strip().replace("\r", " | "))
     txt = send(ser, "JOY 8 900", 0.3)
     check("JOY 8 900 -> S8=90", "OK JOY S8=90" in txt, txt.strip().replace("\r", " | "))
 
     # 11) JOY 四轴整帧 (JOY <raw9> <raw8> <raw6> <raw7>)
     send(ser, "RESET", 0.6); drain(ser, 0.3)
     txt = send(ser, "JOY 900 100 900 900", 0.3)
-    ok = all(f"S{i}=89" in txt for i in (9, 8, 6, 7))
-    check("JOY 整帧 各-1", ok, txt.strip().replace("\r", " | "))
+    ok = all(f"S{i}=85" in txt for i in (9, 8, 6, 7))
+    check("JOY 整帧 各-5 (fast)", ok, txt.strip().replace("\r", " | "))
     st = get_status(ser)
-    check("JOY 整帧 后四轴=89", all(st.get(i, (None,))[0] == 89 for i in (9, 8, 7, 6)), f"{st}")
+    check("JOY 整帧 后四轴=85", all(st.get(i, (None,))[0] == 85 for i in (9, 8, 7, 6)), f"{st}")
 
     # 12) IR 按键 ±2 (复刻原 Arduino IRremote 映射)
     send(ser, "RESET", 0.6); drain(ser, 0.3)
@@ -239,7 +240,45 @@ def main():
     txt = send(ser, "IRHW OFF", 0.3)
     check("IRHW OFF", "OK IRHW OFF" in txt, txt.strip().replace("\r", " | "))
 
+    # 13) IR 动作序列引擎 (按钮 1/3/7/9 各一套 ~15s 循环, 5 键/摇杆停止)
+    send(ser, "RESET", 0.6); drain(ser, 0.3)
+    # 13.1 SEQ 1 启动
+    txt = send(ser, "SEQ 1", 0.3)
+    check("SEQ 1 启动", "OK IRSEQ 1 start" in txt, txt.strip().replace("\r", " | "))
+    txt = send(ser, "SEQ ?", 0.3)
+    check("SEQ ? -> running 1", "running 1" in txt, txt.strip().replace("\r", " | "))
+    # 13.2 运行中切换另一套 (SEQ 3) -> 从头执行
+    time.sleep(1.4)
+    txt = send(ser, "SEQ 3", 0.3)
+    check("SEQ 3 (运行中切换) -> 重启", "OK IRSEQ 3 start" in txt, txt.strip().replace("\r", " | "))
+    txt = send(ser, "SEQ ?", 0.3)
+    check("SEQ ? -> running 3 (已切换)", "running 3" in txt, txt.strip().replace("\r", " | "))
+    # 13.3 IR 硬件码触发同一套 (按钮1 0xC13E01FE)
+    send(ser, "SEQ STOP", 0.3); drain(ser, 0.3)
+    txt = send(ser, "IR C13E01FE", 0.3)
+    check("IR C13E01FE (按钮1) -> SEQ 1 启动", "OK IRSEQ 1 start" in txt, txt.strip().replace("\r", " | "))
+    txt = send(ser, "SEQ ?", 0.3)
+    check("IR 按钮1 后 running 1", "running 1" in txt, txt.strip().replace("\r", " | "))
+    # 13.4 IR 按钮5 (0xC53A05FA) 停止循环
+    txt = send(ser, "IR C53A05FA", 0.3)
+    check("IR C53A05FA (按钮5) -> 停止", "OK IRSEQ 1 stop" in txt, txt.strip().replace("\r", " | "))
+    txt = send(ser, "SEQ ?", 0.3)
+    check("IR 按钮5 后 idle", "idle" in txt, txt.strip().replace("\r", " | "))
+    # 13.5 摇杆指令(JOY)停止循环 (req 3)
+    txt = send(ser, "SEQ 7", 0.3)
+    check("SEQ 7 启动", "OK IRSEQ 7 start" in txt, txt.strip().replace("\r", " | "))
+    txt = send(ser, "JOY 900 100 900 900", 0.3)
+    check("JOY 指令 -> 停止循环", "OK IRSEQ 7 stop" in txt, txt.strip().replace("\r", " | "))
+    txt = send(ser, "SEQ ?", 0.3)
+    check("JOY 停止后 idle", "idle" in txt, txt.strip().replace("\r", " | "))
+    # 13.6 非法 SEQ 参数
+    txt = send(ser, "SEQ 2", 0.3)
+    check("SEQ 2 -> 非法", "ERR SEQ" in txt, txt.strip().replace("\r", " | "))
+    # 13.7 未知 IR 码 (按钮1 不在, 但序列码组外) 不影响 idle
+    send(ser, "SEQ STOP", 0.3); drain(ser, 0.3)
+
     # 收尾复位
+    send(ser, "SEQ STOP", 0.3)
     send(ser, "RESET", 0.6)
     ser.close()
 

@@ -2,6 +2,7 @@
 #include "arm_control.h"
 #include "core/joystick.h"
 #include "core/ir_ctrl.h"
+#include "core/ir_seq.h"
 #include "bsp/uart.h"
 #include "bsp/servo.h"
 #include "bsp/adc.h"
@@ -27,6 +28,9 @@
    (manual test) AND as real hardware: joystick_scan() reads ADC A0..A3,
    ir_ctrl_poll() decodes NEC on PD2 -- both mirror the original Arduino
    handleJoystickControl()/IR recv logic (thresholds & button map identical).
+   IR buttons 1/3/7/9 start ~15 s action sets (5 s mid-pause, loop); button 5
+   or any JOY command stops the loop; another 1/3/7/9 switches the set. The
+   SEQ command drives the same sets over serial for testing.
    JOYHW/IRHW toggle the hardware paths; ADC prints raw axis values.
    All literals are PSTR()'d so avr-gcc keeps them in flash, not RAM.        */
 
@@ -117,7 +121,10 @@ static void send_help(void) {
     uart_puts(PSTR("  AUTO <id>                 self-sweep between limits\r\n"));
     uart_puts(PSTR("  JOY <r9> <r8> <r6> <r7>    joystick frame (raw 0..1023, +/-1 each)\r\n"));
     uart_puts(PSTR("  JOY <id> <raw>             single-axis joystick nudge\r\n"));
-    uart_puts(PSTR("  IR <hex>                   8-button remote (e.g. F708FF00)\r\n"));
+    uart_puts(PSTR("  IR <hex>                   8-btn remote (F708FF00..) + seq 1/3/7/9 + stop 5\r\n"));
+    uart_puts(PSTR("  SEQ 1|3|7|9                run action set (switch if another runs)\r\n"));
+    uart_puts(PSTR("  SEQ STOP                   stop running action set (same as IR 5)\r\n"));
+    uart_puts(PSTR("  SEQ ?                      report running set / idle\r\n"));
     uart_puts(PSTR("  JOYHW ON|OFF               hardware joystick scan enable\r\n"));
     uart_puts(PSTR("  IRHW ON|OFF                hardware IR receiver enable\r\n"));
     uart_puts(PSTR("  ADC                        print A0..A3 raw values (debug)\r\n"));
@@ -184,6 +191,7 @@ static void process_line(char *buf) {
             if (!ok1 || !arm_id_valid(id)) { uart_printf(PSTR("ERR BAD_ID S%s\r\n"), tok[1]); return; }
             if (!ok2) { uart_printf(PSTR("ERR RAW %s\r\n"), tok[2]); return; }
             int8_t d = joystick_delta(id, raw);
+            ir_seq_stop();   /* a joystick command ends the auto-loop (req 3) */
             arm_nudge(id, d);
             uart_printf(PSTR("OK JOY S%u=%u\r\n"), id, arm_get_angle(id));
             return;
@@ -202,6 +210,7 @@ static void process_line(char *buf) {
                 int8_t d = joystick_delta(id, raw[i]);
                 if (d) arm_nudge(id, d);
             }
+            ir_seq_stop();   /* a joystick command ends the auto-loop (req 3) */
             uart_printf(PSTR("OK JOY S6=%u S7=%u S8=%u S9=%u\r\n"),
                 arm_get_angle(6), arm_get_angle(7),
                 arm_get_angle(8), arm_get_angle(9));
@@ -211,30 +220,41 @@ static void process_line(char *buf) {
         return;
     }
 
-    /* ---- IR: emulate original Arduino IR remote (8 buttons) ---------------- */
+    /* ---- IR: emulate original Arduino IR remote (8 buttons + seq 1/3/7/9 + stop 5)
+       Routed through ir_ctrl_dispatch() so the serial command behaves exactly
+       like a real NEC frame from the hardware receiver. ----------------------- */
     if (strcmp(verb, "IR") == 0) {
         if (n < 2) { uart_puts(PSTR("ERR SYNTAX\r\n")); return; }
         uint32_t code;
         if (!parse_hex32(tok[1], &code)) { uart_printf(PSTR("ERR IR HEX %s\r\n"), tok[1]); return; }
-        /* {code, button name, target servo id, step} -- from original sketch */
-        static const struct { uint32_t code; char name[12]; uint8_t id; int8_t d; } TAB[8] PROGMEM = {
-            {0xF708FF00u, "左",   9, +2}, {0xA55AFF00u, "右",   9, -2},
-            {0xB946FF00u, "数字2", 8, +2}, {0xEA15FF00u, "数字8", 8, -2},
-            {0xE718FF00u, "上",   7, +2}, {0xAD52FF00u, "下",   7, -2},
-            {0xBB44FF00u, "数字4", 6, +2}, {0xBC43FF00u, "数字6", 6, -2},
-        };
-        for (uint8_t i = 0; i < 8; i++) {
-            if (pgm_read_dword(&TAB[i].code) == code) {
-                uint8_t  id = pgm_read_byte(&TAB[i].id);
-                int8_t   d  = (int8_t)pgm_read_byte(&TAB[i].d);
-                arm_nudge(id, d);
-                uart_puts(PSTR("OK IR "));
-                uart_puts((PGM_P)&TAB[i].name[0]);
-                uart_printf(PSTR(" S%u=%u\r\n"), (unsigned)id, (unsigned)arm_get_angle(id));
-                return;
-            }
+        if (!ir_ctrl_dispatch(code))
+            uart_printf(PSTR("ERR IR UNKNOWN %08lX\r\n"), code);
+        return;
+    }
+
+    /* ---- SEQ: run / stop the IR action sets without a remote (testing) -----
+       SEQ 1|3|7|9  start that button's sequence (switch task if another runs)
+       SEQ STOP      end the running loop (same as IR button 5)
+       SEQ ?         report current running set                              */
+    if (strcmp(verb, "SEQ") == 0) {
+        if (n < 2) { uart_puts(PSTR("ERR SYNTAX\r\n")); return; }
+        if (strcasecmp(tok[1], "STOP") == 0) {
+            ir_seq_stop();
+            return;
         }
-        uart_printf(PSTR("ERR IR UNKNOWN %08lX\r\n"), code);
+        if (strcasecmp(tok[1], "?") == 0) {
+            if (ir_seq_is_running())
+                uart_printf(PSTR("SEQ running %u\r\n"), (unsigned)ir_seq_which());
+            else
+                uart_puts(PSTR("SEQ idle\r\n"));
+            return;
+        }
+        bool ok; uint8_t which = parse_u8(tok[1], &ok);
+        if (!ok || (which != 1 && which != 3 && which != 7 && which != 9)) {
+            uart_puts(PSTR("ERR SEQ (1|3|7|9|STOP|?)\r\n"));
+            return;
+        }
+        ir_seq_trigger(which);
         return;
     }
 

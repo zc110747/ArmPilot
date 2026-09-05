@@ -1,8 +1,8 @@
 @echo off
 setlocal EnableExtensions
 REM =====================================================================
-REM  meArm 下载/烧录脚本 -> Arduino Uno (ATmega328P) @ COM4, 115200 (bootloader)
-REM  用法: upload.bat [COM端口]   例: upload.bat COM3
+REM  meArm flash/upload script -> Arduino Uno (ATmega328P) @ COM4, 115200 (bootloader)
+REM  Usage: upload.bat [COM port]   e.g. upload.bat COM3
 REM =====================================================================
 
 set "AGENT_TOOLS=D:\tools\agent-tools"
@@ -10,12 +10,12 @@ set "PKGS=%AGENT_TOOLS%\platformio-core\packages"
 set "PROJ=%~dp0.."
 set "HEX=%PROJ%\.build\firmware.hex"
 
-if not exist "%HEX%" ( echo [ERROR] 未找到 %HEX%，请先运行 build.bat & exit /b 1 )
+if not exist "%HEX%" ( echo [ERROR] %HEX% not found, run build.bat first & exit /b 1 )
 
 set "AVRDUDE_DIR="
 for /d %%d in ("%PKGS%\tool-avrdude*") do set "AVRDUDE_DIR=%%d"
-if not defined AVRDUDE_DIR ( echo [ERROR] 未找到 tool-avrdude & exit /b 1 )
-REM tool-avrdude 包根目录直接含 avrdude.exe / avrdude.conf (无 bin 子目录)
+if not defined AVRDUDE_DIR ( echo [ERROR] tool-avrdude not found & exit /b 1 )
+REM tool-avrdude package root holds avrdude.exe / avrdude.conf directly (no bin subdir)
 set "AVRDUDE=%AVRDUDE_DIR%\avrdude.exe"
 set "AVRDUDE_CONF=%AVRDUDE_DIR%\avrdude.conf"
 

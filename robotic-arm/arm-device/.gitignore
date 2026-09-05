@@ -1,0 +1,8 @@
+.build/
+.pio/
+.vscode/
+*.o
+*.elf
+*.hex
+*.map
+*.eep

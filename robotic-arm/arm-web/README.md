@@ -6,13 +6,13 @@
 arm-device 指令文本再下发，保证与固件行为完全一致。
 
 ```
- arm-device (串口 COM4 / 9600 8N1)
+ arm-device (串口 COM4 / 115200 8N1)
     ▲      ▼
-[ Serial 管理 + 自动重连 ]            ← internal/serial
+[ Serial 管理 + 自动重连 + ACK 门控 ]   ← internal/serial
     ▲      ▼
 [   Hub 广播总线（设备回显 → 多端）  ]  ← internal/hub
     ▲                    ▲
-[ TCP 局域网透传 ]     [ Web + WebSocket 3D 摇杆 ]   ← internal/tcp  internal/web
+[ TCP 局域网透传 ]     [ Web + WebSocket 双 3D 摇杆 ]  ← internal/tcp  internal/web
 ```
 
 ## 功能
@@ -20,15 +20,42 @@ arm-device 指令文本再下发，保证与固件行为完全一致。
 1. **串口层（internal/serial）**
    - 纯标准库实现：Windows 走 `syscall` 直连 `kernel32`，Linux/macOS 走 `stty` + 文件。
    - 串口未连接 / 意外断开时**自动重连**（间隔可配）。
+   - **命令-应答（ACK）门控**：同一时刻仅 1 条指令在途；摇杆走 latest-wins 通道、
+     离散指令走 FIFO 通道（详见下文）。
+   - **连接静默窗口 + 暖机包**：连接建立后等 `connect_settle_ms`（默认 2500ms）让
+     Uno bootloader 交权，结束后先发一个 `\n` 暖机包（被链路吞掉的首包），再下发
+     真实指令——解决"开机指令无应答 / 首条指令被吞"两大 Uno 串口陷阱。
+   - **高性能读模式**：Windows 串口用「立即返回」读超时（MAXDWORD 三元组）+ 手动
+     行缓冲（不用 bufio，杜绝空闲 20s 断连），命令-应答门控单条周期 ~13ms，
+     WebSocket 端到端延迟 ~10ms（旧实现 218~932ms，根因是 Windows 非重叠 I/O
+     读写互斥，见下文"性能"一节）。
+   - `log_level: "debug"` 时打印每条 TX / RX 行及时间戳，便于定位链路时序问题。
    - 线程安全：`WriteLine` 可被 Web / TCP 多 goroutine 并发调用。
 2. **TCP 局域网转发（internal/tcp）**：其它设备（或后期远程客户端）以 raw TCP 连接
    本端口，直接下发 arm-device 指令（换行结束），服务器原样转发串口；设备回显原样
    写回。为**远程控制预留统一接口**（见下文）。
 3. **Web 本机控制（internal/web + Three.js）**
-   - **摇杆模式**：3D 渲染的摇杆（圆形底座 + 立柱 + 摇杆球），拖拽产生归一化
-     (x,y)∈[-1,1]，经 WebSocket 下发；形状与逻辑同硬件摇杆，松手回中即停。
-   - 网页右侧有一个随舵机角度实时摆动的 3D 机械臂，作为姿态反馈。
+   - **双 3D 摇杆（遥控形式）**：左摇杆 X→底座(S9)、Y→左舵(S8)；右摇杆 X→夹取(S6)、
+     Y→右舵(S7)。拖拽产生归一化 (x,y)∈[-1,1]，经 WebSocket 下发；松手回中即停，
+     **按住偏转持续步进**（30ms 心跳，与硬件摇杆扫描节奏一致）。
+   - **动作死区**：偏移 ≤`deadband_deg`（默认 5°，视觉倾角满偏约 31.5°）的轴不下发；
+     四轴全部在死区内时整帧 JOY 都不发（串口零流量）；一旦超过立即进入有效步进区间。
+   - **舵机角度面板**：S6~S9 实时角度，从所有含角度的应答（STATUS / SET / JOY）
+     **合并更新**（单轴应答不清零其它轴）；STATUS 仅在点击时下发查询（不做周期轮询）。
+   - **串口回显终端**：**30 行滑动窗口**，始终自动滚动显示最新一行。
    - **建模模式**：已在导航栏占位（disabled），待摇杆模式完成后继续规划开发。
+
+## 近期更新（2026-09-06）
+
+| 更新 | 说明 |
+| --- | --- |
+| 串口性能根治 | Windows 非重叠 I/O 读写互斥导致每条命令 218~560ms、丢帧 75%；改「立即返回」读模式后门控周期 **~13ms**、WS 端到端 **10ms**、受控流 40/40 |
+| 空闲断连修复 | 弃用 bufio 手动行缓冲，修复空闲 20s 必断连（bufio 对 `(0,nil)` 空读抛 `ErrNoProgress`）导致舵机莫名归位的问题 |
+| 双摇杆方向/死区 | 方向统一为"推杆=角度增大"（`invert_*` 可配）；动作死区默认 **5°**，四轴全居中零流量 |
+| 按住持续步进 | 拖拽中 30ms 心跳重发当前位，对齐硬件摇杆"按住持续累加"语义；松手停+回中 |
+| 角度面板 | 点击 STATUS 查询 + 从 OK JOY/SET 应答合并刷新（不做周期轮询——会饿死摇杆流） |
+| 回显终端 | 30 行滑动窗口 + 始终显示最新 |
+| 舵机脉宽标定(固件) | `angle_to_ticks` 对齐 Arduino Servo.h 默认 544–2400µs，修复"实际角度只有一半" |
 
 ## 配置（YAML，全部可改）
 
@@ -37,12 +64,14 @@ arm-device 指令文本再下发，保证与固件行为完全一致。
 ```yaml
 serial:
   port: "COM4"        # Windows: COMx ；Linux/macOS: /dev/ttyUSB0
-  baud: 9600
+  baud: 115200        # 与 arm-device 固件一致（U2X 模式）
   databits: 8
   stopbits: 1
   parity: "N"         # N / E / O
   reconnect_sec: 3    # 断线重连间隔(秒)
-  min_interval_ms: 10 # 两条指令下发的最小间隔(毫秒)，防止高频冲刷设备
+  connect_settle_ms: 2500  # 连接后静默窗口：等 Uno bootloader 交权(~2.5s)，窗口内指令会被丢弃
+  min_interval_ms: 0  # ACK 门控已防冲刷，默认不额外节流
+  ack_timeout_ms: 800 # 应答超时：超时判通讯失败（不自动重发）
 web:
   enabled: true
   host: "0.0.0.0"     # 绑定 IP；0.0.0.0 = 本机所有网卡（含局域网）
@@ -50,9 +79,9 @@ web:
   ws_path: "/ws"
 tcp:
   enabled: true
-  host: "0.0.0.0"     # 绑定 IP；0.0.0.0 = 局域网可访问
+  host: "0.0.0.0"     # 局域网可访问
   port: 9001
-joystick:             # 网页双摇杆 -> 舵机映射（方向反了就把对应 invert 改回 false）
+joystick:             # 网页双摇杆 -> 舵机映射（方向语义：推杆 = 角度增大）
   lx_servo: 9         # 左摇杆 X -> 底座(S9)
   ly_servo: 8         # 左摇杆 Y -> 左舵(S8)
   rx_servo: 6         # 右摇杆 X -> 夹取(S6)
@@ -62,7 +91,7 @@ joystick:             # 网页双摇杆 -> 舵机映射（方向反了就把对�
   invert_rx: true
   invert_ry: true
   deadband_deg: 5     # 动作死区(度)：偏移<=该值不下发；四轴全居中时整帧跳过(串口零流量)
-log_level: "info"
+log_level: "info"     # debug 可看每条 TX/RX 时序
 ```
 
 > 串口、IP 地址、端口均可在 YAML 中配置；修改后重启生效。
@@ -121,16 +150,21 @@ bash build.sh
 控制结束点 **“摇杆硬件开”**（`JOYHW ON`）恢复。若不关硬件摇杆，物理摇杆若不在中位
 会与网页指令互相“打架”。
 
-拖拽网页摇杆：左右 → 底座(S9)旋转，前后 → 左舵(S8)俯仰。**动作死区 5°**（视觉倾角，
-满偏约 31.5°）：偏移 ≤5° 的轴不下发；**四轴全部 ≤5° 时整帧 JOY 都不发**（串口零流量）；
-一旦超过 5° 立即进入有效步进区间（跨过固件 raw 200/800 阈值），偏移越大步进越快
-（2~10°/次），松手回中即停。**按住偏转持续步进**（30ms 心跳，与硬件摇杆扫描节奏
-一致），松手即停。死区可用 `joystick.deadband_deg` 调整。
+拖拽网页摇杆（双摇杆，遥控形式）：左摇杆 X→底座(S9)旋转、Y→左舵(S8)俯仰；
+右摇杆 X→夹取(S6)、Y→右舵(S7)。方向语义统一为**推杆方向 = 舵机角度增大**
+（个别轴与机构实际方向相反时改 `invert_*`，无需改代码）。
+
+**动作死区 5°**（视觉倾角，满偏约 31.5°）：偏移 ≤5° 的轴不下发；**四轴全部 ≤5°
+时整帧 JOY 都不发**（串口零流量）；一旦超过 5° 立即进入有效步进区间（跨过固件
+raw 200/800 阈值），偏移越大步进越快（2~10°/次）。**按住偏转持续步进**（30ms
+心跳，与硬件摇杆扫描节奏一致），松手即停。死区可用 `joystick.deadband_deg` 调整。
 
 右侧"舵机角度"面板显示 S6~S9 角度：**仅在点击 STATUS 按钮时下发查询**（不做周期
 轮询——周期轮询会与 JOY 抢命令-应答门控导致摇杆失效），并从所有含角度的应答
 （STATUS / SET / JOY）合并更新；拖拽摇杆期间每次 `OK JOY` 应答都携带四轴角度，
 角度面板会随动刷新。
+
+串口回显终端为 **30 行滑动窗口**，始终自动滚动到最新一行。
 
 ## 流量控制与命令-应答门控
 
@@ -143,7 +177,7 @@ bash build.sh
 2. **中间摇杆位置合并（latest-wins）**：拖拽过程中连续的摇杆位置只保留**最新值**，不排队连发；
    离散指令（`SET`/`RESET`/`STATUS` 等）按 FIFO 逐条下发（受应答限速，但序列不丢）。
    摇杆通道容量 1、离散通道容量 16，永不堆积。
-3. **串口下发节流**：每条指令之间保持 `min_interval_ms`（默认 10ms）最小间隔，避免冲刷设备。
+3. **串口下发节流**：每条指令之间保持 `min_interval_ms` 最小间隔（默认 0——ACK 门控已防冲刷）。
 4. **通讯失败可显示**：若下位机在 `ack_timeout_ms`（默认 800ms）内未应答，判定**通讯失败**，
    丢弃待发、不再自动重发（满足“不能再次下发”），并通过 `serial_status` 推送界面，顶栏状态点
    变琥珀色并显示“串口: 通讯失败”。
@@ -161,8 +195,12 @@ bash build.sh
 > 修复记录：`internal/serial/windows_serial.go` 的 `openPort` 曾因 `DataBits` 缺省为 0 导致
 > `SetCommState` 报“参数不正确”而打不开串口；现已在 `byteSize<5||>8` 时回退为 8 位。
 
-> 经验证：模拟 TCP 客户端以 ~1ms 间隔连发 25 条 `JOY`，因应答门控+最新值合并，最终只下发
-> 合并后的最新位置（中间指令不下发），未出现队列满。
+**串口性能（重要，Windows 特有）**：CH340 等适配卡在**非重叠 I/O** 下读写互斥——若读循环
+阻塞在 `ReadFile`（带总超时），并发的 `WriteFile` 必须等读返回，门控每条命令会被拖到
+数百毫秒且大量丢帧。现配置为「立即返回」读模式（`readIntervalTimeout=MAXDWORD`、
+`readTotalTimeoutMultiplier=MAXDWORD`、`readTotalTimeoutConstant=0`），`ReadFile` 立即带回
+缓冲现有字节（无数据返回 0 不报错，readLoop 视为"暂无数据"），空读时 sleep 2ms 节流。
+实测：门控单条周期 ~13ms、WS 端到端 ~10ms、50ms 节奏受控流 40/40 全部下发。
 
 **真实硬件集成测试**（`arm-device` 已烧录并接在 COM4 时可直接跑，验证 web 侧门控与真实固件联动）：
 
@@ -177,17 +215,21 @@ REAL_COM=COM4 go test ./internal/serial/ -run TestRealHardwareAck -v
 不跑浏览器也能验证“TCP 客户端 → 服务器 → 串口”链路：
 
 ```bat
-# 终端 1：启动服务器（debug 日志可见每条 TX 字节）
-arm-web.exe -c config.test.debug.yaml
+# 终端 1：启动服务器（需真机固件在 COM4；debug 日志可见每条 TX/RX 时序）
+arm-web.exe -c config.yaml
 
-# 终端 2：模拟局域网 TCP 设备下发指令
+# 终端 2：端到端仿真（WS 摇杆帧 / 死区零流量 / 角度解析 / TCP 转发全链路）
+node tools/e2e-sim.js
+
+# 或仅测 TCP 透传
 node tools/tcp-test.js 127.0.0.1 9001
 ```
 
-`tools/tcp-test.js` 会依次发送 `STATUS` / `JOY ...` / `S9=120` / `JOYHW OFF` / `RESET`，
-最后连发 25 条 `JOY` 做高频压测。服务器日志里可看到：
-- `[tcp] 透传指令 "..." -> 串口`（确认 TCP 收到的指令 = 写串口的内容）；
-- `log_level: debug` 时还能看到 `[serial] TX "..."`（确认字节已真正写向串口）。
+`tools/e2e-sim.js` 会连真实运行的 arm-web 服务，断言：死区内坐标零 `OK JOY` 流量、
+出死区恢复下发、`STATUS` 应答携带 angles、TCP 转发一致性。`tools/tcp-test.js` 依次发送
+`STATUS` / `JOY ...` / `S9=120` / `JOYHW OFF` / `RESET` 并连发 25 条 `JOY` 压测。
+
+固件侧全指令回归（pyserial）：`arm-device/tools/host_verify.py COM4 115200` → 期望 67/67 PASS。
 
 > 若本机 COM 为虚拟/无对端端口，`WriteFile` 会阻塞到 `writeTotalTimeoutConstant`
 > （默认 500ms）后失败并触发重连——这是 Windows 虚拟串口的无对端特性，真实
@@ -206,8 +248,9 @@ node tools/tcp-test.js 127.0.0.1 9001
 | 硬件开关 | `JOYHW ON|OFF` / `IRHW ON|OFF` |
 | 查询/复位 | `STATUS` / `?` / `RESET` / `ADC` / `HELP` |
 
-Web 摇杆拖拽时，服务器按 `internal/protocol` 把 (x,y) 映射为 `JOY <r9> <r8> <r6> <r7>`
-（X→底座9、Y→左舵8，其余轴保持 512 死区），与硬件摇杆阈值/逻辑完全一致。
+Web 双摇杆拖拽时，服务器按 `internal/protocol` 把左右摇杆坐标合并为
+`JOY <r9> <r8> <r6> <r7>`（底座9/左舵8/夹取6/右舵7；死区内轴保持 512），
+与硬件摇杆阈值/逻辑完全一致。
 
 ## 设计要点 / 预留接口
 
@@ -227,19 +270,20 @@ arm-web/
 ├── main.go                              # 装配：serial + hub + tcp + web
 ├── internal/
 │   ├── config/    # YAML 加载 + 默认值 + 校验
-│   ├── protocol/  # arm-device 指令语法校验 + 摇杆->JOY 映射（含单测）
-│   ├── serial/    # 串口（windows_serial.go / unix_serial.go + 自动重连）
+│   ├── protocol/  # arm-device 指令校验 + 双摇杆映射 + 死区门控（含单测）
+│   ├── serial/    # 串口（windows_serial.go / unix_serial.go + ACK 门控 + 自动重连）
 │   ├── hub/       # 广播总线
 │   ├── tcp/       # 局域网 TCP 透传
-│   └── web/       # HTTP 静态服务 + 标准库 WebSocket(ws.go)
-└── web/static/    # 前端：index.html + css + js(joystick3d/arm3d/wsclient/main)
+│   └── web/       # HTTP 静态服务 + 标准库 WebSocket(ws.go) + 角度解析/合并
+└── web/static/    # 前端：index.html + css + js(joystick3d/wsclient/main)
 ```
 
 ## 验证
 
 ```bat
 go vet ./...
-go test ./internal/protocol/    # 指令校验 + 摇杆映射单测
+go test ./...                  # 指令校验 + 双摇杆映射/死区 + ACK 门控单测
+node tools/e2e-sim.js          # 真机端到端仿真（需 arm-web 运行中 + 固件在 COM4）
 ```
 
 WebSocket 握手、ping→pong、指令校验回显均已通过本地自检。

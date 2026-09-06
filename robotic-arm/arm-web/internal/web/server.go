@@ -14,7 +14,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"time"
 
 	"arm-web/internal/config"
 	"arm-web/internal/hub"
@@ -77,8 +76,6 @@ func (s *Server) ListenAndServe() error {
 
 	addr := s.cfg.Addr()
 	log.Printf("[web] 本机控制页面已启动: http://%s%s  (WebSocket: %s)", addr, "/", wsPath)
-	// 周期 STATUS 轮询：保证网页角度显示常开且始终最新
-	go s.statusPoller()
 	return http.ListenAndServe(addr, mux)
 }
 
@@ -228,29 +225,6 @@ func (s *Server) wsWriter(c *wsClient, done chan struct{}) {
 				c.conn.WriteMessage(string(data))
 			}
 		}
-	}
-}
-
-// statusPollInterval STATUS 轮询周期。2Hz 足以让角度显示"实时"，
-// 且经 ACK 门控与 JOY 帧串行化，几乎不占用链路带宽。
-const statusPollInterval = 500 * time.Millisecond
-
-// statusPoller 周期下发 STATUS，让网页舵机角度常显且始终最新。
-// 仅在有 WS 客户端观看且串口在线时发送，无人观看零串口流量。
-func (s *Server) statusPoller() {
-	t := time.NewTicker(statusPollInterval)
-	defer t.Stop()
-	for range t.C {
-		s.mu.Lock()
-		n := len(s.clients)
-		s.mu.Unlock()
-		if n == 0 {
-			continue
-		}
-		if connected, _, _, _ := s.serial.Status(); !connected {
-			continue
-		}
-		_ = s.serial.WriteLine("STATUS") // 队列满时静默跳过本轮
 	}
 }
 

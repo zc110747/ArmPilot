@@ -19,6 +19,8 @@ var validIDs = map[int]bool{6: true, 7: true, 8: true, 9: true}
 //   - 左摇杆 X -> SERVO_BASE(9)，Y -> SERVO_LEFT(8)
 //   - 右摇杆 X -> SERVO_GRIP(6)，Y -> SERVO_RIGHT(7)
 // 每个轴可独立反转方向（invert_*），无需改代码即可适配实际安装。
+// DeadFrac 为动作死区占满偏行程的比例（由 config deadband_deg 换算，见
+// DeadFracFromDeg）：|v| <= DeadFrac 的轴视为居中、不产生任何下发。
 type AxisMap struct {
 	LXServo int // 左摇杆 X 轴 -> 舵机 id（默认 9=底座）
 	LYServo int // 左摇杆 Y 轴 -> 舵机 id（默认 8=左舵）
@@ -28,6 +30,7 @@ type AxisMap struct {
 	InvLY   bool
 	InvRX   bool
 	InvRY   bool
+	DeadFrac float64
 }
 
 // DefaultAxisMap 返回推荐映射（遥控形式：左=底座/左舵，右=夹取/右舵）。
@@ -35,6 +38,7 @@ func DefaultAxisMap() AxisMap {
 	return AxisMap{
 		LXServo: 9, LYServo: 8, RXServo: 6, RYServo: 7,
 		InvLX: false, InvLY: false, InvRX: false, InvRY: false,
+		DeadFrac: DefaultDeadFrac(),
 	}
 }
 
@@ -200,63 +204,95 @@ func isHex32(s string) bool {
 	return true
 }
 
-// axisRaw 把归一化坐标 v∈[-1,1] 转换为设备 raw 0..1023（512=中位/死区），
-// inv=true 时左右镜像（适配实际安装方向）。
-func axisRaw(v float64, inv bool) int {
-	r := clampRaw(512 + int(v*512))
-	if inv {
-		r = 1023 - r
-	}
-	return r
-}
-
-// 网页摇杆响应曲线参数：固件触发阈值为 raw<200 / >800（偏离中位约 56%），
-// 网页摇杆若线性映射，用户须把球拖过一半行程才有反应，体感"迟钝/太慢"。
-// 曲线把有效偏移放大：|v|<=joyDead 视为居中（回中稳停不漂移），
-// |v|>=joyFull 即达满偏（raw 0/1023，触发固件最大步长），中间线性过渡。
+// ---- 网页摇杆响应整形（10° 动作死区 + 命令区间映射）----
+//
+// 网页摇杆视觉倾角满偏 = maxTilt 0.55 rad ≈ 31.5°（web/static/js/joystick3d.js）。
+// 需求：偏移 ≤ 10°（约 32% 行程）的轴一律视为居中、不下发；超过 10° 后直接映射
+// 进"能让下位机动作"的 raw 区间——固件摇杆死区为 raw 200..800（偏离中位 > 60.9%
+// 才触发步进），故死区后最小输出取满偏的 65%，保证一出手即为有效步进（约 2°/次），
+// 满偏行程对应 raw 0/1023（固件最大步长 10°/次）。
 const (
-	joyDead = 0.05
-	joyFull = 0.50
+	// JoyMaxTiltDeg 网页摇杆视觉倾角满偏（度），与 joystick3d.js maxTilt 对应。
+	JoyMaxTiltDeg = 31.5
+	// DefaultDeadbandDeg 默认动作死区（度）。
+	DefaultDeadbandDeg = 10.0
+	// joyCmdMin 死区后的最小输出（占半程 512 的比例）。必须 > 0.6094
+	// （= 312/512，即固件 raw 200/800 阈值），否则发出的 raw 仍在固件死区内。
+	joyCmdMin = 0.65
 )
 
-// joyCurve 把网页摇杆归一化偏移 v∈[-1,1] 重映射为等效"物理摇杆"偏移。
-// 输出仍 ∈[-1,1]，再经 axisRaw 转 raw。小偏移被放大，使动作从约 30% 行程
-// 即开始、50% 行程即达最大步长，贴近实体遥控摇杆的手感。
-func joyCurve(v float64) float64 {
+// DeadFracFromDeg 把死区（度，视觉倾角）换算为归一化行程比例。
+// deg<=0 表示禁用死区（返回 0）；上限 0.9 防止把摇杆配成"永远不动"。
+func DeadFracFromDeg(deg float64) float64 {
+	if deg <= 0 {
+		return 0
+	}
+	f := deg / JoyMaxTiltDeg
+	if f > 0.9 {
+		f = 0.9
+	}
+	return f
+}
+
+// DefaultDeadFrac 默认死区比例（对应 10°）。
+func DefaultDeadFrac() float64 { return DeadFracFromDeg(DefaultDeadbandDeg) }
+
+// axisRaw 把归一化坐标 v∈[-1,1] 转换为设备 raw 0..1023（512=中位）：
+//   - |v| <= deadFrac（动作死区）：输出 512（固件死区，不动作）；
+//   - |v| >  deadFrac：线性映射到满偏的 65%..100%（raw≈179..0 / 845..1023），
+//     一旦超出死区即为有效步进，偏移越大步长越大。
+//
+// inv=true 时左右镜像（适配实际安装方向）。
+func axisRaw(v float64, inv bool, deadFrac float64) int {
 	a := v
-	neg := false
 	if a < 0 {
-		neg = true
 		a = -a
 	}
 	if a > 1 {
 		a = 1
 	}
-	if a <= joyDead {
-		return 0
+	var out float64
+	if a > deadFrac {
+		u := (a - deadFrac) / (1 - deadFrac)
+		out = joyCmdMin + u*(1-joyCmdMin)
+		if v < 0 {
+			out = -out
+		}
 	}
-	out := (a - joyDead) / (joyFull - joyDead)
-	if out > 1 {
-		out = 1
+	r := clampRaw(512 + int(out*512))
+	if inv && out != 0 { // 居中值 512 不参与镜像，保证死区语义精确
+		r = 1023 - r
 	}
-	if neg {
-		return -out
-	}
-	return out
+	return r
 }
 
 // JoystickToJOYDual 把左右两个 3D 摇杆的归一化坐标 (∈[-1,1]) 合并为一条设备
 // JOY 四轴帧：JOY <raw9> <raw8> <raw6> <raw7>（顺序与固件一致，ids={9,8,6,7}）。
 //   - 左摇杆 X -> 底座(9)，Y -> 左舵(8)
 //   - 右摇杆 X -> 夹取(6)，Y -> 右舵(7)
-// 每轴先过响应曲线（joyCurve）再转 raw：中位(0) -> raw 512 = 设备死区，
-// 松手回中即停；约 30% 行程起动作、50% 行程即最大步长。
+// 每轴先过动作死区（m.DeadFrac，默认 10°≈0.32 行程）再转 raw：
+// 死区内 -> raw 512（固件不动作）；超出 -> 立即进入有效步进区间。
+// 配合 JoystickHasCommand，四轴全居中时调用方可整帧跳过下发（串口零流量）。
 func JoystickToJOYDual(lx, ly, rx, ry float64, m AxisMap) string {
-	r9 := axisRaw(joyCurve(lx), m.InvLX) // 底座
-	r8 := axisRaw(joyCurve(ly), m.InvLY) // 左舵
-	r6 := axisRaw(joyCurve(rx), m.InvRX) // 夹取
-	r7 := axisRaw(joyCurve(ry), m.InvRY) // 右舵
+	r9 := axisRaw(lx, m.InvLX, m.DeadFrac) // 底座
+	r8 := axisRaw(ly, m.InvLY, m.DeadFrac) // 左舵
+	r6 := axisRaw(rx, m.InvRX, m.DeadFrac) // 夹取
+	r7 := axisRaw(ry, m.InvRY, m.DeadFrac) // 右舵
 	return fmt.Sprintf("JOY %d %d %d %d", r9, r8, r6, r7)
+}
+
+// JoystickHasCommand 报告是否存在超出动作死区的轴。
+// 返回 false 时（四轴全居中）调用方应跳过下发——不下发任何指令。
+func JoystickHasCommand(lx, ly, rx, ry float64, m AxisMap) bool {
+	for _, v := range [4]float64{lx, ly, rx, ry} {
+		if v < 0 {
+			v = -v
+		}
+		if v > m.DeadFrac {
+			return true
+		}
+	}
+	return false
 }
 
 // JoystickToJOY 兼容旧的单摇杆调用：仅驱动左摇杆，右摇杆保持中位。

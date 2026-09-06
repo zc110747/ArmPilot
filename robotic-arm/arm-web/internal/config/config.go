@@ -22,10 +22,14 @@ type JoystickConfig struct {
 	LYServo int  `yaml:"ly_servo"` // 左摇杆 Y 轴 -> 舵机 id（默认 8=左舵）
 	RXServo int  `yaml:"rx_servo"` // 右摇杆 X 轴 -> 舵机 id（默认 6=夹取）
 	RYServo int  `yaml:"ry_servo"` // 右摇杆 Y 轴 -> 舵机 id（默认 7=右舵）
-	InvLX   bool `yaml:"invert_lx"`
-	InvLY   bool `yaml:"invert_ly"`
-	InvRX   bool `yaml:"invert_rx"`
-	InvRY   bool `yaml:"invert_ry"`
+	InvLX   bool   `yaml:"invert_lx"`
+	InvLY   bool   `yaml:"invert_ly"`
+	InvRX   bool   `yaml:"invert_rx"`
+	InvRY   bool   `yaml:"invert_ry"`
+	// DeadbandDeg 摇杆动作死区（视觉倾角，度）。偏移 ≤ 该值的轴视为居中、
+	// 不产生任何下发；四轴全部在死区内时整帧 JOY 都不下发（串口零流量）。
+	// 网页摇杆满偏 ≈ 31.5°，默认 10°（约 32% 行程）。
+	DeadbandDeg float64 `yaml:"deadband_deg"`
 }
 
 type SerialConfig struct {

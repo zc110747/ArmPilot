@@ -1,6 +1,10 @@
 package protocol
 
-import "testing"
+import (
+	"strconv"
+	"strings"
+	"testing"
+)
 
 func TestValidate(t *testing.T) {
 	cases := []struct {
@@ -69,44 +73,81 @@ func TestJoystickToJOY(t *testing.T) {
 	}
 }
 
-func TestJoyCurve(t *testing.T) {
-	// 死区内 -> 居中
-	if got := joyCurve(0); got != 0 {
-		t.Errorf("center: %v", got)
+func TestDeadFracFromDeg(t *testing.T) {
+	if got := DeadFracFromDeg(0); got != 0 {
+		t.Errorf("0 deg should disable: %v", got)
 	}
-	if got := joyCurve(0.05); got != 0 {
-		t.Errorf("dead edge: %v", got)
+	if got := DeadFracFromDeg(-3); got != 0 {
+		t.Errorf("negative should disable: %v", got)
 	}
-	// 满偏及以上 -> ±1
-	if got := joyCurve(0.5); got != 1 {
-		t.Errorf("full: %v", got)
+	if got := DeadFracFromDeg(10); got < 0.31 || got > 0.33 {
+		t.Errorf("10 deg of 31.5 deg full tilt: %v", got)
 	}
-	if got := joyCurve(1); got != 1 {
-		t.Errorf("max: %v", got)
-	}
-	if got := joyCurve(-0.8); got != -1 {
-		t.Errorf("neg full: %v", got)
-	}
-	// 单调放大：0.3 行程应产生明显大于线性映射的等效偏移
-	mid := joyCurve(0.3)
-	if mid <= 0.3 {
-		t.Errorf("curve should amplify: %v", mid)
-	}
-	// 反对称性
-	if joyCurve(-0.3) != -mid {
-		t.Errorf("odd symmetry broken: %v vs %v", joyCurve(-0.3), mid)
+	if got := DeadFracFromDeg(100); got != 0.9 {
+		t.Errorf("clamped to 0.9: %v", got)
 	}
 }
 
-func TestJoystickToJOYDualCurve(t *testing.T) {
-	m := DefaultAxisMap()
-	// 曲线下 0.5 行程即满偏 raw=1023（线性映射时只有 768，够不到 800 阈值）
-	if got := JoystickToJOY(0.5, 0, m); got != "JOY 1023 512 512 512" {
-		t.Errorf("curve mid travel: %q", got)
+// joyRawOf 从 "JOY a b c d" 中取第 idx 个 raw。
+func joyRawOf(t *testing.T, cmd string, idx int) int {
+	t.Helper()
+	fields := strings.Fields(cmd)
+	if len(fields) != 5 {
+		t.Fatalf("bad JOY cmd: %q", cmd)
 	}
-	// invert 后推 + 方向应对应固件 +步长侧（raw<200）
-	mi := AxisMap{LXServo: 9, LYServo: 8, RXServo: 6, RYServo: 7, InvLX: true, InvRX: true, InvRY: true}
-	if got := JoystickToJOYDual(0.8, 0.8, 0.8, 0.8, mi); got != "JOY 0 1023 0 0" {
-		t.Errorf("inverted dual: %q", got)
+	v, err := strconv.Atoi(fields[1+idx])
+	if err != nil {
+		t.Fatalf("bad raw in %q: %v", cmd, err)
+	}
+	return v
+}
+
+func TestDeadband(t *testing.T) {
+	m := DefaultAxisMap() // DeadFrac = 10°/31.5° ≈ 0.317
+
+	// 死区内（≤10° 视觉倾角，≈32% 行程）-> raw 512（固件不动作）
+	if got := JoystickToJOY(0.3, -0.2, m); got != "JOY 512 512 512 512" {
+		t.Errorf("inside deadband should be centered: %q", got)
+	}
+	// 四轴全居中 -> 无命令，调用方应整帧跳过下发
+	if JoystickHasCommand(0.3, 0.2, -0.1, 0, m) {
+		t.Errorf("all axes inside deadband: expect no command")
+	}
+	// 任一轴超出死区 -> 有命令
+	if !JoystickHasCommand(0.3, 0.2, -0.1, 0.4, m) {
+		t.Errorf("axis beyond deadband: expect command")
+	}
+
+	// 刚出死区即进入固件命令区间：raw>800（正向）
+	if r := joyRawOf(t, JoystickToJOY(0.35, 0, m), 0); r <= 800 {
+		t.Errorf("just beyond deadband should command (raw>800): %d", r)
+	}
+	// 负向对称：raw<200
+	if r := joyRawOf(t, JoystickToJOY(-0.35, 0, m), 0); r >= 200 {
+		t.Errorf("just beyond deadband (neg) should command (raw<200): %d", r)
+	}
+	// 满偏 -> raw 1023 / 0（固件最大步长）
+	if got := JoystickToJOY(1, -1, m); got != "JOY 1023 0 512 512" {
+		t.Errorf("full travel: %q", got)
+	}
+	// 行程越大步长越大（单调）
+	r35 := joyRawOf(t, JoystickToJOY(0.35, 0, m), 0)
+	r80 := joyRawOf(t, JoystickToJOY(0.8, 0, m), 0)
+	if !(r35 > 800 && r80 > r35 && r80 < 1023) {
+		t.Errorf("monotonic response: at0.35=%d at0.8=%d", r35, r80)
+	}
+}
+
+func TestDeadbandInverted(t *testing.T) {
+	// 与 config.yaml 默认一致的镜像：9/6/7 轴 invert
+	mi := AxisMap{LXServo: 9, LYServo: 8, RXServo: 6, RYServo: 7,
+		InvLX: true, InvRX: true, InvRY: true, DeadFrac: DefaultDeadFrac()}
+	// 推 + 满偏：invert 后 raw=0，对应固件 + 步长侧
+	if got := JoystickToJOYDual(1, 1, 1, 1, mi); got != "JOY 0 1023 0 0" {
+		t.Errorf("inverted full dual: %q", got)
+	}
+	// 死区内：invert 不影响居中值 512
+	if got := JoystickToJOYDual(0.2, -0.2, 0.3, 0.1, mi); got != "JOY 512 512 512 512" {
+		t.Errorf("inverted inside deadband: %q", got)
 	}
 }

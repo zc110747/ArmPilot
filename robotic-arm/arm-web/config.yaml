@@ -50,3 +50,7 @@ joystick:
   invert_ly: false
   invert_rx: true
   invert_ry: true
+  # 摇杆动作死区（视觉倾角，度）：偏移 <= 该值的轴视为居中、不下发；
+  # 四轴全部在死区内时整帧 JOY 都不下发（串口零流量）。
+  # 网页摇杆满偏约 31.5°，默认 10°（约 32% 行程），超过后立即进入有效步进区间。
+  deadband_deg: 10

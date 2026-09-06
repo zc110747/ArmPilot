@@ -50,7 +50,7 @@
   // 串口文本（服务器启动时打印，浏览器端仅展示连接状态；具体由回显体现）
   ArmWS.on("serial", function (data) {
     var line = typeof data === "string" ? data : data.line;
-    appendLine(line);
+    if (line != null) appendLine(line); // 接入快照消息只有 angles、无 line
     if (data && data.angles) updateAngles(data.angles);
   });
 

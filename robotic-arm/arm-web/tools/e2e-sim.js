@@ -18,13 +18,25 @@ const WS_URL = process.argv[2] || "ws://127.0.0.1:8080/ws";
 const TCP_HOST = process.argv[3] || "127.0.0.1";
 const TCP_PORT = parseInt(process.argv[4] || "9001", 10);
 
-// 与 internal/protocol.JoystickToJOYDual 完全一致的本地镜像，用于交叉校验。
-// 双摇杆：左摇杆 X/Y -> 底座(S9)/左舵(S8)，右摇杆 X/Y -> 夹取(S6)/右舵(S7)。
+// 与 internal/protocol axisRaw 一致的本地镜像，用于交叉校验。
+// 10° 动作死区（视觉倾角满偏 31.5°）+ 死区后进入固件命令区间（65%..100% 满偏）。
+const MAX_TILT_DEG = 31.5, DEAD_DEG = 10.0, CMD_MIN = 0.65;
+const DEAD = DEAD_DEG / MAX_TILT_DEG;
 function axisRaw(v, inv) {
-  let raw = 512 + Math.round(v * 512);
-  raw = Math.max(0, Math.min(1023, raw));
+  let a = Math.min(1, Math.abs(v));
+  let out = 0;
+  if (a > DEAD) {
+    const u = (a - DEAD) / (1 - DEAD);
+    out = CMD_MIN + u * (1 - CMD_MIN);
+    if (v < 0) out = -out;
+  }
+  let raw = Math.max(0, Math.min(1023, 512 + Math.round(out * 512)));
   if (inv) raw = 1023 - raw;
   return raw;
+}
+// 四轴是否全部在死区内（全居中时服务端整帧跳过下发）
+function hasCommand(lx, ly, rx, ry) {
+  return [lx, ly, rx, ry].some((v) => Math.abs(v) > DEAD);
 }
 function joyToJOYDual(lx, ly, rx, ry, map) {
   const r9 = axisRaw(lx, map.invLX); // 底座 (LXServo)
@@ -88,7 +100,9 @@ class WSClient {
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const map = { lxServo: 9, lyServo: 8, rxServo: 6, ryServo: 7, invLX: false, invLY: false, invRX: false, invRY: false };
+// 与 config.yaml 默认一致：9/6/7 轴 invert=true、8 轴 false
+const map = { lxServo: 9, lyServo: 8, rxServo: 6, ryServo: 7, invLX: true, invLY: false, invRX: true, invRY: true };
+const countJoy = (arr) => arr.filter((m) => m.indexOf('"line":"OK JOY') >= 0).length;
 
 (async () => {
   let pass = true;
@@ -128,7 +142,46 @@ const map = { lxServo: 9, lyServo: 8, rxServo: 6, ryServo: 7, invLX: false, invL
     if (d.side === "L") { lx = d.x; ly = d.y; }
     else { rx = d.x; ry = d.y; }
   }
-  console.log("        终态 JOY -> " + joyToJOYDual(lx, ly, rx, ry, map));
+  console.log("        终态 JOY -> " + (hasCommand(lx, ly, rx, ry) ? joyToJOYDual(lx, ly, rx, ry, map) : "(不下发: 四轴全在死区内)"));
+
+  // ---- 10° 死区整帧跳过验证：先等链路静默，再测死区内零下发 ----
+  ws.send({ t: "joy", side: "L", x: 0, y: 0 });
+  ws.send({ t: "joy", side: "R", x: 0, y: 0 });
+  // 等待串口应答流静默（连续 700ms 无新消息），排除前序拖拽的滞后应答
+  await (async function waitQuiet() {
+    let last = recv.length, lastChange = Date.now();
+    while (Date.now() - lastChange < 700 && Date.now() % 1e7 > 0) {
+      await sleep(100);
+      if (recv.length !== last) { last = recv.length; lastChange = Date.now(); }
+    }
+  })();
+  const before = countJoy(recv);
+  ws.send({ t: "joy", side: "L", x: 0.2, y: -0.1 }); // 全部 < 10°(0.317 行程)
+  await sleep(900);
+  const duringDead = countJoy(recv) - before;
+  console.log("[DEADBAND] 静默后死区内坐标 0.9s 内 OK JOY 帧数: " + duringDead + "（期望 0）: " + (duringDead === 0 ? "PASS" : "FAIL"));
+  if (duringDead !== 0) pass = false;
+
+  // ---- 超出死区应恢复下发（等待最多 2s 内出现 OK JOY）----
+  const before2 = countJoy(recv);
+  ws.send({ t: "joy", side: "L", x: 0.9, y: 0 });
+  let afterDead = -1;
+  for (let i = 0; i < 20; i++) {
+    await sleep(100);
+    afterDead = countJoy(recv) - before2;
+    if (afterDead > 0) break;
+  }
+  console.log("[DEADBAND] 出死区 2s 内 OK JOY 帧数: " + afterDead + "（期望 >0）: " + (afterDead > 0 ? "PASS" : "FAIL"));
+  if (afterDead <= 0) pass = false;
+  ws.send({ t: "joy", side: "L", x: 0, y: 0 });
+  await sleep(120);
+
+  // ---- 角度回显（页面角度显示数据源）----
+  ws.send({ t: "cmd", c: "STATUS" });
+  await sleep(500);
+  const gotAngles = recv.some((m) => m.indexOf('"angles"') >= 0);
+  console.log("[ANGLES] STATUS 应答携带 angles 字段: " + (gotAngles ? "PASS" : "FAIL"));
+  if (!gotAngles) pass = false;
 
   // cmd 路径
   ws.send({ t: "cmd", c: "S9=120" });

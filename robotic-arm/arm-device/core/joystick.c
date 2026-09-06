@@ -53,7 +53,7 @@ int8_t joystick_delta(uint8_t id, int raw) {
 /* Called from the main loop (like the original loop() calling
    handleJoystickControl() every iteration). A centred stick (200..800) yields
    delta 0 -> no movement; the forced servo range in arm_nudge() enforces the
-   original 30..150 / 20..100 / 40..125 / 80..160 limits. */
+   original 30..150 / 20..100 / 40..130 / 80..160 limits. */
 void joystick_scan(void) {
     if (!g_enabled) return;
     for (uint8_t i = 0; i < 4; i++) {

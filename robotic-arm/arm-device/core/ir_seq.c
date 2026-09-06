@@ -24,7 +24,7 @@ typedef struct {
 #define SEQ_MID_PAUSE 5000u   /* 5 s hold inserted in the middle (req 1) */
 
 /* All sequences are hand-authored safe poses inside the forced servo limits:
-     base 30..150, left 20..100, right 80..160, grip 40..125.
+     base 30..150, left 20..100, right 80..160, grip 40..130.
    Each set = 3 keyframes + 5 s mid pause + 3 keyframes ~= 15 s before looping. */
 
 static const seq_kf_t SEQ1[] PROGMEM = {   /* 1: grab & place */

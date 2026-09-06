@@ -20,7 +20,7 @@ extern "C" {
      - ir_seq_tick : every loop iteration (reacts to stop/switch immediately)
      - LED heart   : toggles every 500 ms                                   */
 
-#define SLOW_MS    20   /* arm_tick + joystick cadence */
+#define SLOW_MS    30   /* arm_tick + joystick cadence */
 #define LED_MS   500    /* heartbeat period */
 
 int main(void) {

@@ -148,7 +148,7 @@ def main():
     txt = send(ser, "SET 7 0", 0.4)
     check("SET 7 0 -> 钳位80", "OK SET S7=80" in txt, txt.strip().replace("\r", " | "))
     txt = send(ser, "SET 6 200", 0.4)
-    check("SET 6 200 -> 钳位125", "OK SET S6=125" in txt, txt.strip().replace("\r", " | "))
+    check("SET 6 200 -> 钳位130", "OK SET S6=130" in txt, txt.strip().replace("\r", " | "))
 
     # 4) 非法 id
     txt = send(ser, "SET 5 90", 0.4)

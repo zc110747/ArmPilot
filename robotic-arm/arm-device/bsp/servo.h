@@ -17,7 +17,7 @@ extern "C" {
      base  : 30..150
      left  : 20..100
      right : 80..160
-     grip  : 40..125
+     grip  : 40..130
    On boot every servo is driven to 90 deg. */
 
 typedef enum {

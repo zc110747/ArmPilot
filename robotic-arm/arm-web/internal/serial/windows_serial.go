@@ -129,10 +129,10 @@ func openPort(cfg Config) (io.ReadWriteCloser, error) {
 	}
 
 	var t commTimeouts
-	// 读：ReadFile 阻塞直到有字节到达或超时（读总超时 200ms），符合 bufio.Reader
-	// 的阻塞读取契约；避免全部为 0 时 ReadFile 立即返回 0 字节导致读循环空转、
-	// 在高速回显下漏读。写：WriteTotalTimeoutConstant=500 => 单次写最多 500ms，
-	// 设备无响应时快速失败并触发重连。
+	// 读：ReadFile 阻塞直到有字节到达或超时（读总超时 200ms）；超时无数据时
+	// ReadFile 返回 0 字节且无错误（即 Read 返回 (0,nil)，合法的 io.Reader 行为），
+	// readLoop 据此判为"暂无数据"继续循环。写：WriteTotalTimeoutConstant=500 =>
+	// 单次写最多 500ms，设备无响应时快速失败并触发重连。
 	t.readIntervalTimeout = 0
 	t.readTotalTimeoutMultiplier = 0
 	t.readTotalTimeoutConstant = 200

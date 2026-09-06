@@ -11,7 +11,7 @@
 package serial
 
 import (
-	"bufio"
+	"bytes"
 	"fmt"
 	"io"
 	"log"
@@ -298,19 +298,37 @@ func (s *Serial) run(conn io.ReadWriteCloser) {
 }
 
 // readLoop 按行读取设备回显，推入内部 lineCh（供 ackPump 做 ACK 判定与广播）。
+//
+// 注意：这里**不能**用 bufio.Reader —— Windows 串口读超时会返回 (0, nil)，
+// bufio 连续 100 次空读会抛 io.ErrNoProgress，导致链路空闲约 20s（100×200ms）
+// 必然假性断连，而重连会拉 DTR 使 Uno 复位（舵机全部回 90°）。
+// 因此手动做行缓冲：n==0 且 err==nil 仅表示"暂无数据"，继续循环。
 func (s *Serial) readLoop(conn io.Reader, broken chan<- error, wg *sync.WaitGroup) {
 	defer wg.Done()
-	reader := bufio.NewReader(conn)
+	buf := make([]byte, 256)
+	var acc []byte
 	for {
-		line, err := reader.ReadString('\n')
-		if len(line) > 0 {
-			line = strings.TrimRight(line, "\r\n")
-			if line != "" {
-				select {
-				case s.lineCh <- line:
-				default:
-					log.Printf("[serial] lineCh 满，丢弃回显: %q", line)
+		n, err := conn.Read(buf)
+		if n > 0 {
+			acc = append(acc, buf[:n]...)
+			for {
+				idx := bytes.IndexByte(acc, '\n')
+				if idx < 0 {
+					break
 				}
+				line := strings.TrimRight(string(acc[:idx]), "\r")
+				acc = acc[idx+1:]
+				if line != "" {
+					select {
+					case s.lineCh <- line:
+					default:
+						log.Printf("[serial] lineCh 满，丢弃回显: %q", line)
+					}
+				}
+			}
+			// 防御：异常数据流长期无换行时丢弃，避免缓冲无限增长
+			if len(acc) > 4096 {
+				acc = acc[:0]
 			}
 		}
 		if err != nil {
@@ -324,6 +342,7 @@ func (s *Serial) readLoop(conn io.Reader, broken chan<- error, wg *sync.WaitGrou
 			}
 			return
 		}
+		// n==0 && err==nil：读超时且无数据，非致命，继续
 	}
 }
 

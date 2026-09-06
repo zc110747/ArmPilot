@@ -16,12 +16,16 @@ type Config struct {
 	LogLevel string         `yaml:"log_level"`
 }
 
-// JoystickConfig 描述网页 2 轴摇杆到舵机的映射（同样可在 YAML 中配置）。
+// JoystickConfig 描述网页双 3D 摇杆（遥控形式）到 4 路舵机的映射，均可在 YAML 配置。
 type JoystickConfig struct {
-	XServo int  `yaml:"x_servo"` // X 轴驱动的舵机 id（默认 9=底座）
-	YServo int  `yaml:"y_servo"` // Y 轴驱动的舵机 id（默认 8=左舵）
-	InvX   bool `yaml:"invert_x"`
-	InvY   bool `yaml:"invert_y"`
+	LXServo int  `yaml:"lx_servo"` // 左摇杆 X 轴 -> 舵机 id（默认 9=底座）
+	LYServo int  `yaml:"ly_servo"` // 左摇杆 Y 轴 -> 舵机 id（默认 8=左舵）
+	RXServo int  `yaml:"rx_servo"` // 右摇杆 X 轴 -> 舵机 id（默认 6=夹取）
+	RYServo int  `yaml:"ry_servo"` // 右摇杆 Y 轴 -> 舵机 id（默认 7=右舵）
+	InvLX   bool `yaml:"invert_lx"`
+	InvLY   bool `yaml:"invert_ly"`
+	InvRX   bool `yaml:"invert_rx"`
+	InvRY   bool `yaml:"invert_ry"`
 }
 
 type SerialConfig struct {
@@ -33,6 +37,7 @@ type SerialConfig struct {
 	ReconnectSec  int    `yaml:"reconnect_sec"`  // 断线重连间隔(秒)
 	MinIntervalMs int    `yaml:"min_interval_ms"` // 两条指令下发的最小间隔(毫秒)，防止高频冲刷设备
 	AckTimeoutMs  int    `yaml:"ack_timeout_ms"`  // 等待下位机应答的超时(毫秒)；超时即判定通讯失败
+	ConnectSettleMs int  `yaml:"connect_settle_ms"` // 连接建立后等待下位机 bootloader 交出的静默窗口(毫秒)；Arduino Uno 打开串口会触发自动复位，bootloader 约 2.5s 后才交权，窗口内指令会被丢弃
 }
 
 type WebConfig struct {
@@ -74,7 +79,7 @@ func (c *Config) applyDefaults() {
 		c.Serial.Port = "COM4"
 	}
 	if c.Serial.Baud == 0 {
-		c.Serial.Baud = 9600
+		c.Serial.Baud = 115200
 	}
 	if c.Serial.DataBits == 0 {
 		c.Serial.DataBits = 8
@@ -88,11 +93,19 @@ func (c *Config) applyDefaults() {
 	if c.Serial.ReconnectSec <= 0 {
 		c.Serial.ReconnectSec = 3
 	}
-	if c.Serial.MinIntervalMs <= 0 {
-		c.Serial.MinIntervalMs = 10
+	if c.Serial.MinIntervalMs < 0 {
+		c.Serial.MinIntervalMs = 0
 	}
+	// 注意：命令-应答(ACK)门控 + 摇杆最新值合并已能防止高频冲刷设备，
+	// 故默认 0（不额外节流）。如需兜底再按需调大。
 	if c.Serial.AckTimeoutMs <= 0 {
 		c.Serial.AckTimeoutMs = 800
+	}
+	// Arduino Uno(ATmega328P) 打开串口会触发 DTR 自动复位进入 optiboot，
+	// bootloader 约 2.5s 后才把控制权交给固件；窗口内下发的首条指令会被丢弃。
+	// 默认 2500ms 与 host_verify.py 的等待对齐，避免“首条指令无应答”。
+	if c.Serial.ConnectSettleMs <= 0 {
+		c.Serial.ConnectSettleMs = 2500
 	}
 	if c.Web.WSPath == "" {
 		c.Web.WSPath = "/ws"
@@ -112,11 +125,17 @@ func (c *Config) applyDefaults() {
 	if c.LogLevel == "" {
 		c.LogLevel = "info"
 	}
-	if c.Joystick.XServo == 0 {
-		c.Joystick.XServo = 9
+	if c.Joystick.LXServo == 0 {
+		c.Joystick.LXServo = 9
 	}
-	if c.Joystick.YServo == 0 {
-		c.Joystick.YServo = 8
+	if c.Joystick.LYServo == 0 {
+		c.Joystick.LYServo = 8
+	}
+	if c.Joystick.RXServo == 0 {
+		c.Joystick.RXServo = 6
+	}
+	if c.Joystick.RYServo == 0 {
+		c.Joystick.RYServo = 7
 	}
 }
 

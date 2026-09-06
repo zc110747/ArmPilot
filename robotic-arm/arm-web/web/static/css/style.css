@@ -41,6 +41,19 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
   radial-gradient(120% 120% at 50% 20%, #1a2230 0%, #0b0e13 70%);
   border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
 
+/* 双摇杆并排布局（遥控形式） */
+.joy-grid { display: flex; gap: 16px; width: 100%; }
+.joy-cell { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.joy-label { font-size: 13px; color: var(--muted); font-weight: 600; }
+.joy-view { width: 100%; height: 52vh; min-height: 320px; background:
+  radial-gradient(120% 120% at 50% 20%, #1a2230 0%, #0b0e13 70%);
+  border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.joy-cell .readout { grid-template-columns: 1fr 1fr; }
+@media (max-width: 720px) {
+  .joy-grid { flex-direction: column; }
+  .joy-view { height: 38vh; }
+}
+
 .side { width: 320px; flex: none; display: flex; flex-direction: column; gap: 14px; }
 .side h3 { margin: 0 0 6px; font-size: 13px; color: var(--muted); font-weight: 600;
   text-transform: uppercase; letter-spacing: .04em; }

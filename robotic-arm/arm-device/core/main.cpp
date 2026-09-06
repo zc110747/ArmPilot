@@ -24,7 +24,7 @@ extern "C" {
 #define LED_MS   500    /* heartbeat period */
 
 int main(void) {
-    uart_init(9600);          /* COM4 @ 9600 8N1, bidirectional */
+    uart_init(115200);        /* COM4 @ 115200 8N1, bidirectional */
     servo_init();             /* Timer1 4-servo scheduler, all -> 90 */
     led_init();               /* onboard LED heartbeat, start ON */
     systick_init();           /* Timer2 1 ms tick */

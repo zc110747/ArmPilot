@@ -251,7 +251,9 @@ func TestRealHardwareAck(t *testing.T) {
 	var mu sync.Mutex
 	var commErr bool
 	var lines []string
-	s := Open(Config{Port: port, Baud: 9600, ReconnectSec: 1, MinIntervalMs: 10, AckTimeoutMs: 800})
+	// ConnectSettleMs=3000：利用 Serial 层的“连接后静默窗口”把首条指令延迟到
+	// 固件 bootloader(~2.5s)交权之后才下发，规避“首条指令被引导窗口吞掉”这一真实硬件行为。
+	s := Open(Config{Port: port, Baud: 115200, ReconnectSec: 1, MinIntervalMs: 0, AckTimeoutMs: 800, ConnectSettleMs: 3000})
 	s.SetStatusHandler(func(_ bool, _ string, ce bool, _ string) {
 		mu.Lock()
 		commErr = ce
@@ -265,9 +267,6 @@ func TestRealHardwareAck(t *testing.T) {
 	if !waitConnected(s, 3*time.Second) {
 		t.Fatalf("无法连接真实串口 %s", port)
 	}
-	// Uno 在打开串口时会因 DTR 边沿自动复位进入 optiboot 引导程序，
-	// 需等待引导程序超时交出控制权、固件真正运行（与 host_verify.py 一致）。
-	time.Sleep(2500 * time.Millisecond)
 
 	got := func(sub string) bool {
 		mu.Lock()
@@ -284,23 +283,24 @@ func TestRealHardwareAck(t *testing.T) {
 		defer mu.Unlock()
 		return commErr
 	}
+	waitFor := func(sub string, timeout time.Duration) bool {
+		deadline := time.Now().Add(timeout)
+		for time.Now().Before(deadline) {
+			if got(sub) {
+				return true
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+		return false
+	}
 
-	mu.Lock()
-	t.Logf("开机回显样例(前6): %v", lines[:min(6, len(lines))])
-	mu.Unlock()
-
-	// 1) 离散指令 RESET -> 固件应答 OK RESET（必要时重发一次，规避引导窗口吞首条）
+	// 1) 离散指令 RESET -> 固件应答 OK RESET（静默窗口结束后由门控自动下发）。
 	if err := s.WriteLine("RESET"); err != nil {
 		t.Fatalf("WriteLine RESET 失败: %v", err)
 	}
-	time.Sleep(500 * time.Millisecond)
-	if !got("OK RESET") {
-		_ = s.WriteLine("RESET")
-		time.Sleep(600 * time.Millisecond)
-	}
-	if !got("OK RESET") {
+	if !waitFor("OK RESET", 5*time.Second) {
 		mu.Lock()
-		t.Fatalf("未收到固件对 RESET 的应答（门控可能未等待应答）；已捕获回显: %v", lines)
+		t.Fatalf("未收到固件对 RESET 的应答；已捕获回显: %v", lines)
 		mu.Unlock()
 	}
 
@@ -308,8 +308,7 @@ func TestRealHardwareAck(t *testing.T) {
 	if err := s.WriteLine("SEQ STOP"); err != nil {
 		t.Fatalf("WriteLine SEQ STOP 失败: %v", err)
 	}
-	time.Sleep(400 * time.Millisecond)
-	if !got("OK IRSEQ idle") {
+	if !waitFor("OK IRSEQ idle", 3*time.Second) {
 		t.Fatalf("未收到固件对空闲 SEQ STOP 的应答 OK IRSEQ idle（适配失效）")
 	}
 	if commFailed() {
@@ -320,8 +319,7 @@ func TestRealHardwareAck(t *testing.T) {
 	for i := 0; i < 20; i++ {
 		_ = s.WriteLine(fmt.Sprintf("JOY %d 512 512 512", 100+i*20))
 	}
-	time.Sleep(800 * time.Millisecond)
-	if !got("OK JOY") {
+	if !waitFor("OK JOY", 4*time.Second) {
 		t.Fatalf("未收到任何 JOY 应答，门控/固件链路异常")
 	}
 	if commFailed() {
@@ -333,6 +331,297 @@ func TestRealHardwareAck(t *testing.T) {
 	mu.Unlock()
 
 	s.Close()
+}
+
+// testTimeoutErr 模拟 Windows 读超时错误（实现 Timeout()），用于在测试里复现
+// “串口空闲 200ms 即返回 ERROR_TIMEOUT”的 kernel32 行为。
+type testTimeoutErr struct{}
+
+func (e *testTimeoutErr) Error() string   { return "test read timeout" }
+func (e *testTimeoutErr) Timeout() bool   { return true }
+func (e *testTimeoutErr) Temporary() bool { return true }
+
+// timeoutFakeSerial 与 fakeSerial 类似，但无数据时返回 Timeout 错误（而非阻塞），
+// 复现 Windows commTimeouts 的“读总超时”语义，用于验证 readLoop 不会因此断连重连。
+type timeoutFakeSerial struct {
+	mu      sync.Mutex
+	written []string
+	readCh  chan string
+	doneCh  chan struct{}
+	closed  bool
+}
+
+func newTimeoutFakeSerial() *timeoutFakeSerial {
+	return &timeoutFakeSerial{readCh: make(chan string, 16), doneCh: make(chan struct{})}
+}
+func (f *timeoutFakeSerial) pushACK(line string) { f.readCh <- line }
+func (f *timeoutFakeSerial) Write(p []byte) (int, error) {
+	f.mu.Lock()
+	f.written = append(f.written, string(p))
+	f.mu.Unlock()
+	return len(p), nil
+}
+func (f *timeoutFakeSerial) Read(p []byte) (int, error) {
+	select {
+	case <-f.doneCh:
+		return 0, io.EOF
+	case line := <-f.readCh:
+		return copy(p, line), nil
+	default:
+		// 无数据 -> 模拟 Windows 读超时（非致命，readLoop 应继续等待）
+		time.Sleep(2 * time.Millisecond)
+		return 0, &testTimeoutErr{}
+	}
+}
+func (f *timeoutFakeSerial) Close() error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if !f.closed {
+		f.closed = true
+		close(f.doneCh)
+	}
+	return nil
+}
+func (f *timeoutFakeSerial) getWritten() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]string, len(f.written))
+	copy(out, f.written)
+	return out
+}
+
+// TestReadTimeoutDoesNotBreakConnection 锁定回归：Windows 下串口空闲超过读总超时(200ms)
+// 会返回 ERROR_TIMEOUT；readLoop 必须将其视为“暂无数据”继续等待，而非当作致命 I/O 错误
+// 断连重连。否则连接会每 200ms 撕裂重连，导致指令时有时无、状态抖动。
+func TestReadTimeoutDoesNotBreakConnection(t *testing.T) {
+	fake := newTimeoutFakeSerial()
+	dials := 0
+	dialSerial = func(Config) (io.ReadWriteCloser, error) { dials++; return fake, nil }
+	defer func() { dialSerial = openPort }()
+
+	s := Open(Config{Port: "FAKE", Baud: 9600, ReconnectSec: 1, MinIntervalMs: 0, AckTimeoutMs: 300})
+	if !waitConnected(s, time.Second) {
+		t.Fatalf("串口未连接")
+	}
+	// 经历若干读超时（无数据期间），连接应保持、不应重连
+	time.Sleep(500 * time.Millisecond)
+	if dials != 1 {
+		t.Fatalf("读超时不应触发重连，实际 dials=%d", dials)
+	}
+	if !s.Connected() {
+		t.Fatalf("经历读超时后连接应保持 connected")
+	}
+
+	// 超时环境下指令仍应正常下发 + 收到 ACK
+	if err := s.WriteLine("SET 6 90"); err != nil {
+		t.Fatalf("WriteLine 失败: %v", err)
+	}
+	time.Sleep(20 * time.Millisecond)
+	fake.pushACK("OK SET S6=90\r\n")
+	time.Sleep(50 * time.Millisecond)
+	w := fake.getWritten()
+	if len(w) != 1 || w[0] != "SET 6 90\r\n" {
+		t.Fatalf("超时环境下指令应正常下发并收到 ACK，实际 %v", w)
+	}
+	if dials != 1 {
+		t.Fatalf("正常收发后不应重连，dials=%d", dials)
+	}
+
+	s.Close()
+}
+
+// ---- 命令往返时延(RTT)评估 ------------------------------------------------
+// 目标：量化“web 提交一条指令 -> 收到下位机应答”的时延，定位瓶颈。
+// 模型：timedFakeSerial 模拟真实下位机——收到指令后，按波特率折算的字节传输时间
+// (10 bit/字节) + 处理延时 才回送应答行。这样可公平对比 9600 与 115200、以及
+// 后端 min_interval 节流开关对 RTT 的影响。结论见 TestCmdRoundTripLatency 日志。
+
+type timedFakeSerial struct {
+	mu       sync.Mutex
+	written  []string
+	readCh   chan string
+	pending  []byte
+	baud     uint32
+	procMs   int
+	closed   bool
+	doneCh   chan struct{}
+}
+
+func newTimedFakeSerial(baud uint32, procMs int) *timedFakeSerial {
+	return &timedFakeSerial{readCh: make(chan string, 8), doneCh: make(chan struct{}), baud: baud, procMs: procMs}
+}
+
+func (f *timedFakeSerial) Write(p []byte) (int, error) {
+	f.mu.Lock()
+	f.written = append(f.written, string(p))
+	n := len(p)
+	f.mu.Unlock()
+	byteSec := 10.0 / float64(f.baud) // 秒/字节（起始+8数据+停止 = 10 bit）
+	ack := "OK ECHO\r\n"
+	delay := time.Duration(float64(n+len(ack))*byteSec*1e9) + time.Duration(f.procMs)*time.Millisecond
+	go func() {
+		time.Sleep(delay)
+		f.readCh <- ack
+	}()
+	return n, nil
+}
+
+func (f *timedFakeSerial) Read(p []byte) (int, error) {
+	f.mu.Lock()
+	if len(f.pending) > 0 {
+		n := copy(p, f.pending)
+		f.pending = f.pending[n:]
+		f.mu.Unlock()
+		return n, nil
+	}
+	f.mu.Unlock()
+	// 注意：阻塞等待期间不能持有 f.mu，否则 Close() 关 doneCh 时会死锁。
+	select {
+	case <-f.doneCh:
+		return 0, io.EOF
+	case line := <-f.readCh:
+		f.mu.Lock()
+		f.pending = []byte(line)
+		n := copy(p, f.pending)
+		f.pending = f.pending[n:]
+		f.mu.Unlock()
+		return n, nil
+	}
+}
+
+func (f *timedFakeSerial) Close() error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if !f.closed {
+		f.closed = true
+		close(f.doneCh)
+	}
+	return nil
+}
+
+func medianDur(ds []time.Duration) time.Duration {
+	if len(ds) == 0 {
+		return 0
+	}
+	s := make([]time.Duration, len(ds))
+	copy(s, ds)
+	// 简单插入排序取中位
+	for i := 1; i < len(s); i++ {
+		v := s[i]
+		j := i - 1
+		for j >= 0 && s[j] > v {
+			s[j+1] = s[j]
+			j--
+		}
+		s[j+1] = v
+	}
+	return s[len(s)/2]
+}
+
+// TestCmdRoundTripLatency 量化单条指令 RTT，覆盖 4 种组合（波特率 × minInterval），
+// 直接给出瓶颈证据：9600 + 10ms 节流最慢；115200 + 不节流最快。
+func TestCmdRoundTripLatency(t *testing.T) {
+	const N = 12
+	for _, baud := range []uint32{9600, 115200} {
+		for _, mi := range []int{0, 10} {
+			fake := newTimedFakeSerial(baud, 1 /* 设备处理 ~1ms */)
+			dialSerial = func(Config) (io.ReadWriteCloser, error) { return fake, nil }
+
+			var mu sync.Mutex
+			var ackCount int
+			s := Open(Config{Port: "FAKE", Baud: int(baud), ReconnectSec: 1, MinIntervalMs: mi, AckTimeoutMs: 3000})
+			s.SetLineHandler(func(string) {
+				mu.Lock()
+				ackCount++
+				mu.Unlock()
+			})
+			if !waitConnected(s, time.Second) {
+				t.Fatalf("串口未连接 baud=%d", baud)
+			}
+
+			rtts := make([]time.Duration, 0, N)
+			for i := 0; i < N; i++ {
+				t0 := time.Now()
+				if err := s.WriteLine("JOY 512 512 512 512"); err != nil {
+					t.Fatalf("WriteLine 失败: %v", err)
+				}
+				deadline := time.Now().Add(2 * time.Second)
+				for {
+					mu.Lock()
+					n := ackCount
+					mu.Unlock()
+					if n > i {
+						break
+					}
+					if time.Now().After(deadline) {
+						break
+					}
+					time.Sleep(2 * time.Millisecond)
+				}
+				rtts = append(rtts, time.Since(t0))
+				time.Sleep(8 * time.Millisecond)
+			}
+			s.Close()
+			dialSerial = openPort
+
+			med := medianDur(rtts)
+			t.Logf("[RTT] baud=%-6d minInterval=%-2dms -> 中位 RTT=%v (样本=%v)", baud, mi, med, rtts)
+			// 健全性：115200 + 不节流 必须明显快于 9600 + 10ms 节流
+			if baud == 115200 && mi == 0 {
+				if med > 50*time.Millisecond {
+					t.Errorf("[RTT] 115200+不节流 中位 RTT 异常偏大: %v", med)
+				}
+			}
+		}
+	}
+}
+
+// BenchmarkCmdRoundTrip 估计命令吞吐(条/秒)，对比 9600+10ms 与 115200+不节流。
+func BenchmarkCmdRoundTrip(b *testing.B) {
+	for _, tc := range []struct {
+		name string
+		baud uint32
+		mi   int
+	}{
+		{"9600_mi10", 9600, 10},
+		{"115200_mi0", 115200, 0},
+	} {
+		b.Run(tc.name, func(b *testing.B) {
+			fake := newTimedFakeSerial(tc.baud, 1)
+			dialSerial = func(Config) (io.ReadWriteCloser, error) { return fake, nil }
+			var mu sync.Mutex
+			var ackCount int
+			s := Open(Config{Port: "FAKE", Baud: int(tc.baud), ReconnectSec: 1, MinIntervalMs: tc.mi, AckTimeoutMs: 5000})
+			s.SetLineHandler(func(string) {
+				mu.Lock()
+				ackCount++
+				mu.Unlock()
+			})
+			if !waitConnected(s, time.Second) {
+				b.Fatalf("串口未连接")
+			}
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				s.WriteLine("JOY 512 512 512 512")
+				deadline := time.Now().Add(3 * time.Second)
+				for {
+					mu.Lock()
+					n := ackCount
+					mu.Unlock()
+					if n > i {
+						break
+					}
+					if time.Now().After(deadline) {
+						break
+					}
+					time.Sleep(1 * time.Millisecond)
+				}
+			}
+			b.StopTimer()
+			s.Close()
+			dialSerial = openPort
+		})
+	}
 }
 
 func TestAckTimeoutCommFailure(t *testing.T) {

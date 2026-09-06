@@ -1,7 +1,7 @@
 // e2e-sim.js — 端到端协议自测（无需 GUI 浏览器）。
 //
 // 严格按前端 web/static/js/wsclient.js 的契约对接真实运行的 arm-web 服务器：
-//   WS 发送 {t:ping} / {t:joy,x,y} / {t:cmd,c}
+//   WS 发送 {t:ping} / {t:joy,side,x,y} / {t:cmd,c}
 // 验证：
 //   1) WebSocket 握手 + JSON 双向帧
 //   2) 摇杆拖拽坐标 -> 服务端生成 JOY 指令（写串口 COM4）
@@ -18,19 +18,20 @@ const WS_URL = process.argv[2] || "ws://127.0.0.1:8080/ws";
 const TCP_HOST = process.argv[3] || "127.0.0.1";
 const TCP_PORT = parseInt(process.argv[4] || "9001", 10);
 
-// 与 internal/protocol.JoystickToJOY 完全一致的本地镜像，用于交叉校验
-function joyToJOY(x, y, map) {
-  let rx = 512 + Math.round(x * 512);
-  let ry = 512 + Math.round(y * 512);
-  rx = Math.max(0, Math.min(1023, rx));
-  ry = Math.max(0, Math.min(1023, ry));
-  if (map.invX) rx = 1023 - rx;
-  if (map.invY) ry = 1023 - ry;
-  const slot = { 9: 0, 8: 1, 6: 2, 7: 3 };
-  const r = [512, 512, 512, 512];
-  r[slot[map.xServo]] = rx;
-  r[slot[map.yServo]] = ry;
-  return `JOY ${r[0]} ${r[1]} ${r[2]} ${r[3]}`;
+// 与 internal/protocol.JoystickToJOYDual 完全一致的本地镜像，用于交叉校验。
+// 双摇杆：左摇杆 X/Y -> 底座(S9)/左舵(S8)，右摇杆 X/Y -> 夹取(S6)/右舵(S7)。
+function axisRaw(v, inv) {
+  let raw = 512 + Math.round(v * 512);
+  raw = Math.max(0, Math.min(1023, raw));
+  if (inv) raw = 1023 - raw;
+  return raw;
+}
+function joyToJOYDual(lx, ly, rx, ry, map) {
+  const r9 = axisRaw(lx, map.invLX); // 底座 (LXServo)
+  const r8 = axisRaw(ly, map.invLY); // 左舵 (LYServo)
+  const r6 = axisRaw(rx, map.invRX); // 夹取 (RXServo)
+  const r7 = axisRaw(ry, map.invRY); // 右舵 (RYServo)
+  return `JOY ${r9} ${r8} ${r6} ${r7}`;
 }
 
 // ---------- 最小 WS 客户端（对接 /ws） ----------
@@ -87,7 +88,7 @@ class WSClient {
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const map = { xServo: 9, yServo: 8, invX: false, invY: false };
+const map = { lxServo: 9, lyServo: 8, rxServo: 6, ryServo: 7, invLX: false, invLY: false, invRX: false, invRY: false };
 
 (async () => {
   let pass = true;
@@ -105,20 +106,29 @@ const map = { xServo: 9, yServo: 8, invX: false, invY: false };
   console.log("[WS] ping->pong: " + (gotPong ? "PASS" : "FAIL"));
   if (!gotPong) pass = false;
 
-  // 模拟摇杆拖拽：中心 -> 右上(0.9,-0.4) -> 左下(-0.6,0.7) -> 回中(0,0)
+  // 模拟双摇杆拖拽：左摇杆 中心->右上(0.9,-0.4)->左下(-0.6,0.7)->回中；
+  //                 右摇杆 右下(0.5,0.5)->回中。每个帧携带 side(L/R)。
   const drags = [
-    { x: 0, y: 0 },
-    { x: 0.9, y: -0.4 },
-    { x: -0.6, y: 0.7 },
-    { x: 0, y: 0 },
+    { side: "L", x: 0, y: 0 },
+    { side: "L", x: 0.9, y: -0.4 },
+    { side: "L", x: -0.6, y: 0.7 },
+    { side: "L", x: 0, y: 0 },
+    { side: "R", x: 0.5, y: 0.5 },
+    { side: "R", x: 0, y: 0 },
   ];
   for (const d of drags) {
-    ws.send({ t: "joy", x: d.x, y: d.y });
+    ws.send({ t: "joy", side: d.side, x: d.x, y: d.y });
     await sleep(120);
   }
-  console.log("[WS] 已发送摇杆拖拽序列: " + JSON.stringify(drags));
-  console.log("      期望服务端生成(镜像映射):");
-  drags.forEach((d) => { if (d.x || d.y) console.log("        JOY<" + d.x + "," + d.y + "> -> " + joyToJOY(d.x, d.y, map)); });
+  console.log("[WS] 已发送双摇杆拖拽序列: " + JSON.stringify(drags));
+  console.log("      期望服务端生成(镜像映射 JOY <S9底座> <S8左舵> <S6夹取> <S7右舵>):");
+  // 复刻服务端合并逻辑：左/右各自 latest-wins，最终 JOY 由最后一组 L+R 决定
+  let lx = 0, ly = 0, rx = 0, ry = 0;
+  for (const d of drags) {
+    if (d.side === "L") { lx = d.x; ly = d.y; }
+    else { rx = d.x; ry = d.y; }
+  }
+  console.log("        终态 JOY -> " + joyToJOYDual(lx, ly, rx, ry, map));
 
   // cmd 路径
   ws.send({ t: "cmd", c: "S9=120" });

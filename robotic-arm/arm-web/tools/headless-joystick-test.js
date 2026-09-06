@@ -185,7 +185,7 @@ async function waitFor(cdp, expr, ms = 20000) {
     }
 
     // 直接调用 sendJoy 作为二次验证（不依赖 raycast 命中），确保协议/服务端链路
-    const direct = await cdp.eval(`(function(){ if(!window.ArmWS) return false; window.ArmWS.sendJoy(0.9,-0.4); return true; })()`);
+    const direct = await cdp.eval(`(function(){ if(!window.ArmWS) return false; window.ArmWS.sendJoy("L",0.9,-0.4); return true; })()`);
     await sleep(400);
     const sent2 = await cdp.eval("window.__wsSent");
     const joy2 = sent2.filter((s) => s.indexOf('"t":"joy"') >= 0);

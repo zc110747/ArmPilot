@@ -27,7 +27,20 @@ const (
 	fileShareRead    = 0x00000001
 	fileShareWrite   = 0x00000002
 	invalidHandle    = ^uintptr(0) // 0xFFFFFFFFFFFFFFFF
+
+	// winERROR_TIMEOUT = Windows ERROR_TIMEOUT (1460)：读超时（无数据），非致命。
+	winERROR_TIMEOUT = 1460
 )
+
+// errTimeout 表示串口读超时（Windows ERROR_TIMEOUT）。readLoop 视其为“暂无数据”，
+// 继续等待，而非断开连接——否则空闲 200ms 就会把连接反复撕裂重连。
+var errTimeout = &serialTimeoutError{}
+
+type serialTimeoutError struct{}
+
+func (e *serialTimeoutError) Error() string   { return "serial read timeout" }
+func (e *serialTimeoutError) Timeout() bool   { return true }
+func (e *serialTimeoutError) Temporary() bool { return true }
 
 // dcb 是 Windows 通信设备控制块（与 winbase.h 布局一致）。
 type dcb struct {
@@ -139,8 +152,12 @@ func (s *winSerial) Read(p []byte) (int, error) {
 	var n uint32
 	r, _, e := procReadFile.Call(s.handle, uintptr(unsafe.Pointer(&p[0])), uintptr(len(p)), uintptr(unsafe.Pointer(&n)), 0)
 	if r == 0 {
-		if e != nil && e.(syscall.Errno) == 0 {
-			return 0, fmt.Errorf("ReadFile 失败")
+		if errno, ok := e.(syscall.Errno); ok && uint32(errno) == winERROR_TIMEOUT {
+			// 读超时（无数据到达）：返回专用超时错误，readLoop 据此继续等待而非断连。
+			return 0, errTimeout
+		}
+		if e == nil {
+			return 0, fmt.Errorf("ReadFile 返回 0 字节（未知错误）")
 		}
 		return 0, e
 	}

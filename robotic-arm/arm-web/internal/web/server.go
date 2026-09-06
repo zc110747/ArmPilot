@@ -32,17 +32,22 @@ type Server struct {
 
 	mu      sync.Mutex
 	clients map[*wsClient]struct{} // 仅 WebSocket 客户端，用于下发连接状态变更
+
+	// 双摇杆合并状态：左右摇杆各自最后上报的坐标，下发时合并为一条 JOY 四轴帧。
+	joyMu sync.Mutex
+	joyL  [2]float64 // {x, y} 左摇杆
+	joyR  [2]float64 // {x, y} 右摇杆
 }
 
 func New(cfg config.WebConfig, joyCfg config.JoystickConfig, s *serial.Serial, h *hub.Hub, staticFS fs.FS) *Server {
 	return &Server{
-		cfg:       cfg,
-		joyCfg:    joyCfg,
-		serial:    s,
-		hub:       h,
-		axisMap:   protocol.AxisMap{XServo: joyCfg.XServo, YServo: joyCfg.YServo, InvX: joyCfg.InvX, InvY: joyCfg.InvY},
-		staticFS:  staticFS,
-		clients:   make(map[*wsClient]struct{}),
+		cfg:      cfg,
+		joyCfg:   joyCfg,
+		serial:   s,
+		hub:      h,
+		axisMap:  protocol.AxisMap{LXServo: joyCfg.LXServo, LYServo: joyCfg.LYServo, RXServo: joyCfg.RXServo, RYServo: joyCfg.RYServo, InvLX: joyCfg.InvLX, InvLY: joyCfg.InvLY, InvRX: joyCfg.InvRX, InvRY: joyCfg.InvRY},
+		staticFS: staticFS,
+		clients:  make(map[*wsClient]struct{}),
 	}
 }
 
@@ -79,10 +84,11 @@ func (c *wsClient) Send(line string) {
 
 // 客户端 -> 服务器 的消息
 type clientMsg struct {
-	T string  `json:"t"` // joy | cmd | ping
-	X float64 `json:"x"` // 摇杆 X ∈ [-1,1]
-	Y float64 `json:"y"` // 摇杆 Y ∈ [-1,1]
-	C string  `json:"c"` // 原始指令文本（cmd 类型）
+	T    string  `json:"t"`    // joy | cmd | ping
+	Side string  `json:"side"` // joy 专用：L=左摇杆 / R=右摇杆
+	X    float64 `json:"x"`    // 摇杆 X ∈ [-1,1]
+	Y    float64 `json:"y"`    // 摇杆 Y ∈ [-1,1]
+	C    string  `json:"c"`    // 原始指令文本（cmd 类型）
 }
 
 // 服务器 -> 客户端 的消息
@@ -145,10 +151,22 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 		case "ping":
 			s.wsSend(c, serverMsg{T: "pong"})
 		case "joy":
-			// 摇杆坐标 -> JOY 指令，由 protocol 依赖 arm-device 语法生成。
+			// 双摇杆遥控：左右摇杆各自上报坐标，合并为一条 JOY 四轴帧下发。
 			// 串口层做命令-应答门控 + 摇杆最新值合并（中间位置不重复下发）。
-			cmd := protocol.JoystickToJOY(clampF(m.X), clampF(m.Y), s.axisMap)
-			if err := s.serial.WriteLine(cmd + "\n"); err != nil {
+			side := m.Side
+			if side != "L" && side != "R" {
+				side = "L"
+			}
+			s.joyMu.Lock()
+			if side == "L" {
+				s.joyL[0], s.joyL[1] = clampF(m.X), clampF(m.Y)
+			} else {
+				s.joyR[0], s.joyR[1] = clampF(m.X), clampF(m.Y)
+			}
+			lx, ly, rx, ry := s.joyL[0], s.joyL[1], s.joyR[0], s.joyR[1]
+			s.joyMu.Unlock()
+			cmd := protocol.JoystickToJOYDual(lx, ly, rx, ry, s.axisMap)
+			if err := s.serial.WriteLine(cmd); err != nil {
 				s.sendErr(c, "串口未连接，无法下发")
 			}
 		case "cmd":
@@ -158,7 +176,7 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			log.Printf("[web] 指令 %q -> 下发(归一化) %q", m.C, normalized)
-			if err := s.serial.WriteLine(normalized + "\n"); err != nil {
+			if err := s.serial.WriteLine(normalized); err != nil {
 				s.sendErr(c, "串口未连接，无法下发")
 			}
 		default:

@@ -49,7 +49,8 @@ func main() {
 	log.Printf("========== arm-web 启动 ==========")
 	log.Printf("串口: %s @ %d %dN%d (%c)", cfg.Serial.Port, cfg.Serial.Baud,
 		cfg.Serial.DataBits, cfg.Serial.StopBits, upcase(cfg.Serial.Parity))
-	log.Printf("摇杆映射: X->S%d  Y->S%d", cfg.Joystick.XServo, cfg.Joystick.YServo)
+	log.Printf("摇杆映射: 左 X->S%d 左 Y->S%d | 右 X->S%d 右 Y->S%d",
+		cfg.Joystick.LXServo, cfg.Joystick.LYServo, cfg.Joystick.RXServo, cfg.Joystick.RYServo)
 
 	// 串口
 	if cfg.LogLevel == "debug" {
@@ -64,6 +65,7 @@ func main() {
 		ReconnectSec:  cfg.Serial.ReconnectSec,
 		MinIntervalMs: cfg.Serial.MinIntervalMs,
 		AckTimeoutMs:  cfg.Serial.AckTimeoutMs,
+		ConnectSettleMs: cfg.Serial.ConnectSettleMs,
 	})
 	defer ser.Close()
 

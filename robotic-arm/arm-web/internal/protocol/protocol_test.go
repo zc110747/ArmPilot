@@ -62,9 +62,9 @@ func TestJoystickToJOY(t *testing.T) {
 	if got := JoystickToJOY(0, 1, m); got != "JOY 512 1023 512 512" {
 		t.Errorf("forward: %q", got)
 	}
-	// 反相 X
-	m2 := AxisMap{XServo: 9, YServo: 8, InvX: true, InvY: false}
+	// 反相 左X
+	m2 := AxisMap{LXServo: 9, LYServo: 8, InvLX: true, InvLY: false}
 	if got := JoystickToJOY(1, 0, m2); got != "JOY 0 512 512 512" {
-		t.Errorf("invX right: %q", got)
+		t.Errorf("invLX right: %q", got)
 	}
 }

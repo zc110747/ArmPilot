@@ -50,7 +50,7 @@
 
   window.ArmWS = {
     on: on,
-    sendJoy: function (x, y) { send({ t: "joy", x: x, y: y }); },
+    sendJoy: function (side, x, y) { send({ t: "joy", side: side, x: x, y: y }); },
     sendCmd: function (c) { send({ t: "cmd", c: c }); },
     isReady: function () { return !!(ws && ws.readyState === 1); },
   };

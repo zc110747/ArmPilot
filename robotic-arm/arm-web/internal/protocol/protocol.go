@@ -15,18 +15,27 @@ import (
 // 设备支持的舵机 id 与固件一致：6=夹取 7=右 8=左 9=底座
 var validIDs = map[int]bool{6: true, 7: true, 8: true, 9: true}
 
-// AxisMap 描述 2 轴网页摇杆到 4 路舵机的映射关系。
-// 默认 X->底座(9)，Y->左舵(8)；其余两轴保持中位 512（设备死区，不动作）。
+// AxisMap 描述双 3D 摇杆（遥控形式）到 4 路舵机的映射关系：
+//   - 左摇杆 X -> SERVO_BASE(9)，Y -> SERVO_LEFT(8)
+//   - 右摇杆 X -> SERVO_GRIP(6)，Y -> SERVO_RIGHT(7)
+// 每个轴可独立反转方向（invert_*），无需改代码即可适配实际安装。
 type AxisMap struct {
-	XServo int // X 轴对应的舵机 id
-	YServo int // Y 轴对应的舵机 id
-	InvX   bool
-	InvY   bool
+	LXServo int // 左摇杆 X 轴 -> 舵机 id（默认 9=底座）
+	LYServo int // 左摇杆 Y 轴 -> 舵机 id（默认 8=左舵）
+	RXServo int // 右摇杆 X 轴 -> 舵机 id（默认 6=夹取）
+	RYServo int // 右摇杆 Y 轴 -> 舵机 id（默认 7=右舵）
+	InvLX   bool
+	InvLY   bool
+	InvRX   bool
+	InvRY   bool
 }
 
-// DefaultAxisMap 返回推荐映射（与硬件摇杆 A0=底座,A1=左舵 对齐）。
+// DefaultAxisMap 返回推荐映射（遥控形式：左=底座/左舵，右=夹取/右舵）。
 func DefaultAxisMap() AxisMap {
-	return AxisMap{XServo: 9, YServo: 8, InvX: false, InvY: false}
+	return AxisMap{
+		LXServo: 9, LYServo: 8, RXServo: 6, RYServo: 7,
+		InvLX: false, InvLY: false, InvRX: false, InvRY: false,
+	}
 }
 
 // Validate 校验一条原始命令是否符合 arm-device 语法。
@@ -191,52 +200,32 @@ func isHex32(s string) bool {
 	return true
 }
 
-// JoystickToJOY 把网页摇杆的归一化坐标 (x,y ∈ [-1,1]) 映射为设备 JOY 命令。
-// 设备 JOY 命令格式：JOY <raw9> <raw8> <raw6> <raw7>（4 路 raw 0..1023，
-// 阈值同硬件摇杆：<200 / >800 才动作，其余为死区）。
-// 这样网页摇杆的"形状与逻辑"与真实硬件摇杆完全一致：
-//   - 中位附近(约 |coord|<0.6)落入设备死区 -> 不动
-//   - 偏离越大推动越快（设备按偏移比例步进 2..10°）
+// axisRaw 把归一化坐标 v∈[-1,1] 转换为设备 raw 0..1023（512=中位/死区），
+// inv=true 时左右镜像（适配实际安装方向）。
+func axisRaw(v float64, inv bool) int {
+	r := clampRaw(512 + int(v*512))
+	if inv {
+		r = 1023 - r
+	}
+	return r
+}
+
+// JoystickToJOYDual 把左右两个 3D 摇杆的归一化坐标 (∈[-1,1]) 合并为一条设备
+// JOY 四轴帧：JOY <raw9> <raw8> <raw6> <raw7>（顺序与固件一致，ids={9,8,6,7}）。
+//   - 左摇杆 X -> 底座(9)，Y -> 左舵(8)
+//   - 右摇杆 X -> 夹取(6)，Y -> 右舵(7)
+// 中位(0) -> raw 512 = 设备死区阈值，松手回中即停。
+func JoystickToJOYDual(lx, ly, rx, ry float64, m AxisMap) string {
+	r9 := axisRaw(lx, m.InvLX) // 底座
+	r8 := axisRaw(ly, m.InvLY) // 左舵
+	r6 := axisRaw(rx, m.InvRX) // 夹取
+	r7 := axisRaw(ry, m.InvRY) // 右舵
+	return fmt.Sprintf("JOY %d %d %d %d", r9, r8, r6, r7)
+}
+
+// JoystickToJOY 兼容旧的单摇杆调用：仅驱动左摇杆，右摇杆保持中位。
 func JoystickToJOY(x, y float64, m AxisMap) string {
-	rawX := clampRaw(512 + int(x*512))
-	rawY := clampRaw(512 + int(y*512))
-	if m.InvX {
-		rawX = 1023 - rawX
-	}
-	if m.InvY {
-		rawY = 1023 - rawY
-	}
-	// 构造 4 轴（顺序 r9 r8 r6 r7），未映射的轴保持 512（设备死区，不动作）
-	r := []int{512, 512, 512, 512}
-	setRaw(r, 9, rawX, m.XServo)
-	setRaw(r, 8, rawY, m.YServo)
-	return fmt.Sprintf("JOY %d %d %d %d", r[0], r[1], r[2], r[3])
-}
-
-// servoSlot 返回舵机 id 在 JOY 4 元组中的下标：9->0,8->1,6->2,7->3
-func servoSlot(id int) int {
-	switch id {
-	case 9:
-		return 0
-	case 8:
-		return 1
-	case 6:
-		return 2
-	case 7:
-		return 3
-	}
-	return -1
-}
-
-// setRaw 仅当 target id == servo 时才覆盖对应下标，保证 X/Y 各驱动自己的舵机，
-// 未映射的轴保持 512（死区）。r 为切片（引用类型），修改对调用方可见。
-func setRaw(r []int, servoID, raw, target int) {
-	if servoID == target {
-		slot := servoSlot(servoID)
-		if slot >= 0 && slot < len(r) {
-			r[slot] = raw
-		}
-	}
+	return JoystickToJOYDual(x, y, 0, 0, m)
 }
 
 func clampRaw(v int) int {

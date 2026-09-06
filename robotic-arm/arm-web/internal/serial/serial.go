@@ -30,6 +30,7 @@ type Config struct {
 	ReconnectSec  int
 	MinIntervalMs int // 两条指令下发的最小间隔(毫秒)
 	AckTimeoutMs  int // 等待下位机应答的超时(毫秒)
+	ConnectSettleMs int // 连接建立后等待下位机 bootloader 交出的静默窗口(毫秒)
 }
 
 // StatusHandler 在连接状态或通讯状态翻转时回调。
@@ -48,6 +49,9 @@ type Serial struct {
 
 	minInterval time.Duration
 	ackTimeout  time.Duration
+	connectSettle time.Duration
+	settleUntil  time.Time // 连接建立后的 bootloader 静默窗口截止时刻(之前不下发指令)
+	settleCh     <-chan time.Time // 静默窗口结束信号(一次性)，触发排队指令下发
 
 	// 发送门控（命令-应答）
 	joyCh   chan string // 摇杆指令（容量 1，最新值优先 / latest-wins）
@@ -76,22 +80,28 @@ var dialSerial = openPort
 // Open 创建 Serial 并启动（重）连接管理。若设备暂未连接，会在后台持续重试。
 func Open(cfg Config) *Serial {
 	mi := time.Duration(cfg.MinIntervalMs) * time.Millisecond
-	if mi <= 0 {
-		mi = 10 * time.Millisecond
+	// 命令-应答(ACK)门控已能防止高频冲刷设备，故允许 MinIntervalMs=0 表示完全不节流。
+	if mi < 0 {
+		mi = 0
 	}
 	at := time.Duration(cfg.AckTimeoutMs) * time.Millisecond
 	if at <= 0 {
 		at = 800 * time.Millisecond
 	}
+	cs := time.Duration(cfg.ConnectSettleMs) * time.Millisecond
+	if cs < 0 {
+		cs = 0
+	}
 	s := &Serial{
-		cfg:         cfg,
-		done:        make(chan struct{}),
-		joyCh:       make(chan string, 1),
-		cmdCh:       make(chan string, 16),
-		wakeCh:      make(chan struct{}, 1),
-		lineCh:      make(chan string, 256),
-		minInterval: mi,
-		ackTimeout:  at,
+		cfg:           cfg,
+		done:          make(chan struct{}),
+		joyCh:         make(chan string, 1),
+		cmdCh:         make(chan string, 16),
+		wakeCh:        make(chan struct{}, 1),
+		lineCh:        make(chan string, 256),
+		minInterval:   mi,
+		ackTimeout:    at,
+		connectSettle: cs,
 	}
 	s.wg.Add(1)
 	go s.manage()
@@ -255,6 +265,19 @@ func (s *Serial) manage() {
 
 // run 在单条连接存活期间驱动读循环与 ACK 门控循环，直到任一方出错或主动关闭。
 func (s *Serial) run(conn io.ReadWriteCloser) {
+	// 连接建立后进入 bootloader 静默窗口：Arduino Uno 在打开串口时会因 DTR 边沿
+	// 自动复位进入 optiboot，bootloader 等待一段上传窗口(~2.5s)后才把控制权交给
+	// 固件；窗口内下发的指令会被丢弃导致“首条指令无应答”。此处把连接建立时刻记为
+	// 静默窗口起点，trySend 在窗口内不下发、仅缓存于 joyCh/cmdCh，窗口过后再实际写出，
+	// 从而既不让首条指令丢失，也不因 ACK 超时误判通讯失败。
+	if s.connectSettle > 0 {
+		s.settleUntil = time.Now().Add(s.connectSettle)
+		s.settleCh = time.After(s.connectSettle)
+		log.Printf("[serial] 连接后静默窗口: %v（等待下位机 bootloader 交出控制权）", s.connectSettle)
+	} else {
+		s.settleUntil = time.Time{}
+		s.settleCh = nil
+	}
 	var wg sync.WaitGroup
 	broken := make(chan error, 2)
 	wg.Add(2)
@@ -292,6 +315,11 @@ func (s *Serial) readLoop(conn io.Reader, broken chan<- error, wg *sync.WaitGrou
 		}
 		if err != nil {
 			if err != io.EOF {
+				// 读超时（Windows 200ms 常量超时 / Unix VMIN=0 超时）表示“暂无数据”，
+				// 视为非致命，继续等待下一批；仅真正的 I/O 错误才断连重连。
+				if ne, ok := err.(interface{ Timeout() bool }); ok && ne.Timeout() {
+					continue
+				}
 				broken <- err
 			}
 			return
@@ -312,6 +340,11 @@ func (s *Serial) ackPump(conn io.Writer, broken chan<- error, wg *sync.WaitGroup
 
 	trySend := func() {
 		if awaiting {
+			return
+		}
+		// 处于连接后 bootloader 静默窗口：暂不实际下发，仅保留队列里的指令
+		// （最新摇杆位置 / FIFO 离散指令），窗口过后再写。避免首条指令被丢弃。
+		if !s.settleUntil.IsZero() && time.Now().Before(s.settleUntil) {
 			return
 		}
 		cmd, ok := s.takePending()
@@ -359,6 +392,18 @@ func (s *Serial) ackPump(conn io.Writer, broken chan<- error, wg *sync.WaitGroup
 		case <-s.wakeCh:
 			// WriteLine 已把命令放入 joyCh/cmdCh；此处仅作为“有 pending”的唤醒信号，
 			// 实际取出由 takePending 完成（避免 select 分支误把命令从通道取走）。
+			trySend()
+		case <-s.settleCh:
+			// 静默窗口结束：清除窗口限制并下发排队指令，避免首条指令在窗口内被丢弃。
+			s.settleUntil = time.Time{}
+			s.settleCh = nil
+			// 暖机：Uno 在开机/自动复位后，下位机串口链路的首个数据包常被丢弃
+			// （无应答、无报错，第二条才正常）。这里先发一个无害的换行作为“第 1 个包”
+			// 被链路吞掉，使真正指令成为第 2 个包而可靠送达，避免首条 web 指令静默丢失。
+			if _, werr := io.WriteString(conn, "\n"); werr != nil {
+				broken <- werr
+				continue
+			}
 			trySend()
 		case <-ackTimerChan(ackTimer):
 			// 应答超时：通讯失败，不重发，清空待发，等待新指令

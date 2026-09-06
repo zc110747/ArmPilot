@@ -68,3 +68,45 @@ func TestJoystickToJOY(t *testing.T) {
 		t.Errorf("invLX right: %q", got)
 	}
 }
+
+func TestJoyCurve(t *testing.T) {
+	// 死区内 -> 居中
+	if got := joyCurve(0); got != 0 {
+		t.Errorf("center: %v", got)
+	}
+	if got := joyCurve(0.05); got != 0 {
+		t.Errorf("dead edge: %v", got)
+	}
+	// 满偏及以上 -> ±1
+	if got := joyCurve(0.5); got != 1 {
+		t.Errorf("full: %v", got)
+	}
+	if got := joyCurve(1); got != 1 {
+		t.Errorf("max: %v", got)
+	}
+	if got := joyCurve(-0.8); got != -1 {
+		t.Errorf("neg full: %v", got)
+	}
+	// 单调放大：0.3 行程应产生明显大于线性映射的等效偏移
+	mid := joyCurve(0.3)
+	if mid <= 0.3 {
+		t.Errorf("curve should amplify: %v", mid)
+	}
+	// 反对称性
+	if joyCurve(-0.3) != -mid {
+		t.Errorf("odd symmetry broken: %v vs %v", joyCurve(-0.3), mid)
+	}
+}
+
+func TestJoystickToJOYDualCurve(t *testing.T) {
+	m := DefaultAxisMap()
+	// 曲线下 0.5 行程即满偏 raw=1023（线性映射时只有 768，够不到 800 阈值）
+	if got := JoystickToJOY(0.5, 0, m); got != "JOY 1023 512 512 512" {
+		t.Errorf("curve mid travel: %q", got)
+	}
+	// invert 后推 + 方向应对应固件 +步长侧（raw<200）
+	mi := AxisMap{LXServo: 9, LYServo: 8, RXServo: 6, RYServo: 7, InvLX: true, InvRX: true, InvRY: true}
+	if got := JoystickToJOYDual(0.8, 0.8, 0.8, 0.8, mi); got != "JOY 0 1023 0 0" {
+		t.Errorf("inverted dual: %q", got)
+	}
+}

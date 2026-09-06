@@ -38,13 +38,15 @@ log_level: "info"
 
 # ---- 网页双摇杆（遥控形式）-> 舵机映射（同样可在 YAML 配置）----
 # 左摇杆 X=底座(9) Y=左舵(8)；右摇杆 X=夹取(6) Y=右舵(7)。
-# 若实际方向反了，把对应 invert 改为 true 即可，无需改代码。
+# 方向语义：推杆方向 = 舵机角度增大（+）。固件 9/6/7 轴是 raw>800->负步长
+# （8 轴出厂即反相），故默认对 9/6/7 三轴 invert=true、8 轴 false。
+# 若个别轴与实际机构方向仍相反，把对应 invert 改回 false 即可，无需改代码。
 joystick:
   lx_servo: 9
   ly_servo: 8
   rx_servo: 6
   ry_servo: 7
-  invert_lx: false
+  invert_lx: true
   invert_ly: false
-  invert_rx: false
-  invert_ry: false
+  invert_rx: true
+  invert_ry: true

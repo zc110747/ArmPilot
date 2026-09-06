@@ -210,16 +210,52 @@ func axisRaw(v float64, inv bool) int {
 	return r
 }
 
+// 网页摇杆响应曲线参数：固件触发阈值为 raw<200 / >800（偏离中位约 56%），
+// 网页摇杆若线性映射，用户须把球拖过一半行程才有反应，体感"迟钝/太慢"。
+// 曲线把有效偏移放大：|v|<=joyDead 视为居中（回中稳停不漂移），
+// |v|>=joyFull 即达满偏（raw 0/1023，触发固件最大步长），中间线性过渡。
+const (
+	joyDead = 0.05
+	joyFull = 0.50
+)
+
+// joyCurve 把网页摇杆归一化偏移 v∈[-1,1] 重映射为等效"物理摇杆"偏移。
+// 输出仍 ∈[-1,1]，再经 axisRaw 转 raw。小偏移被放大，使动作从约 30% 行程
+// 即开始、50% 行程即达最大步长，贴近实体遥控摇杆的手感。
+func joyCurve(v float64) float64 {
+	a := v
+	neg := false
+	if a < 0 {
+		neg = true
+		a = -a
+	}
+	if a > 1 {
+		a = 1
+	}
+	if a <= joyDead {
+		return 0
+	}
+	out := (a - joyDead) / (joyFull - joyDead)
+	if out > 1 {
+		out = 1
+	}
+	if neg {
+		return -out
+	}
+	return out
+}
+
 // JoystickToJOYDual 把左右两个 3D 摇杆的归一化坐标 (∈[-1,1]) 合并为一条设备
 // JOY 四轴帧：JOY <raw9> <raw8> <raw6> <raw7>（顺序与固件一致，ids={9,8,6,7}）。
 //   - 左摇杆 X -> 底座(9)，Y -> 左舵(8)
 //   - 右摇杆 X -> 夹取(6)，Y -> 右舵(7)
-// 中位(0) -> raw 512 = 设备死区阈值，松手回中即停。
+// 每轴先过响应曲线（joyCurve）再转 raw：中位(0) -> raw 512 = 设备死区，
+// 松手回中即停；约 30% 行程起动作、50% 行程即最大步长。
 func JoystickToJOYDual(lx, ly, rx, ry float64, m AxisMap) string {
-	r9 := axisRaw(lx, m.InvLX) // 底座
-	r8 := axisRaw(ly, m.InvLY) // 左舵
-	r6 := axisRaw(rx, m.InvRX) // 夹取
-	r7 := axisRaw(ry, m.InvRY) // 右舵
+	r9 := axisRaw(joyCurve(lx), m.InvLX) // 底座
+	r8 := axisRaw(joyCurve(ly), m.InvLY) // 左舵
+	r6 := axisRaw(joyCurve(rx), m.InvRX) // 夹取
+	r7 := axisRaw(joyCurve(ry), m.InvRY) // 右舵
 	return fmt.Sprintf("JOY %d %d %d %d", r9, r8, r6, r7)
 }
 

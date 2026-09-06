@@ -109,8 +109,10 @@
 
     function applyJoy(x, y) {
       cur.x = x; cur.y = y;
+      // 相机位于 +z 俯视：rotation.x 取负号才能让球朝鼠标方向倾斜
+      // （y>0=前/屏幕上 → 顶端朝 -z；y<0=后/屏幕下 → 顶端朝 +z）。
       stick.rotation.z = -x * maxTilt;
-      stick.rotation.x = y * maxTilt;
+      stick.rotation.x = -y * maxTilt;
       var vx = container.querySelector(".jx");
       var vy = container.querySelector(".jy");
       if (vx) vx.textContent = x.toFixed(2);
@@ -158,7 +160,7 @@
         cur.x = animTarget.x; cur.y = animTarget.y; animTarget = null;
       }
       stick.rotation.z = -cur.x * maxTilt;
-      stick.rotation.x = cur.y * maxTilt;
+      stick.rotation.x = -cur.y * maxTilt;
       var vx = container.querySelector(".jx");
       var vy = container.querySelector(".jy");
       if (vx) vx.textContent = cur.x.toFixed(2);

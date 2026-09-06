@@ -54,15 +54,18 @@
     if (data && data.angles) updateAngles(data.angles);
   });
 
+  // 回显终端：30 行滑动窗口，始终显示最新（自动滚到底）。
+  var TERM_MAX_LINES = 30;
+  var termLines = [];
+
   function appendLine(text) {
     if (!term) return;
-    var atBottom = term.scrollHeight - term.clientHeight - term.scrollTop < 30;
-    term.textContent += text + "\n";
-    if (atBottom) term.scrollTop = term.scrollHeight;
-    // 限制长度
-    if (term.textContent.length > 8000) {
-      term.textContent = term.textContent.slice(-6000);
+    termLines.push(text);
+    if (termLines.length > TERM_MAX_LINES) {
+      termLines.splice(0, termLines.length - TERM_MAX_LINES);
     }
+    term.textContent = termLines.join("\n");
+    term.scrollTop = term.scrollHeight;
   }
 
   function updateAngles(a) {

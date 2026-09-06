@@ -23,12 +23,14 @@ tcp:
 log_level: "info"
 
 # 网页双摇杆 -> 舵机映射（可选；默认 左X=底座9 左Y=左舵8 右X=夹取6 右Y=右舵7）
+# 方向语义：推杆方向 = 舵机角度增大。固件 9/6/7 轴 raw>800->负步长，故默认
+# 对 9/6/7 三轴 invert=true、8 轴 false；个别轴若仍与实际机构相反再逐轴改。
 joystick:
   lx_servo: 9
   ly_servo: 8
   rx_servo: 6
   ry_servo: 7
-  invert_lx: false
+  invert_lx: true
   invert_ly: false
-  invert_rx: false
-  invert_ry: false
+  invert_rx: true
+  invert_ry: true

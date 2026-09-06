@@ -1,0 +1,10 @@
+# build artifacts
+/arm-web
+/arm-web.exe
+
+# go
+*.test
+*.out
+
+# local test configs
+config.local.yaml

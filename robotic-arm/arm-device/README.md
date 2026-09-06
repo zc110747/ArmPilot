@@ -86,8 +86,16 @@ scripts\clean.bat          # 清理 .build
 回显示例：`OK SET S9=120` / `ERR TOO_MANY` / `ERR BAD_ID S5`
 `OK JOY S6=89 S7=89 S8=89 S9=89` / `OK IR 左 S9=92` / `ERR IR UNKNOWN DEADBEEF`
 `OK JOYHW ON` / `OK IRHW OFF` / `ADC A0=507 A1=527 A2=517 A3=528`
-`IR RAW=0xF708FF00` / `OK IRLRN slot 1 = A1B2C3D4 (saved)` / `IR ? (unbound code)`
-`OK IRSEQ 1 start (7 steps)` / `SEQ running 1` / `OK IRSEQ 1 stop` / `SEQ idle`
+`# IR RAW=0xF708FF00` / `OK IRLRN slot 1 = A1B2C3D4 (saved)` / `# IR ? (unbound code)`
+`OK IRSEQ 1 start (7 steps)` / `SEQ running 1` / `OK IRSEQ 1 stop` / `OK IRSEQ idle (not running)` / `SEQ idle`
+
+> **上位机命令-应答（ACK）契约（适配 arm-web 门控）**
+> - 每一条以 `\r\n` 结尾的串口指令，**都必须且仅有一次应答行**：合法指令回 `OK ...`，非法/错误回 `ERR ...`。
+>   其中 `SEQ STOP` 在序列未运行时也会回 `OK IRSEQ idle (not running)`，保证上位机门控不会因“永远等不到应答”而误判通讯失败。
+> - **异步事件**（非命令应答）以 `# ` 开头，不会被上位机误判为命令应答：
+>   `# IR RAW=0x...`（硬件红外帧回显）、`# IR ? (unbound code)`（硬件红外未绑定码）、
+>   `# IRSEQ stop: joystick`（摇杆指令在动作序列运行中触发自动停止）。
+> - 上位机（arm-web）约定：**任何非 `# ` 开头的回显行即视为应答**；`# ` 行仅转发到日志，不清除“等待应答”状态。
 
 ### 红外动作序列（按钮 1/3/7/9，新增）
 每套动作约 **15 s**：前 3 个关键帧 → **中间 5 s 暂停** → 后 3 个关键帧 → 循环。

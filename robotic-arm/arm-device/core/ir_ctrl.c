@@ -162,11 +162,12 @@ void ir_ctrl_poll(void) {
     uint32_t code;
     if (!ir_get_code(&code)) return;
 
-    /* echo every decoded frame so a hardware test can read the real codes */
-    uart_printf(PSTR("IR RAW=%08lX\r\n"), code);
+    /* 异步事件：硬件 IR 帧回显。以 "# " 前缀标记，说明它不是命令应答，
+       避免上位机命令-应答门控把硬件遥控按键误判为串口指令的应答。 */
+    uart_printf(PSTR("# IR RAW=%08lX\r\n"), code);
 
     if (!ir_ctrl_feed(code))
-        uart_puts(PSTR("IR ? (unbound code)\r\n"));
+        uart_puts(PSTR("# IR ? (unbound code)\r\n"));
 }
 
 /* Shared by the hardware poll (ir_ctrl_poll) and the serial `IR <hex>` command.

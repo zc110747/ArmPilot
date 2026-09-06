@@ -1,0 +1,46 @@
+# ============================================================
+# arm-web — Go 串口转 Web / TCP 服务器配置
+# 所有串口、IP、端口均可在此修改；修改后重启程序生效。
+# ============================================================
+
+# ---- 串口（对接 arm-device 固件，默认 COM4 / 9600 8N1）----
+serial:
+  port: "COM4"        # Windows: COMx ; Linux/macOS: /dev/ttyUSB0 等
+  baud: 9600          # 波特率（arm-device 固件 USART0 默认 9600）
+  databits: 8
+  stopbits: 1
+  parity: "N"         # N(无) / E(偶) / O(奇)
+  # 串口未连接时自动重连间隔（秒）
+  reconnect_sec: 3
+  # 两条指令下发的最小间隔（毫秒）。摇杆/高频控制时按此节流，防止冲刷设备。
+  # 用户实测反馈下发过快导致“命令队列满，丢弃”，已加 10ms 下限。
+  min_interval_ms: 10
+  # 命令-应答（ACK）超时（毫秒）：每条指令发出后等待下位机应答行，超时即判定
+  # 通讯失败（界面显示“通讯失败”），且不再自动重发，等待用户下一条新指令。
+  # 注意：arm-device 每条合法指令都会回一行（OK ... / ERR ...），即作为应答。
+  ack_timeout_ms: 800
+
+# ---- Web 本机控制（Three.js 3D 摇杆）----
+web:
+  enabled: true
+  host: "0.0.0.0"     # 绑定 IP；0.0.0.0 = 本机所有网卡（含局域网）
+  port: 8080          # 浏览器访问 http://<本机IP>:8080
+  ws_path: "/ws"      # WebSocket 路径
+
+# ---- TCP 局域网转发（为其它设备/远程控制预留接口）----
+tcp:
+  enabled: true
+  host: "0.0.0.0"     # 绑定 IP；0.0.0.0 = 局域网可访问
+  port: 9001          # 其它设备 telnet/raw 连接此端口即可下发 arm-device 指令
+
+# 日志级别: debug / info / warn / error
+log_level: "info"
+
+# ---- 网页摇杆 -> 舵机映射（同样可在 YAML 配置）----
+# X 轴驱动底座(9)，Y 轴驱动左舵(8)；与硬件摇杆 A0=底座,A1=左舵 对齐。
+# 若实际方向反了，把对应 invert 改为 true 即可，无需改代码。
+joystick:
+  x_servo: 9
+  y_servo: 8
+  invert_x: false
+  invert_y: false

@@ -1,0 +1,232 @@
+# arm-web · 基于 Go 的串口转 Web / TCP 服务器
+
+把 `arm-device`（ATmega328P 机械臂固件）的串口控制能力，封装成本机 Web 页面
+与局域网 TCP 透传两套控制通道。**串口指令语法严格依赖 arm-device 协议**
+（见 `arm-device/README.md` 与 `core/cmd.c`），所有控制意图最终都归一化为
+arm-device 指令文本再下发，保证与固件行为完全一致。
+
+```
+ arm-device (串口 COM4 / 9600 8N1)
+    ▲      ▼
+[ Serial 管理 + 自动重连 ]            ← internal/serial
+    ▲      ▼
+[   Hub 广播总线（设备回显 → 多端）  ]  ← internal/hub
+    ▲                    ▲
+[ TCP 局域网透传 ]     [ Web + WebSocket 3D 摇杆 ]   ← internal/tcp  internal/web
+```
+
+## 功能
+
+1. **串口层（internal/serial）**
+   - 纯标准库实现：Windows 走 `syscall` 直连 `kernel32`，Linux/macOS 走 `stty` + 文件。
+   - 串口未连接 / 意外断开时**自动重连**（间隔可配）。
+   - 线程安全：`WriteLine` 可被 Web / TCP 多 goroutine 并发调用。
+2. **TCP 局域网转发（internal/tcp）**：其它设备（或后期远程客户端）以 raw TCP 连接
+   本端口，直接下发 arm-device 指令（换行结束），服务器原样转发串口；设备回显原样
+   写回。为**远程控制预留统一接口**（见下文）。
+3. **Web 本机控制（internal/web + Three.js）**
+   - **摇杆模式**：3D 渲染的摇杆（圆形底座 + 立柱 + 摇杆球），拖拽产生归一化
+     (x,y)∈[-1,1]，经 WebSocket 下发；形状与逻辑同硬件摇杆，松手回中即停。
+   - 网页右侧有一个随舵机角度实时摆动的 3D 机械臂，作为姿态反馈。
+   - **建模模式**：已在导航栏占位（disabled），待摇杆模式完成后继续规划开发。
+
+## 配置（YAML，全部可改）
+
+`config.yaml`（复制 `config.yaml.example` 修改）：
+
+```yaml
+serial:
+  port: "COM4"        # Windows: COMx ；Linux/macOS: /dev/ttyUSB0
+  baud: 9600
+  databits: 8
+  stopbits: 1
+  parity: "N"         # N / E / O
+  reconnect_sec: 3    # 断线重连间隔(秒)
+  min_interval_ms: 10 # 两条指令下发的最小间隔(毫秒)，防止高频冲刷设备
+web:
+  enabled: true
+  host: "0.0.0.0"     # 绑定 IP；0.0.0.0 = 本机所有网卡（含局域网）
+  port: 8080
+  ws_path: "/ws"
+tcp:
+  enabled: true
+  host: "0.0.0.0"     # 绑定 IP；0.0.0.0 = 局域网可访问
+  port: 9001
+joystick:             # 网页摇杆 -> 舵机映射（方向反了就把 invert 改 true）
+  x_servo: 9
+  y_servo: 8
+  invert_x: false
+  invert_y: false
+log_level: "info"
+```
+
+> 串口、IP 地址、端口均可在 YAML 中配置；修改后重启生效。
+
+## 构建与运行
+
+> 本工程**零外部依赖**（仅用标准库 + 已缓存的 `gopkg.in/yaml.v3`），可离线构建。
+> 前端 `web/static` 在编译期经 `//go:embed` 编入二进制，产物为**自包含单文件**，
+> 运行时不再依赖磁盘上的 `web/static` 目录。因此修改前端后需重新构建。
+
+### 一键编译（推荐，在 arm-web 目录内运行）
+
+| 平台 | 命令 |
+| --- | --- |
+| Windows | `build.bat` |
+| Linux / macOS | `bash build.sh` |
+| 通用（有 make） | `make`（`make test` 跑测试，`make clean` 清产物） |
+
+脚本统一执行 `go vet ./...` + `go build`，产物跨平台命名：`arm-web.exe`（Windows）/ `arm-web`（其它）。
+
+```bat
+# Windows（在 arm-web 目录）
+build.bat
+arm-web.exe -c config.yaml
+```
+
+```sh
+# Linux / macOS
+bash build.sh
+./arm-web -c config.yaml
+```
+
+启动后：
+- 浏览器打开 `http://<本机IP>:8080`（本机可用 `http://127.0.0.1:8080`）。
+- 局域网内其它设备：`telnet <本机IP> 9001`，直接下发 `SET 9 120`、`RESET`、`STATUS` 等指令。
+
+串口未连接时服务器照常启动，并在后台持续重连；连上设备后即可正常控制。
+
+### 网页串口连接状态（重要）
+
+顶栏有两个状态点：**WebSocket**（浏览器↔服务器）与**串口**（服务器↔arm-device）。
+串口点变绿 = `串口: 已连接`；变红 = `串口: 未连接（<原因>）`。状态在客户端接入时
+立即同步，之后每次翻转都会主动推送，无需刷新页面。
+
+**若串口显示未连接：**
+- 提示含“端口可能被其它程序占用”→ 关闭占用该 COM 的程序（串口助手 / 下载工具 /
+  另一个 arm-web 实例）后服务器会自动重连（已对端口加共享打开，多数情况可并存）。
+- 提示含“系统找不到指定的文件”→ `config.yaml` 的 `serial.port` 写错了 COM 号，
+  在设备管理器中核对实际 COM 号后修改。
+- 确认 arm-device 已上电并插好 USB；COM4 是示例，以你机器实际端口为准。
+
+### 用网页摇杆控制前的建议
+
+固件默认启用**硬件摇杆扫描**（`g_enabled=true`）。用网页摇杆前，先点页面上的
+**“摇杆硬件关”**（下发 `JOYHW OFF`），让固件忽略物理摇杆、只响应网页 `JOY` 指令；
+控制结束点 **“摇杆硬件开”**（`JOYHW ON`）恢复。若不关硬件摇杆，物理摇杆若不在中位
+会与网页指令互相“打架”。
+
+拖拽网页摇杆：左右 → 底座(S9)旋转，前后 → 左舵(S8)俯仰；中位附近为设备死区（不动），
+偏离越大步进越快，松手回中即停——形状与逻辑同硬件摇杆。
+
+## 流量控制与命令-应答门控
+
+早期版本在快速拖拽摇杆时会把命令 FIFO 队列瞬间灌满，出现 `命令队列满，丢弃`；且无法感知
+下位机是否真正收到。现采用**命令-应答（ACK）门控**彻底解决：
+
+1. **应答门控（一次一条在途）**：每条指令发出后，必须等到下位机回送应答行（arm-device 对
+   每条合法指令都会回 `OK ...` 或 `ERR ...`，即作为应答），才能发下一条。同一时刻只有 1 条
+   指令在途，从根本上杜绝“命令队列满”。
+2. **中间摇杆位置合并（latest-wins）**：拖拽过程中连续的摇杆位置只保留**最新值**，不排队连发；
+   离散指令（`SET`/`RESET`/`STATUS` 等）按 FIFO 逐条下发（受应答限速，但序列不丢）。
+   摇杆通道容量 1、离散通道容量 16，永不堆积。
+3. **串口下发节流**：每条指令之间保持 `min_interval_ms`（默认 10ms）最小间隔，避免冲刷设备。
+4. **通讯失败可显示**：若下位机在 `ack_timeout_ms`（默认 800ms）内未应答，判定**通讯失败**，
+   丢弃待发、不再自动重发（满足“不能再次下发”），并通过 `serial_status` 推送界面，顶栏状态点
+   变琥珀色并显示“串口: 通讯失败”。
+
+> 设计要点：串口层 `ackPump` 统一管理“取待发 → 写出 → 等应答/超时 → 取下一条”，Web/TCP 只
+> 负责把意图 `WriteLine` 入对应缓冲，不再各自处理时序。逻辑由 `internal/serial/ack_test.go`
+> 覆盖：门控、latest-wins 合并、应答超时→通讯失败、异步事件(`# ` 行)不误判应答、空闲 `SEQ STOP`
+> 仍能正确应答，均有单测验证。
+
+**应答行判定规则**：下位机回显中，**任何非 `# ` 开头的行都视为命令应答**（用于清除“等待应答”）；
+以 `# ` 开头的行是**异步事件**（硬件红外回显 `# IR RAW=...`、序列被摇杆中断 `# IRSEQ stop: joystick` 等），
+只转发到日志、不推进门控。下位机（arm-device）已适配：每条指令都回 `OK ...`/`ERR ...`，
+且 `SEQ STOP` 在序列空闲时回 `OK IRSEQ idle (not running)`，避免门控误判通讯失败。
+
+> 修复记录：`internal/serial/windows_serial.go` 的 `openPort` 曾因 `DataBits` 缺省为 0 导致
+> `SetCommState` 报“参数不正确”而打不开串口；现已在 `byteSize<5||>8` 时回退为 8 位。
+
+> 经验证：模拟 TCP 客户端以 ~1ms 间隔连发 25 条 `JOY`，因应答门控+最新值合并，最终只下发
+> 合并后的最新位置（中间指令不下发），未出现队列满。
+
+**真实硬件集成测试**（`arm-device` 已烧录并接在 COM4 时可直接跑，验证 web 侧门控与真实固件联动）：
+
+```bat
+# 需先在 arm-device 目录用 scripts/build_upload.bat 烧录适配后的固件
+REAL_COM=COM4 go test ./internal/serial/ -run TestRealHardwareAck -v
+# 该测试会：下发 RESET/SEQ STOP/连续 JOY，断言收到固件应答、空闲 SEQ STOP 不误判通讯失败
+```
+
+## 验证（无需 Web 界面）
+
+不跑浏览器也能验证“TCP 客户端 → 服务器 → 串口”链路：
+
+```bat
+# 终端 1：启动服务器（debug 日志可见每条 TX 字节）
+arm-web.exe -c config.test.debug.yaml
+
+# 终端 2：模拟局域网 TCP 设备下发指令
+node tools/tcp-test.js 127.0.0.1 9001
+```
+
+`tools/tcp-test.js` 会依次发送 `STATUS` / `JOY ...` / `S9=120` / `JOYHW OFF` / `RESET`，
+最后连发 25 条 `JOY` 做高频压测。服务器日志里可看到：
+- `[tcp] 透传指令 "..." -> 串口`（确认 TCP 收到的指令 = 写串口的内容）；
+- `log_level: debug` 时还能看到 `[serial] TX "..."`（确认字节已真正写向串口）。
+
+> 若本机 COM 为虚拟/无对端端口，`WriteFile` 会阻塞到 `writeTotalTimeoutConstant`
+> （默认 500ms）后失败并触发重连——这是 Windows 虚拟串口的无对端特性，真实
+> USB 串口（FTDI/CH340/CP2102）写操作会立即返回，不影响实际使用。
+
+## 串口指令协议（与 arm-device 一致）
+
+| 类别 | 示例 |
+|------|------|
+| 单控 | `SET 9 120` / `S7=90` |
+| 组合 | `SET 9 120 8 90 7 100`（≤3 舵机，左右舵可同条） |
+| 自变化/冻结 | `AUTO 9` / `STOP 9` |
+| 摇杆 | `JOY 900 200 512 800`（4 路 raw 0..1023）/ `JOY 8 50`（单轴） |
+| 红外 | `IR 0xF708FF00` |
+| 动作序列 | `SEQ 1|3|7|9` / `SEQ STOP` / `SEQ ?` |
+| 硬件开关 | `JOYHW ON|OFF` / `IRHW ON|OFF` |
+| 查询/复位 | `STATUS` / `?` / `RESET` / `ADC` / `HELP` |
+
+Web 摇杆拖拽时，服务器按 `internal/protocol` 把 (x,y) 映射为 `JOY <r9> <r8> <r6> <r7>`
+（X→底座9、Y→左舵8，其余轴保持 512 死区），与硬件摇杆阈值/逻辑完全一致。
+
+## 设计要点 / 预留接口
+
+- **远程控制预留**：TCP 转发目前是纯文本透传（与 Web/固件一致）。代码在
+  `internal/tcp/tcp.go` 的 `handle` 中保留了扩展点——若收到以 `@` 开头的行，可解析为
+  结构化 JSON 指令（含鉴权/会话），便于后续接入公网远程控制而不破坏现有文本协议。
+- **建模模式预留**：`index.html` 已有「建模模式（预留）」标签与占位面板，待摇杆模式
+  验收完成后在其上叠加轨迹规划 / 可视化建模。
+- **协议集中**：所有对串口下发的文本都经 `internal/protocol.Validate` 校验，非法指令
+  被拒绝，避免把垃圾烧入固件。
+
+## 目录结构
+
+```
+arm-web/
+├── config.yaml / config.yaml.example   # YAML 配置
+├── main.go                              # 装配：serial + hub + tcp + web
+├── internal/
+│   ├── config/    # YAML 加载 + 默认值 + 校验
+│   ├── protocol/  # arm-device 指令语法校验 + 摇杆->JOY 映射（含单测）
+│   ├── serial/    # 串口（windows_serial.go / unix_serial.go + 自动重连）
+│   ├── hub/       # 广播总线
+│   ├── tcp/       # 局域网 TCP 透传
+│   └── web/       # HTTP 静态服务 + 标准库 WebSocket(ws.go)
+└── web/static/    # 前端：index.html + css + js(joystick3d/arm3d/wsclient/main)
+```
+
+## 验证
+
+```bat
+go vet ./...
+go test ./internal/protocol/    # 指令校验 + 摇杆映射单测
+```
+
+WebSocket 握手、ping→pong、指令校验回显均已通过本地自检。

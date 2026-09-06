@@ -1,0 +1,28 @@
+# 测试专用配置：使用真实 COM4（用户确认存在），仅绑定本机回环避免占用局域网。
+# 其余与 config.yaml 一致。真实使用时请用 config.yaml。
+serial:
+  port: "COM4"
+  baud: 9600
+  databits: 8
+  stopbits: 1
+  parity: "N"
+  reconnect_sec: 3
+
+web:
+  enabled: true
+  host: "127.0.0.1"    # 测试仅本机回环，避免占用局域网
+  port: 8080
+  ws_path: "/ws"
+
+tcp:
+  enabled: true
+  host: "127.0.0.1"
+  port: 9001
+
+log_level: "info"
+
+joystick:
+  x_servo: 9
+  y_servo: 8
+  invert_x: false
+  invert_y: false

@@ -1,0 +1,136 @@
+package config
+
+import (
+	"fmt"
+	"os"
+
+	"gopkg.in/yaml.v3"
+)
+
+// Config 是 arm-web 的顶层配置，全部字段均可通过 YAML 修改。
+type Config struct {
+	Serial   SerialConfig   `yaml:"serial"`
+	Web      WebConfig      `yaml:"web"`
+	TCP      TCPConfig      `yaml:"tcp"`
+	Joystick JoystickConfig `yaml:"joystick"`
+	LogLevel string         `yaml:"log_level"`
+}
+
+// JoystickConfig 描述网页 2 轴摇杆到舵机的映射（同样可在 YAML 中配置）。
+type JoystickConfig struct {
+	XServo int  `yaml:"x_servo"` // X 轴驱动的舵机 id（默认 9=底座）
+	YServo int  `yaml:"y_servo"` // Y 轴驱动的舵机 id（默认 8=左舵）
+	InvX   bool `yaml:"invert_x"`
+	InvY   bool `yaml:"invert_y"`
+}
+
+type SerialConfig struct {
+	Port          string `yaml:"port"`           // Windows: COMx ; Linux: /dev/ttyUSB0
+	Baud          int    `yaml:"baud"`           // 波特率
+	DataBits      int    `yaml:"databits"`       // 数据位
+	StopBits      int    `yaml:"stopbits"`       // 停止位
+	Parity        string `yaml:"parity"`         // N / E / O
+	ReconnectSec  int    `yaml:"reconnect_sec"`  // 断线重连间隔(秒)
+	MinIntervalMs int    `yaml:"min_interval_ms"` // 两条指令下发的最小间隔(毫秒)，防止高频冲刷设备
+	AckTimeoutMs  int    `yaml:"ack_timeout_ms"`  // 等待下位机应答的超时(毫秒)；超时即判定通讯失败
+}
+
+type WebConfig struct {
+	Enabled bool   `yaml:"enabled"`
+	Host    string `yaml:"host"`    // 绑定 IP，0.0.0.0 = 所有网卡
+	Port    int    `yaml:"port"`
+	WSPath  string `yaml:"ws_path"` // WebSocket 路径
+}
+
+type TCPConfig struct {
+	Enabled bool   `yaml:"enabled"`
+	Host    string `yaml:"host"` // 绑定 IP，0.0.0.0 = 局域网可访问
+	Port    int    `yaml:"port"`
+}
+
+// Addr 返回 "ip:port" 形式，供 net.Listen 使用。
+func (w WebConfig) Addr() string { return fmt.Sprintf("%s:%d", w.Host, w.Port) }
+func (t TCPConfig) Addr() string { return fmt.Sprintf("%s:%d", t.Host, t.Port) }
+
+// Load 从指定路径读取 YAML 并填充默认值。
+func Load(path string) (*Config, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("读取配置文件 %s 失败: %w", path, err)
+	}
+	var c Config
+	if err := yaml.Unmarshal(data, &c); err != nil {
+		return nil, fmt.Errorf("解析配置文件 %s 失败: %w", path, err)
+	}
+	c.applyDefaults()
+	if err := c.validate(); err != nil {
+		return nil, err
+	}
+	return &c, nil
+}
+
+func (c *Config) applyDefaults() {
+	if c.Serial.Port == "" {
+		c.Serial.Port = "COM4"
+	}
+	if c.Serial.Baud == 0 {
+		c.Serial.Baud = 9600
+	}
+	if c.Serial.DataBits == 0 {
+		c.Serial.DataBits = 8
+	}
+	if c.Serial.StopBits == 0 {
+		c.Serial.StopBits = 1
+	}
+	if c.Serial.Parity == "" {
+		c.Serial.Parity = "N"
+	}
+	if c.Serial.ReconnectSec <= 0 {
+		c.Serial.ReconnectSec = 3
+	}
+	if c.Serial.MinIntervalMs <= 0 {
+		c.Serial.MinIntervalMs = 10
+	}
+	if c.Serial.AckTimeoutMs <= 0 {
+		c.Serial.AckTimeoutMs = 800
+	}
+	if c.Web.WSPath == "" {
+		c.Web.WSPath = "/ws"
+	}
+	if c.Web.Port == 0 {
+		c.Web.Port = 8080
+	}
+	if c.Web.Host == "" {
+		c.Web.Host = "0.0.0.0"
+	}
+	if c.TCP.Port == 0 {
+		c.TCP.Port = 9001
+	}
+	if c.TCP.Host == "" {
+		c.TCP.Host = "0.0.0.0"
+	}
+	if c.LogLevel == "" {
+		c.LogLevel = "info"
+	}
+	if c.Joystick.XServo == 0 {
+		c.Joystick.XServo = 9
+	}
+	if c.Joystick.YServo == 0 {
+		c.Joystick.YServo = 8
+	}
+}
+
+func (c *Config) validate() error {
+	switch c.Serial.Parity {
+	case "N", "E", "O", "n", "e", "o":
+	default:
+		return fmt.Errorf("serial.parity 非法: %q (应为 N/E/O)", c.Serial.Parity)
+	}
+	if c.Serial.DataBits < 5 || c.Serial.DataBits > 8 {
+		return fmt.Errorf("serial.databits 非法: %d (5..8)", c.Serial.DataBits)
+	}
+	if c.Serial.StopBits != 1 && c.Serial.StopBits != 2 {
+		return fmt.Errorf("serial.stopbits 非法: %d (1/2)", c.Serial.StopBits)
+	}
+	return nil
+}

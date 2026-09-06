@@ -125,7 +125,12 @@ void ir_seq_trigger(uint8_t which) {
 }
 
 void ir_seq_stop(void) {
-    if (!run.running) return;
+    if (!run.running) {
+        /* 即便当前没有运行中的序列也要回送应答行：上位机命令-应答门控要求
+           每一条串口指令都有且仅有一次应答，否则会被判为通讯超时。 */
+        uart_puts(PSTR("OK IRSEQ idle (not running)\r\n"));
+        return;
+    }
     run.running = false;
     uart_printf(PSTR("OK IRSEQ %u stop\r\n"), (unsigned)run.which);
     run.which = 0;
@@ -145,7 +150,8 @@ void ir_seq_tick(void) {
 
     /* ---- stop conditions (req 3) ---- */
     if (joystick_consume_input()) {        /* hardware/serial joystick command */
-        uart_puts(PSTR("IRSEQ stop: joystick\r\n"));
+        /* 异步事件（非命令应答），以 "# " 前缀标记，避免上位机误判为应答。 */
+        uart_puts(PSTR("# IRSEQ stop: joystick\r\n"));
         ir_seq_stop();
         return;
     }

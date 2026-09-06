@@ -1,0 +1,30 @@
+# 复制为 config.yaml 后修改；所有字段均可配置。
+serial:
+  port: "COM4"        # Windows: COMx ; Linux/macOS: /dev/ttyUSB0
+  baud: 9600
+  databits: 8
+  stopbits: 1
+  parity: "N"
+  reconnect_sec: 3
+  min_interval_ms: 10   # 两条指令下发的最小间隔(毫秒)，防止高频冲刷设备
+  ack_timeout_ms: 800  # 命令-应答超时(毫秒)；超时即判定通讯失败(界面显示)，不自动重发
+
+web:
+  enabled: true
+  host: "0.0.0.0"
+  port: 8080
+  ws_path: "/ws"
+
+tcp:
+  enabled: true
+  host: "0.0.0.0"
+  port: 9001
+
+log_level: "info"
+
+# 网页摇杆 -> 舵机映射（可选；默认 X->底座9, Y->左舵8）
+joystick:
+  x_servo: 9
+  y_servo: 8
+  invert_x: false
+  invert_y: false

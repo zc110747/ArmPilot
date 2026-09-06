@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-page-node-id="R9EZap1rBZaAgyPB6FWlDL">
+<head data-page-node-id="rgwNpaG8GfHVO8K8mWyHD3">
+  <meta charset="UTF-8" data-page-node-id="ssJplPxfGb2I5XQ8dhILSe" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" data-page-node-id="vR7CTs5xz76ZzF35zZXP4T" />
+  <title>arm-web · 机械臂控制</title>
+  <link rel="stylesheet" href="/css/style.css" data-page-node-id="oWwKUhrM1gTzfHjE8ClciX" />
+  <!-- Three.js (UMD, 全局 THREE)。优先 cdnjs，失败回退 unpkg -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script>
+    if (!window.THREE) {
+      document.write('<script src="https://unpkg.com/three@0.128.0/build/three.min.js"><\/script>');
+    }
+  </script>
+</head>
+<body data-page-node-id="IbfPwaXjjVNzcHxIZ1lMBe">
+  <header class="topbar" data-page-node-id="ituxvdafCQbcPmgdK8tRdf">
+    <div class="brand" data-page-node-id="rtBV3SX3uiBBjTFuMNbDEV">arm-web <span class="sub" data-page-node-id="UbdVTZT3lQ19J7a6yQnPvc">机械臂串口控制</span></div>
+    <div class="status" data-page-node-id="8FnBK1Yoem7OJXtJ43WDxs">
+      <span id="conn-dot" class="dot off" data-page-node-id="Ts6EwuB0sLO4ApSjpsdINZ"></span>
+      <span id="conn-text" data-page-node-id="397s7XoSuQiXjG2xk9EsKy">连接中…</span>
+      <span class="sep" data-page-node-id="ByIgGkbF6v9tmAilyVRJ9g">|</span>
+      <span id="serial-dot" class="dot off" data-page-node-id="zKqAserial"></span>
+      <span id="serial-text" data-page-node-id="dHPozyTsor6QVvGsluGHF7">串口: --</span>
+    </div>
+  </header>
+
+  <nav class="tabs" data-page-node-id="c1H0UcZuin3ypvW978gzJM">
+    <button class="tab active" data-mode="joystick" data-page-node-id="RdXEAq6lAnOxz7OVOzy5UT">摇杆模式</button>
+    <button class="tab" data-mode="modeling" disabled title="后续规划" data-page-node-id="93o1GqbhFFo8ImnQn9yyU0">建模模式（预留）</button>
+  </nav>
+
+  <!-- 摇杆模式 -->
+  <section id="panel-joystick" class="panel active" data-page-node-id="DpLvbFIIxNv3VsWFGFJzNU">
+    <div class="stage" data-page-node-id="1UpYd8676FsZgoUv2FKvIB">
+      <div id="joystick-container" class="viewport" data-page-node-id="joCAXqF874WUVh1fRKqR1h"></div>
+    </div>
+    <div class="side" data-page-node-id="PK9ZFDVbNiU2z1LGTECcQa">
+      <h3 data-page-node-id="94sLIbVZU3oWH7LS9q66T8">3D 摇杆</h3>
+      <p class="hint" data-page-node-id="EyT3jAglAMjw6DfJqKGGM2">拖拽摇杆球控制电机：左右 = 底座旋转，前后 = 左舵俯仰。
+        形状与逻辑同硬件摇杆，松手回中即停。</p>
+      <div class="readout" data-page-node-id="D1FEZZBvUvTLCRzKvRFAVR">
+        <div data-page-node-id="3vAkDMy4CF6WOJnSAefOJ0">X: <span id="val-x" data-page-node-id="NZHxJ7U4aJ2hfbAdjbIG0U">0.00</span></div>
+        <div data-page-node-id="Qj5bD0J7p7XOFgY4602thw">Y: <span id="val-y" data-page-node-id="1sRx9Jnb5k5Ws1pF0dmyUZ">0.00</span></div>
+      </div>
+      <h3 data-page-node-id="GLVVwpp5dvzzmhIKp5aGbk">舵机角度</h3>
+      <div class="angles" id="angles" data-page-node-id="FTr7GYhiSvC3VEEb64aCjJ">
+        <div data-page-node-id="jvhVkzYS8tu7FaWR4cvfhR">S6(夹取): <span id="a6" data-page-node-id="AeQiB2WIHVFWC2ilR3s4EA">--</span></div>
+        <div data-page-node-id="nk7kD0BfZMn7ZHWATuP8Aj">S7(右): <span id="a7" data-page-node-id="I3BXaQoA0buVTca903qKH9">--</span></div>
+        <div data-page-node-id="k9mT1FG6LmKRCUCIdJBZtV">S8(左): <span id="a8" data-page-node-id="4MTBWY6gWbSavCF8WLkcoM">--</span></div>
+        <div data-page-node-id="WiwIrAl9WoC7QBsk2AbOkp">S9(底座): <span id="a9" data-page-node-id="huQUM2KbS47i5ZRrEKDk6n">--</span></div>
+      </div>
+      <h3 data-page-node-id="wzGw21iBDfmCfhtP95Ce4v">快捷指令</h3>
+      <div class="btns" data-page-node-id="NE2r95uAjEYVycze4BVk0H">
+        <button data-cmd="RESET" data-page-node-id="WBzCmMrbTFK4k4nDAIScxX">复位 RESET</button>
+        <button data-cmd="STATUS" data-page-node-id="f3TlEDUISyScaQD1AU8wDB">状态 STATUS</button>
+        <button data-cmd="JOYHW OFF" data-page-node-id="yTY1RRlyUl1wruLGAOt726">摇杆硬件关</button>
+        <button data-cmd="JOYHW ON" data-page-node-id="Rzy6K04xZXdfDFac9HicZn">摇杆硬件开</button>
+      </div>
+      <div class="term" data-page-node-id="MaJWGLEHF7NOXrspzQHySR">
+        <div class="term-title" data-page-node-id="IMSNMV2LlMHICcwFZerHlL">串口回显</div>
+        <pre id="term" data-page-node-id="gsJei5yNKWRBaFFRrEdaML"></pre>
+      </div>
+    </div>
+  </section>
+
+  <!-- 建模模式（预留） -->
+  <section id="panel-modeling" class="panel" data-page-node-id="bUWEoVCZ0icm3E6oMatyv0">
+    <div class="placeholder" data-page-node-id="D2QHQLYc2CnI9WNj2R9NDx">
+      <h2 data-page-node-id="WM5HWXcVFeM8CMCA3AqMNT">建模模式（规划中）</h2>
+      <p data-page-node-id="f0mZ6LGGeQQEfvCDaNCK2y">该模式用于可视化建模 / 轨迹规划，将在摇杆模式完成后继续设计。</p>
+    </div>
+  </section>
+
+  <script src="/js/wsclient.js"></script>
+  <script src="/js/joystick3d.js"></script>
+  <script src="/js/arm3d.js"></script>
+  <script src="/js/main.js"></script>
+</body>
+</html>

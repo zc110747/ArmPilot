@@ -103,14 +103,14 @@ func joyRawOf(t *testing.T, cmd string, idx int) int {
 }
 
 func TestDeadband(t *testing.T) {
-	m := DefaultAxisMap() // DeadFrac = 10°/31.5° ≈ 0.317
+	m := DefaultAxisMap() // DeadFrac = 5°/31.5° ≈ 0.159
 
-	// 死区内（≤10° 视觉倾角，≈32% 行程）-> raw 512（固件不动作）
-	if got := JoystickToJOY(0.3, -0.2, m); got != "JOY 512 512 512 512" {
+	// 死区内（≤5° 视觉倾角，≈16% 行程）-> raw 512（固件不动作）
+	if got := JoystickToJOY(0.15, -0.1, m); got != "JOY 512 512 512 512" {
 		t.Errorf("inside deadband should be centered: %q", got)
 	}
 	// 四轴全居中 -> 无命令，调用方应整帧跳过下发
-	if JoystickHasCommand(0.3, 0.2, -0.1, 0, m) {
+	if JoystickHasCommand(0.15, 0.1, -0.1, 0, m) {
 		t.Errorf("all axes inside deadband: expect no command")
 	}
 	// 任一轴超出死区 -> 有命令
@@ -147,7 +147,7 @@ func TestDeadbandInverted(t *testing.T) {
 		t.Errorf("inverted full dual: %q", got)
 	}
 	// 死区内：invert 不影响居中值 512
-	if got := JoystickToJOYDual(0.2, -0.2, 0.3, 0.1, mi); got != "JOY 512 512 512 512" {
+	if got := JoystickToJOYDual(0.1, -0.1, 0.15, 0.05, mi); got != "JOY 512 512 512 512" {
 		t.Errorf("inverted inside deadband: %q", got)
 	}
 }

@@ -319,6 +319,9 @@ func (s *Serial) readLoop(conn io.Reader, broken chan<- error, wg *sync.WaitGrou
 				line := strings.TrimRight(string(acc[:idx]), "\r")
 				acc = acc[idx+1:]
 				if line != "" {
+					if debug {
+						log.Printf("[serial] RX %q", line)
+					}
 					select {
 					case s.lineCh <- line:
 					default:
@@ -336,13 +339,16 @@ func (s *Serial) readLoop(conn io.Reader, broken chan<- error, wg *sync.WaitGrou
 				// 读超时（Windows 200ms 常量超时 / Unix VMIN=0 超时）表示“暂无数据”，
 				// 视为非致命，继续等待下一批；仅真正的 I/O 错误才断连重连。
 				if ne, ok := err.(interface{ Timeout() bool }); ok && ne.Timeout() {
+					time.Sleep(2 * time.Millisecond)
 					continue
 				}
 				broken <- err
 			}
 			return
 		}
-		// n==0 && err==nil：读超时且无数据，非致命，继续
+		// n==0 && err==nil：暂无数据（Windows 立即返回读模式 / Unix 非阻塞），
+		// 非致命；sleep 2ms 节流避免空转烧 CPU，同时把串口管道让给并发写。
+		time.Sleep(2 * time.Millisecond)
 	}
 }
 

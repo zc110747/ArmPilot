@@ -215,7 +215,7 @@ const (
 	// JoyMaxTiltDeg 网页摇杆视觉倾角满偏（度），与 joystick3d.js maxTilt 对应。
 	JoyMaxTiltDeg = 31.5
 	// DefaultDeadbandDeg 默认动作死区（度）。
-	DefaultDeadbandDeg = 10.0
+	DefaultDeadbandDeg = 5.0
 	// joyCmdMin 死区后的最小输出（占半程 512 的比例）。必须 > 0.6094
 	// （= 312/512，即固件 raw 200/800 阈值），否则发出的 raw 仍在固件死区内。
 	joyCmdMin = 0.65

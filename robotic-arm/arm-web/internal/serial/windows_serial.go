@@ -129,13 +129,16 @@ func openPort(cfg Config) (io.ReadWriteCloser, error) {
 	}
 
 	var t commTimeouts
-	// 读：ReadFile 阻塞直到有字节到达或超时（读总超时 200ms）；超时无数据时
-	// ReadFile 返回 0 字节且无错误（即 Read 返回 (0,nil)，合法的 io.Reader 行为），
-	// readLoop 据此判为"暂无数据"继续循环。写：WriteTotalTimeoutConstant=500 =>
-	// 单次写最多 500ms，设备无响应时快速失败并触发重连。
-	t.readIntervalTimeout = 0
-	t.readTotalTimeoutMultiplier = 0
-	t.readTotalTimeoutConstant = 200
+	// 读：MAXDWORD 三元组 = "立即返回"模式——ReadFile 马上带回驱动缓冲里现有
+	// 的字节（无数据返回 0 字节且不报错）。这是必须的，因为 CH340 等 USB 串口
+	// 的非重叠 I/O 会在读进行中把并发 WriteFile 挡到读返回为止：若 ReadFile 以
+	// 较长的总超时（200/276ms）驻留，命令-应答门控的每次写出都要排队等读结束，
+	// 实测每条 JOY 被拖到 218~560ms，网页摇杆步进严重卡顿。立即返回模式下读
+	// 调用微秒级完成，写几乎无等待；空轮询由 readLoop 的 2ms sleep 节流。
+	// 写：WriteTotalTimeoutConstant=500 => 单次写最多 500ms，设备无响应时快速失败。
+	t.readIntervalTimeout = 0xFFFFFFFF // MAXDWORD
+	t.readTotalTimeoutMultiplier = 0xFFFFFFFF
+	t.readTotalTimeoutConstant = 0
 	t.writeTotalTimeoutConstant = 500
 	if r, _, e := procSetCommTimeouts.Call(s.handle, uintptr(unsafe.Pointer(&t))); r == 0 {
 		s.Close()

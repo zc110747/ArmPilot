@@ -28,7 +28,7 @@ type JoystickConfig struct {
 	InvRY   bool   `yaml:"invert_ry"`
 	// DeadbandDeg 摇杆动作死区（视觉倾角，度）。偏移 ≤ 该值的轴视为居中、
 	// 不产生任何下发；四轴全部在死区内时整帧 JOY 都不下发（串口零流量）。
-	// 网页摇杆满偏 ≈ 31.5°，默认 10°（约 32% 行程）。
+	// 网页摇杆满偏 ≈ 31.5°，默认 5°（约 16% 行程）。负值 = 禁用死区。
 	DeadbandDeg float64 `yaml:"deadband_deg"`
 }
 
@@ -140,6 +140,9 @@ func (c *Config) applyDefaults() {
 	}
 	if c.Joystick.RYServo == 0 {
 		c.Joystick.RYServo = 7
+	}
+	if c.Joystick.DeadbandDeg == 0 {
+		c.Joystick.DeadbandDeg = 5 // 默认动作死区 5°；负值显式禁用
 	}
 }
 

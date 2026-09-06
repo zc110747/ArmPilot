@@ -156,7 +156,7 @@ const countJoy = (arr) => arr.filter((m) => m.indexOf('"line":"OK JOY') >= 0).le
     }
   })();
   const before = countJoy(recv);
-  ws.send({ t: "joy", side: "L", x: 0.2, y: -0.1 }); // 全部 < 10°(0.317 行程)
+  ws.send({ t: "joy", side: "L", x: 0.1, y: -0.05 }); // 全部 < 5°(0.159 行程)
   await sleep(900);
   const duringDead = countJoy(recv) - before;
   console.log("[DEADBAND] 静默后死区内坐标 0.9s 内 OK JOY 帧数: " + duringDead + "（期望 0）: " + (duringDead === 0 ? "PASS" : "FAIL"));

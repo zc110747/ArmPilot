@@ -133,6 +133,7 @@
       var hits = raycaster.intersectObject(knob, false);
       if (hits.length > 0) {
         dragging = true;
+        startHeartbeat();
         e.preventDefault();
       }
     }
@@ -145,9 +146,25 @@
     function onUp() {
       if (!dragging) return;
       dragging = false;
+      stopHeartbeat();
       animateTo(0, 0);
       ArmWS.sendJoy(side, 0, 0); // 回中即停
       lastSent.x = 0; lastSent.y = 0;
+    }
+
+    // 按住持续步进心跳：硬件摇杆每 30ms 扫描一次（按住偏转即持续累加），
+    // 网页摇杆此前只在鼠标移动时发帧——按住不动就停，体感"交互拖沓"。
+    // 拖拽期间每 30ms 重发当前位置（服务端死区跳过 + joyCh latest-wins 兜底），
+    // 松手心跳停止并回中，语义与硬件摇杆一致。
+    var hbTimer = null;
+    function startHeartbeat() {
+      if (hbTimer) return;
+      hbTimer = setInterval(function () {
+        if (dragging) ArmWS.sendJoy(side, cur.x, cur.y);
+      }, 30);
+    }
+    function stopHeartbeat() {
+      if (hbTimer) { clearInterval(hbTimer); hbTimer = null; }
     }
 
     var animTarget = null;

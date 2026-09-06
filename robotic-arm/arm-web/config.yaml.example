@@ -34,4 +34,4 @@ joystick:
   invert_ly: false
   invert_rx: true
   invert_ry: true
-  deadband_deg: 10     # 摇杆动作死区(度)；<=该值不下发，四轴全居中时整帧跳过
+  deadband_deg: 5     # 摇杆动作死区(度)；<=该值不下发，四轴全居中时整帧跳过

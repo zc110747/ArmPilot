@@ -307,9 +307,15 @@ func (s *Server) BroadcastStatus(connected bool, serialErr string, commErr bool,
 	if err != nil {
 		return
 	}
+	// 快照客户端集合后再写：WriteMessage 是阻塞式网络写，绝不能在持锁状态下
+	// 执行，否则一个半死连接会把 WriteLine（Connected() 取同一把锁）全部拖住。
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	clients := make([]*wsClient, 0, len(s.clients))
 	for c := range s.clients {
+		clients = append(clients, c)
+	}
+	s.mu.Unlock()
+	for _, c := range clients {
 		c.conn.WriteMessage(string(data))
 	}
 }

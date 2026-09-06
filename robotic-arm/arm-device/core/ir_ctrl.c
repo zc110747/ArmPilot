@@ -37,14 +37,14 @@ static const struct {
     uint8_t  id;    /* nudge target servo (0 if unused) */
     int8_t   d;     /* nudge step (0 if unused)         */
 } IR_TAB[8] PROGMEM = {
-    {0xF708FF00u, "左",    IR_OP_NUDGE, 9, +2},
-    {0xA55AFF00u, "右",    IR_OP_NUDGE, 9, -2},
-    {0xB946FF00u, "数字2", IR_OP_NUDGE, 8, +2},
-    {0xEA15FF00u, "数字8", IR_OP_NUDGE, 8, -2},
-    {0xE718FF00u, "上",    IR_OP_NUDGE, 7, +2},
-    {0xAD52FF00u, "下",    IR_OP_NUDGE, 7, -2},
-    {0xBB44FF00u, "数字4", IR_OP_NUDGE, 6, +2},
-    {0xBC43FF00u, "数字6", IR_OP_NUDGE, 6, -2},
+    {0x00FF08F7u, "left",    IR_OP_NUDGE, 9, +2},
+    {0x00FF5AA5u, "right",   IR_OP_NUDGE, 9, -2},
+    {0x00FF46B9u, "digit2", IR_OP_NUDGE, 8, +2},
+    {0x00FF15EAu, "digit8", IR_OP_NUDGE, 8, -2},
+    {0x00FF18E7u, "up",      IR_OP_NUDGE, 7, +2},
+    {0x00FF52ADu, "down",    IR_OP_NUDGE, 7, -2},
+    {0x00FF44BBu, "digit4", IR_OP_NUDGE, 6, +2},
+    {0x00FF43BCu, "digit6", IR_OP_NUDGE, 6, -2},
 };
 
 /* Factory defaults for the action-set slots, captured from the user's real

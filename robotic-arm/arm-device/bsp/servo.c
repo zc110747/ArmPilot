@@ -6,14 +6,21 @@
 /* ---- hardware / timing constants ---------------------------------------- */
 /* Timer1: CTC mode, TOP = ICR1, prescaler 8 (16MHz -> 2MHz -> 0.5us/tick).
    20 ms frame = 40000 ticks -> ICR1 = 39999.
-   Servo pulse 1.0..2.0 ms maps to angle 0..180 deg. */
+   Angle->pulse mapping ALIGNED WITH ARDUINO Servo.h default so the arm matches
+   the original Arduino sketch ("same configuration"):
+     0 deg   -> 544 us  (1088 ticks)
+     90 deg  -> 1472 us (2944 ticks)   (Arduino's actual midpoint, not 1500)
+     180 deg -> 2400 us (4800 ticks)
+   This sits safely inside the MG90S full mechanical range (500..2500 us) while
+   using nearly the whole travel (the previous 1000..2000 us band only drove
+   ~half the mechanical range). */
 #define FRAME_TICKS 40000UL
 #define ICR1_TOP    ((uint16_t)(FRAME_TICKS - 1))
 
-/* angle (0..180) -> pulse width in ticks: 1000us..2000us -> 2000..4000 ticks */
+/* angle (0..180) -> pulse width in ticks: 544us..2400us -> 1088..4800 ticks */
 static inline uint16_t angle_to_ticks(uint8_t angle) {
-    /* ticks = 2000 + angle * (2000/180) */
-    return (uint16_t)(2000UL + ((uint32_t)angle * 2000UL) / 180UL);
+    /* ticks = 1088 + angle * (4800-1088)/180 = 1088 + angle * 3712 / 180 */
+    return (uint16_t)(1088UL + ((uint32_t)angle * 3712UL) / 180UL);
 }
 
 /* ---- per-channel descriptor --------------------------------------------- */
@@ -30,7 +37,7 @@ static const servo_hw_t SERVO_HW[SERVO_COUNT] = {
     [SERVO_BASE]  = {&PORTB, &DDRB, PB1, 30, 150},
     [SERVO_LEFT]  = {&PORTB, &DDRB, PB0, 20, 100},
     [SERVO_RIGHT] = {&PORTD, &DDRD, PD7, 80, 160},
-    [SERVO_GRIP]  = {&PORTD, &DDRD, PD6, 40, 125},
+    [SERVO_GRIP]  = {&PORTD, &DDRD, PD6, 40, 130},
 };
 
 /* ---- runtime state ------------------------------------------------------ */

@@ -213,20 +213,20 @@ def main():
 
     # 12) IR 按键 ±2 (复刻原 Arduino IRremote 映射)
     send(ser, "RESET", 0.6); drain(ser, 0.3)
-    txt = send(ser, "IR F708FF00", 0.3)   # 左  base(9)+2 -> 92
-    check("IR F708FF00 左 S9=92", "OK IR 左 S9=92" in txt, txt.strip().replace("\r", " | "))
+    txt = send(ser, "IR 00FF08F7", 0.3)   # left  base(9)+2 -> 92
+    check("IR 00FF08F7 left S9=92", "OK IR left S9=92" in txt, txt.strip().replace("\r", " | "))
     st = get_status(ser)
     check("IR 后 S9=92", st.get(9, (None,))[0] == 92, f"{st.get(9)}")
-    txt = send(ser, "IR A55AFF00", 0.3)   # 右  base(9)-2 -> 90
-    check("IR A55AFF00 右 S9=90", "OK IR 右 S9=90" in txt, txt.strip().replace("\r", " | "))
-    txt = send(ser, "IR E718FF00", 0.3)   # 上  right(7)+2 -> 92
-    check("IR E718FF00 上 S7=92", "OK IR 上 S7=92" in txt, txt.strip().replace("\r", " | "))
-    txt = send(ser, "IR AD52FF00", 0.3)   # 下  right(7)-2 -> 90
-    check("IR AD52FF00 下 S7=90", "OK IR 下 S7=90" in txt, txt.strip().replace("\r", " | "))
-    txt = send(ser, "IR BB44FF00", 0.3)   # 数字4 grip(6)+2 -> 92
-    check("IR BB44FF00 数字4 S6=92", "OK IR 数字4 S6=92" in txt, txt.strip().replace("\r", " | "))
-    txt = send(ser, "IR BC43FF00", 0.3)   # 数字6 grip(6)-2 -> 90
-    check("IR BC43FF00 数字6 S6=90", "OK IR 数字6 S6=90" in txt, txt.strip().replace("\r", " | "))
+    txt = send(ser, "IR 00FF5AA5", 0.3)   # right base(9)-2 -> 90
+    check("IR 00FF5AA5 right S9=90", "OK IR right S9=90" in txt, txt.strip().replace("\r", " | "))
+    txt = send(ser, "IR 00FF18E7", 0.3)   # up    right(7)+2 -> 92
+    check("IR 00FF18E7 up S7=92", "OK IR up S7=92" in txt, txt.strip().replace("\r", " | "))
+    txt = send(ser, "IR 00FF52AD", 0.3)   # down  right(7)-2 -> 90
+    check("IR 00FF52AD down S7=90", "OK IR down S7=90" in txt, txt.strip().replace("\r", " | "))
+    txt = send(ser, "IR 00FF44BB", 0.3)   # digit4 grip(6)+2 -> 92
+    check("IR 00FF44BB digit4 S6=92", "OK IR digit4 S6=92" in txt, txt.strip().replace("\r", " | "))
+    txt = send(ser, "IR 00FF43BC", 0.3)   # digit6 grip(6)-2 -> 90
+    check("IR 00FF43BC digit6 S6=90", "OK IR digit6 S6=90" in txt, txt.strip().replace("\r", " | "))
     txt = send(ser, "IR DEADBEEF", 0.3)   # 未知码
     check("IR 未知码 -> UNKNOWN", "ERR IR UNKNOWN" in txt, txt.strip().replace("\r", " | "))
 

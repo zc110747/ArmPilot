@@ -106,3 +106,11 @@ bool ir_get_code(uint32_t *out) {
     }
     return false;
 }
+
+/* Discard any pending frame / partial state. Called when the hardware receiver
+   is (re)enabled so a code that arrived while it was off is not replayed. */
+void ir_flush(void) {
+    ir_ready = 0;
+    ir_state = 0;
+    ir_bits  = 0;
+}

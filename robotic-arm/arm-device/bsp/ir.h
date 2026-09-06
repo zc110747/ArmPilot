@@ -18,6 +18,7 @@ extern "C" {
 
 void ir_init(void);              /* PD2 INT0 + Timer0, start listening */
 bool ir_get_code(uint32_t *out); /* true if a fresh NEC code is available  */
+void ir_flush(void);             /* discard any pending/partial frame */
 
 #ifdef __cplusplus
 }

@@ -253,15 +253,26 @@ def main():
     check("SEQ 3 (运行中切换) -> 重启", "OK IRSEQ 3 start" in txt, txt.strip().replace("\r", " | "))
     txt = send(ser, "SEQ ?", 0.3)
     check("SEQ ? -> running 3 (已切换)", "running 3" in txt, txt.strip().replace("\r", " | "))
-    # 13.3 IR 硬件码触发同一套 (按钮1 0xC13E01FE)
+    # 13.3 学习按钮1 并触发同一套 (IRLEARN + 下一次 IR 绑定)
     send(ser, "SEQ STOP", 0.3); drain(ser, 0.3)
-    txt = send(ser, "IR C13E01FE", 0.3)
-    check("IR C13E01FE (按钮1) -> SEQ 1 启动", "OK IRSEQ 1 start" in txt, txt.strip().replace("\r", " | "))
+    txt = send(ser, "IRLEARN 1", 0.3)
+    check("IRLEARN 1 武装", "OK IRLEARN armed slot 1" in txt, txt.strip().replace("\r", " | "))
+    txt = send(ser, "IR A1B2C3D4", 0.3)
+    check("IR A1B2C3D4 -> 绑定 slot1", "OK IRLRN slot 1 = A1B2C3D4" in txt, txt.strip().replace("\r", " | "))
+    txt = send(ser, "IR A1B2C3D4", 0.3)   # 已绑定 -> 触发动作集
+    check("IR A1B2C3D4 (按钮1) -> SEQ 1 启动", "OK IRSEQ 1 start" in txt, txt.strip().replace("\r", " | "))
     txt = send(ser, "SEQ ?", 0.3)
     check("IR 按钮1 后 running 1", "running 1" in txt, txt.strip().replace("\r", " | "))
-    # 13.4 IR 按钮5 (0xC53A05FA) 停止循环
-    txt = send(ser, "IR C53A05FA", 0.3)
-    check("IR C53A05FA (按钮5) -> 停止", "OK IRSEQ 1 stop" in txt, txt.strip().replace("\r", " | "))
+    # 13.4 学习按钮5 停止循环
+    send(ser, "SEQ STOP", 0.3); drain(ser, 0.3)
+    txt = send(ser, "IRLEARN 5", 0.3)
+    check("IRLEARN 5 武装", "OK IRLEARN armed slot 5" in txt, txt.strip().replace("\r", " | "))
+    txt = send(ser, "IR 5A5A5A5A", 0.3)
+    check("IR 5A5A5A5A -> 绑定 slot5", "OK IRLRN slot 5 = 5A5A5A5A" in txt, txt.strip().replace("\r", " | "))
+    txt = send(ser, "SEQ 1", 0.3)
+    check("SEQ 1 启动 (供按钮5 停止)", "OK IRSEQ 1 start" in txt, txt.strip().replace("\r", " | "))
+    txt = send(ser, "IR 5A5A5A5A", 0.3)
+    check("IR 5A5A5A5A (按钮5) -> 停止", "OK IRSEQ 1 stop" in txt, txt.strip().replace("\r", " | "))
     txt = send(ser, "SEQ ?", 0.3)
     check("IR 按钮5 后 idle", "idle" in txt, txt.strip().replace("\r", " | "))
     # 13.5 摇杆指令(JOY)停止循环 (req 3)
@@ -277,8 +288,18 @@ def main():
     # 13.7 未知 IR 码 (按钮1 不在, 但序列码组外) 不影响 idle
     send(ser, "SEQ STOP", 0.3); drain(ser, 0.3)
 
-    # 收尾复位
+    # 收尾: 清除本次学习写入的绑定 + 复位舵机
     send(ser, "SEQ STOP", 0.3)
+    send(ser, "IRCLEAR", 0.3); drain(ser, 0.3)
+    # 13.8 出厂默认键码 (用户真实遥控) 在 IRCLEAR 后恢复生效
+    txt = send(ser, "IR 00FF45BA", 0.3)
+    check("默认码 00FF45BA (按钮1) -> SEQ 1 启动", "OK IRSEQ 1 start" in txt, txt.strip().replace("\r", " | "))
+    txt = send(ser, "SEQ ?", 0.3)
+    check("默认码后 running 1", "running 1" in txt, txt.strip().replace("\r", " | "))
+    txt = send(ser, "IR 00FF40BF", 0.3)
+    check("默认码 00FF40BF (按钮5) -> 停止", "OK IRSEQ 1 stop" in txt, txt.strip().replace("\r", " | "))
+    txt = send(ser, "SEQ ?", 0.3)
+    check("默认码停止后 idle", "idle" in txt, txt.strip().replace("\r", " | "))
     send(ser, "RESET", 0.6)
     ser.close()
 

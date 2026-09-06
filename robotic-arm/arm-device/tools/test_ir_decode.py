@@ -81,7 +81,8 @@ def main():
     # 8 个原工程按钮 (左/右/数字2/8/上/下/数字4/6)
     codes = [0xF708FF00, 0xA55AFF00, 0xB946FF00, 0xEA15FF00,
              0xE718FF00, 0xAD52FF00, 0xBB44FF00, 0xBC43FF00]
-    # 新增动作序列/停止按钮: 1/3/7/9 启动, 5 停止 (地址 0xC1/0xC3/0xC5/0xC7/0xC9)
+    # 额外任意合法 NEC 帧 (仅验证解码器对未知码也正确, 未绑定动作; 动作集键改由
+    # 运行时 IRLEARN 学习真实遥控码, 见 core/ir_ctrl.c)
     codes += [0xC13E01FE, 0xC33C03FC, 0xC73807F8, 0xC93609F6, 0xC53A05FA]
     ok = 0
     for code in codes:

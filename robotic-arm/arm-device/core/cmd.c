@@ -19,7 +19,10 @@
    AUTO <id>                   joystick-like self-sweep between limits
    JOY  <raw9> <raw8> <raw6> <raw7>   full joystick frame (4 analog raw 0..1023)
    JOY  <id> <raw>             single-axis joystick nudge (id 6/7/8/9)
-   IR   <hexcode>              8-button IR remote (NEC 32-bit code)
+   IR   <hexcode>              8-btn remote OR a learned action-set code
+   IRLEARN <1|3|5|7|9>          arm: next IR press learns that slot's code
+   IRCODES                      dump learned action-set bindings
+   IRCLEAR                      erase all learned IR bindings
    RESET                       all servos -> 90
    STATUS | ?                  print S6..S9 angles + modes
    HELP                        print this help
@@ -28,9 +31,12 @@
    (manual test) AND as real hardware: joystick_scan() reads ADC A0..A3,
    ir_ctrl_poll() decodes NEC on PD2 -- both mirror the original Arduino
    handleJoystickControl()/IR recv logic (thresholds & button map identical).
-   IR buttons 1/3/7/9 start ~15 s action sets (5 s mid-pause, loop); button 5
-   or any JOY command stops the loop; another 1/3/7/9 switches the set. The
-   SEQ command drives the same sets over serial for testing.
+   The 8 nudge keys (left/right/2/8/up/down/4/6) are hardcoded from the
+   reference sketch. The action-set keys 1/3/7/9 (start a ~15 s loop with a
+   5 s mid-pause) and 5 (stop) are LEARNED from the real remote via IRLEARN,
+   because their NEC codes vary per remote. Every decoded hardware frame is
+   echoed as "IR RAW=0x..." so you can read your remote's codes. The SEQ
+   command drives the same sets over serial for testing without a remote.
    JOYHW/IRHW toggle the hardware paths; ADC prints raw axis values.
    All literals are PSTR()'d so avr-gcc keeps them in flash, not RAM.        */
 
@@ -121,7 +127,10 @@ static void send_help(void) {
     uart_puts(PSTR("  AUTO <id>                 self-sweep between limits\r\n"));
     uart_puts(PSTR("  JOY <r9> <r8> <r6> <r7>    joystick frame (raw 0..1023, +/-1 each)\r\n"));
     uart_puts(PSTR("  JOY <id> <raw>             single-axis joystick nudge\r\n"));
-    uart_puts(PSTR("  IR <hex>                   8-btn remote (F708FF00..) + seq 1/3/7/9 + stop 5\r\n"));
+    uart_puts(PSTR("  IR <hex>                   8-btn remote OR a learned 1/3/5/7/9 code\r\n"));
+    uart_puts(PSTR("  IRLEARN <1|3|5|7|9>         arm: next IR press learns that slot's code\r\n"));
+    uart_puts(PSTR("  IRCODES                    dump learned action-set bindings\r\n"));
+    uart_puts(PSTR("  IRCLEAR                     erase all learned IR bindings\r\n"));
     uart_puts(PSTR("  SEQ 1|3|7|9                run action set (switch if another runs)\r\n"));
     uart_puts(PSTR("  SEQ STOP                   stop running action set (same as IR 5)\r\n"));
     uart_puts(PSTR("  SEQ ?                      report running set / idle\r\n"));
@@ -227,8 +236,29 @@ static void process_line(char *buf) {
         if (n < 2) { uart_puts(PSTR("ERR SYNTAX\r\n")); return; }
         uint32_t code;
         if (!parse_hex32(tok[1], &code)) { uart_printf(PSTR("ERR IR HEX %s\r\n"), tok[1]); return; }
-        if (!ir_ctrl_dispatch(code))
+        if (!ir_ctrl_feed(code))
             uart_printf(PSTR("ERR IR UNKNOWN %08lX\r\n"), code);
+        return;
+    }
+
+    /* ---- IRLEARN / IRCODES / IRCLEAR: learn & manage action-set keys ----
+       Action-set buttons (1/3/5/7/9) are unknown at build time, so the user
+       learns them from the real remote: IRLEARN <slot> then press the key. */
+    if (strcmp(verb, "IRLEARN") == 0) {
+        if (n < 2) { uart_puts(PSTR("ERR SYNTAX\r\n")); return; }
+        bool ok; uint8_t slot = parse_u8(tok[1], &ok);
+        if (!ok || !ir_ctrl_learn_arm(slot)) {
+            uart_puts(PSTR("ERR IRLEARN (1|3|5|7|9)\r\n"));
+            return;
+        }
+        uart_printf(PSTR("OK IRLEARN armed slot %u; press the remote key\r\n"),
+                    (unsigned)slot);
+        return;
+    }
+    if (strcmp(verb, "IRCODES") == 0) { ir_ctrl_dump_learned(); return; }
+    if (strcmp(verb, "IRCLEAR") == 0) {
+        ir_ctrl_clear_learned();
+        uart_puts(PSTR("OK IRCLEAR (all learned bindings erased)\r\n"));
         return;
     }
 

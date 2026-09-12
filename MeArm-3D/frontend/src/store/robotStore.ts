@@ -54,7 +54,9 @@ export type RobotControlSource = 'virtual' | 'real' | 'command';
 export interface LogEntry {
   id: number;
   time: string;
-  kind: 'in' | 'out' | 'sys';
+  // 'err' 是本地告警（例如 mode=real 准入校验失败、安全门拦截命令）——
+  // 它不来自链路，所以不能复用 'in'/'out'；用独立 kind 才能在日志里一眼分辨。
+  kind: 'in' | 'out' | 'sys' | 'err';
   text: string;
 }
 

@@ -30,8 +30,32 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const TARGET_URL = process.argv[2] ?? 'http://127.0.0.1:5273/';
-const DEBUG_PORT = Number(process.argv[3] ?? 9333);
+// 位置参数：只有第 1 个是 url，第 2 个才是 debugPort。
+// ⚠️ 只传一个数字（例如 `... 9334`）会被当成 url，浏览器就去开 "9334" 这个地址，
+//    表现为「页面未在 30s 内完成渲染」——实测浪费过一轮排查。这里做形状校正：
+//    纯数字的 url 视为想改 debugPort，url 退回默认值。
+function parseArgs(argv) {
+  let url = argv[2];
+  let port = argv[3];
+  if (url !== undefined && /^\d+$/.test(String(url)) && port === undefined) {
+    port = url;
+    url = undefined;
+  }
+  if (url !== undefined && !/^https?:\/\//i.test(String(url))) {
+    console.warn(`[e2e] 警告: "${url}" 不是 http(s) URL，已回退到默认地址`);
+    url = undefined;
+  }
+  const p = port === undefined ? 9333 : Number(port);
+  if (port !== undefined && !Number.isInteger(p)) {
+    console.warn(`[e2e] 警告: debugPort "${port}" 不是整数，回退到 9333`);
+  }
+  return {
+    url: url ?? 'http://127.0.0.1:5273/',
+    port: Number.isInteger(p) ? p : 9333,
+  };
+}
+
+const { url: TARGET_URL, port: DEBUG_PORT } = parseArgs(process.argv);
 
 // ---- Phase 8：真实 Go 后端（关节级 WebSocket 服务）----
 const REPO_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
@@ -67,6 +91,11 @@ const CHROME_FLAGS = [
   '--enable-unsafe-swiftshader',
   '--hide-scrollbars',
   '--window-size=1400,1000',
+  // 全新 profile 首启时 Edge 会弹出 edge://sync-confirmation-dialog/，
+  // 它是 /json/list 里的**第一个 page**。若按序取首个 page 就会导航到弹窗上，
+  // 表现为「页面未在 30s 内完成渲染」——实测踩过，且只在干净 profile 上复现。
+  '--disable-sync',
+  '--disable-features=msEdgeSyncConfirmationDialog,EdgeSyncPromo',
 ];
 
 const results = [];
@@ -141,8 +170,14 @@ async function waitForDebuggerEndpoint(port, timeoutMs = 25000) {
     try {
       const response = await fetch(`http://127.0.0.1:${port}/json/list`);
       const targets = await response.json();
-      const page = targets.find((t) => t.type === 'page' && t.webSocketDebuggerUrl);
-      if (page) return page;
+      const pages = targets.filter((t) => t.type === 'page' && t.webSocketDebuggerUrl);
+      // 优先选 URL 命中目标页的那个，别盲取首个：浏览器首启可能先开
+      // 内部页（edge://sync-confirmation-dialog/ 等），取错就会一直等不到渲染。
+      const wanted = pages.find((t) => typeof t.url === 'string' && t.url.startsWith(TARGET_URL));
+      if (wanted) return wanted;
+      // 兜底：忽略浏览器内部页，取第一个真实 http(s) 页面
+      const httpPage = pages.find((t) => typeof t.url === 'string' && /^https?:/i.test(t.url));
+      if (httpPage) return httpPage;
     } catch {
       /* 端口还没起来，继续等 */
     }
@@ -909,8 +944,13 @@ async function main() {
       const isSerialLink = backend.health.device === 'serial';
       const homeEps = isSerialLink ? 1e-2 : 1e-9;
       const backHome = backend.health.state ?? {};
-      if (!isSerialLink) {
-        // sim：假固件每次启动都从 robot.yaml 的 homePose 起算，可以逐位校验。
+      if (!isSerialLink && !backend.external) {
+        // sim（**本脚本自己拉起的**后端）：假固件每次启动都从 robot.yaml 的 homePose 起算，
+        // 可以逐位校验。
+        //
+        // ⚠️ 必须排除 backend.external（复用 8090 上的既有实例）。
+        //    复用的实例可能刚跑完上一轮 e2e，state 停在上轮命令值（实测 shoulder=20.9），
+        //    那时"HOME 位"断言必假红 —— 这是跨批次状态残留，不是产品缺陷。
         check(
           'Phase 8：后端初始状态 = HOME 位（同一份 robot.yaml 真值）',
           Math.abs((backHome.shoulder ?? NaN) - 0.8498937633) < homeEps &&
@@ -918,6 +958,19 @@ async function main() {
             Math.abs((backHome.base ?? NaN)) < homeEps &&
             Math.abs((backHome.gripper ?? NaN) - 50) < homeEps,
           JSON.stringify(backHome),
+        );
+      } else if (!isSerialLink) {
+        // sim 但复用既有实例：位置取决于上一轮操作，无权假定 HOME。
+        // 改为校验可判定的不变量：四轴都是有限数（state 确实来自一个活着的 sim 链路）。
+        const allFinite =
+          Number.isFinite(backHome.shoulder) &&
+          Number.isFinite(backHome.elbow) &&
+          Number.isFinite(backHome.base) &&
+          Number.isFinite(backHome.gripper);
+        check(
+          'Phase 8：后端 state 为可读的有限值（复用实例，不假定 HOME）',
+          allFinite,
+          `${JSON.stringify(backHome)}（8090 为复用实例，跳过 HOME 逐位比对）`,
         );
       } else {
         // serial：**臂的物理位置取决于上一次操作**，测试无权假定它一定是 HOME
@@ -1126,7 +1179,13 @@ async function main() {
         );
 
         // (h) 重启后端：新进程的 sim 从 HOME 起步，只有「重连后补发当前命令」
-        //     才可能让 Actual 回到 30° —— 没补发就会永久停在 HOME，这条必失败。
+        //     才可能把新 sim 拉回**前端当前命令值** —— 没补发就会永久停在 HOME。
+        //
+        // ⚠️ 期望值必须取「重连前实测到的命令值」，**不能写死数字**。
+        //    (c) 段的 target 是按当时位姿自适应挑的（curVal ± 20），
+        //    写死比如 30 会随 HOME/前序步骤漂移而假红 —— 实测已踩。
+        const cmdBeforeRestart = await cdp.evaluate(readJointGap(1));
+        const expectCmd = cmdBeforeRestart?.command ?? null;
         const backend2 = await startBackend();
         check(
           'Phase 8：后端重启成功',
@@ -1141,10 +1200,19 @@ async function main() {
             String(backAgain),
           );
           const reConverged = await poll(cdp, readJointGap(1), (v) => v !== null && v.gap <= 0.05, 15000);
+          // 两条判据同时成立才算补发生效：
+          //   1) 新 sim 的 Actual 收敛到 Command（gap→0）
+          //   2) 那个 Command 仍是重连前的那一个（没被 HOME 顶掉）
+          const cmdHeld = expectCmd === null || reConverged === null
+            ? false
+            : Math.abs(reConverged.command - expectCmd) < 2;
           check(
             'Phase 8：重连后自动补发当前命令（新 sim 被重新驱动到命令值）',
-            reConverged !== null && reConverged.gap <= 0.05 && Math.abs(reConverged.command - 30) < 2,
-            reConverged ? `cmd ${reConverged.command}° / act ${reConverged.actual}°` : 'null',
+            reConverged !== null && reConverged.gap <= 0.05 && cmdHeld,
+            reConverged
+              ? `cmd ${reConverged.command}° / act ${reConverged.actual}° ` +
+                `(期望命令 ${expectCmd === null ? 'null' : `${expectCmd.toFixed(1)}°`})`
+              : 'null',
           );
         }
       }

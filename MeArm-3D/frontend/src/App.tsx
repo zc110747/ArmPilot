@@ -6,8 +6,14 @@ import { RobotScene } from '@/components/RobotScene';
 import { ViewportOverlay } from '@/components/RobotScene/ViewportOverlay';
 import { LogPanel } from '@/components/StatusPanel/LogPanel';
 import { StatusPanel } from '@/components/StatusPanel/StatusPanel';
+import { useAutoConnect } from '@/hooks/useAutoConnect';
 
 export default function App() {
+  // 一键启动脚本（根目录 start.bat）会注入 VITE_AUTO_CONNECT，
+  // 让页面挂载后自动连后端（可选自动切 Real Robot）。
+  // 未注入时是 no-op —— `npm run dev` 的手动调试行为完全不变。
+  useAutoConnect();
+
   return (
     <div className="app">
       <header className="header">

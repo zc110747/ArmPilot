@@ -28,7 +28,13 @@ export function LogPanel() {
             <div key={entry.id}>
               <span className="dim">{entry.time}</span>{' '}
               <span className="dim">
-                {entry.kind === 'out' ? 'SEND' : entry.kind === 'in' ? 'RECV' : 'SYS '}
+                {entry.kind === 'out'
+                  ? 'SEND'
+                  : entry.kind === 'in'
+                    ? 'RECV'
+                    : entry.kind === 'err'
+                      ? 'ERR '
+                      : 'SYS '}
               </span>{' '}
               {entry.text}
             </div>

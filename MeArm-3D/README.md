@@ -126,13 +126,44 @@ MeArm-3D/
 
 ## 4. 快速开始
 
+### 一键启动（推荐）
+
+根目录下的 `start.bat` 会拉起后端 + 前端，并让页面**自动连上后端**（不再是默认的
+浏览器内 Mock 仿真）：
+
+```bat
+start.bat              :: SIM 模式（默认，不碰硬件）
+start.bat --real       :: REAL 模式（config.serial.yaml，会真的动舵机）
+start.bat --help       :: 用法
+```
+
+它做的事：检查 `backend/bin/armpilot-backend.exe` / `config/robot.yaml` / node 是否存在、
+探测并（经你确认后）清理占用 8090 / 5273 的残留进程、按模式起两个窗口、
+打印本机与局域网访问地址。
+
+`start.bat` 会往前端注入两个环境变量，这正是"一键启动后页面自动进入 ws 模式"的实现：
+
+| 变量 | SIM 模式 | REAL 模式 | 作用 |
+|------|---------|----------|------|
+| `VITE_AUTO_CONNECT` | `ws` | `ws` | 页面挂载后自动连 WebSocket 后端（而非浏览器内 Mock） |
+| `VITE_AUTO_REAL` | 不设 | `1` | 连接成功后自动切到 Real Robot（带校验，见下） |
+
+> ⚠️ **REAL 模式下若后端链路末端不是 serial**（例如没插机械臂、串口号不对），
+> 自动切换会**告警但不下发命令**，提示条会显示实际末端。
+> 这是刻意的：静默降级比明确报错更危险。
+>
+> 不想要自动连接时，直接 `cd frontend && npm run dev` —— 未注入环境变量时行为完全不变
+> （仍停在 Mock，等你手动点 Connect）。
+
+### 手动启动
+
 ```bash
 # 前端
 cd frontend
 npm install
 npm run dev            # 本机 http://localhost:5273；局域网 http://<本机IP>:5273
 npm run typecheck      # tsc -b，零错误
-npm test               # vitest（单元 + 验收），204 项
+npm test               # vitest（单元 + 验收），226 项
 npm run test:e2e       # 真浏览器冒烟（需先 npm run dev；见下方参数说明）
 npm run build          # 生产构建
 
@@ -169,21 +200,31 @@ node tests/e2e/ui-smoke.mjs http://localhost:5273 9333 ../docs/images/armpilot-c
 
 ### 驱动真实机械臂（Real Robot）
 
-**三步，缺一不可**（顺序错了就会「点了 Real Robot 但真机不动」）：
+**一条命令**（`start.bat` 会做完下面手动三步的全部事情）：
+
+```bat
+start.bat --real
+```
+
+确认后端窗口出现 `[serial] 已连接 COM16 @ 115200 8N1`，
+页面提示条显示「★ 正在驱动真实机械臂（链路末端 serial）」即可。
+串口号在 `backend/config.serial.yaml` 的 `device.serial.port` 里改。
+
+<details>
+<summary>手动三步（不用脚本时）</summary>
 
 ```bash
 # 1. 用真机配置启动后端（config.yaml 是 sim，不会碰硬件）
 cd backend && ./bin/armpilot-backend.exe -c config.serial.yaml
-#    确认日志出现：[serial] 已连接 COM16 @ 115200 8N1
-#    （端口在 config.serial.yaml 的 device.serial.port 里改）
 
 # 2. 前端连上这个后端
 cd frontend && npm run dev
 #    在 Connection 面板切到 WebSocket → 输入 ws://localhost:8090/ws/joint → Connect
 
 # 3. 在「关节控制」卡片点 Real Robot
-#    按钮下方会显示当前命令去向，必须是「★ 正在驱动真实机械臂（链路末端 serial）」
 ```
+
+</details>
 
 **「命令去向」提示条的含义**（`data-testid="mode-routing"`）：
 
@@ -192,7 +233,7 @@ cd frontend && npm run dev
 | 纯仿真（未连接…） | 没连传输，命令只改虚拟臂 |
 | 已拦截：Simulation 模式下不下发给真机 | **连着真机但模式是 Simulation** ⇒ 安全门生效，真机不动 |
 | ★ 正在驱动真实机械臂（链路末端 serial） | 真机模式 + 真机链路，命令会下发给硬件 |
-| Real 模式下…非真机 / 连接的是 Mock | 模式选对了但链路不对，检查第 1、2 步 |
+| Real 模式下…非真机 / 连接的是 Mock / 末端未知 | 模式选对了但链路不对，检查后端是否用 `config.serial.yaml` 启动 |
 
 > ⚠️ **真机没有位置反馈**（无编码器）：界面上的 `Actual` 是**固件内部目标值反算**，
 > 不代表已物理到位。唯一的外部真值是相机 —— 见下方 Phase 9 验收与 `tools/verify_pose.py`。
@@ -212,6 +253,7 @@ cd frontend && npm run dev
 | 8 | **Go WebSocket** | ✅ | **后端独立 module `backend/`（8090）+ 内置「假固件」sim**：命令走 `JSON → JR 文本 → 舵机角 → 反算关节角 → STATE` 真实往返，非等值回显；`OK JR` **只做标定核对不发布状态**；ACK 门控 + latest-wins；`hello` 带模型真值在线互检；两层心跳；断线指数退避重连**并补发当前命令**。`go test` 56 项 · 前端新增 66 项单测（`wsProtocol` 25 / `WebSocketTransport` 30 / 接线验收 11）· e2e 新增 21 项真实 WS 端到端（见 `docs/coordinate-system.md` §3.4、`protocol/serial-v1.md` §5、D27–D33） |
 | **9** | **Serial（真机）** | ✅ | `internal/device/serial.go` 落地真串口（Windows 非重叠 I/O，**不用 `bufio`**）；Uno DTR 复位静默窗口 `connect_settle_ms=2600` + 暖机包。**真机端到端闭环实测 PASS 18 / FAIL 1**：`hello=serial` · `homePose` 与 `robot.yaml` 逐位一致 · 7 步链路回推 `max\|Δ\| ≤ 0.004°` · 相机反解重复性肩 `0.26°`/肘 `0.01°`。见 `tools/verify_serial_e2e.mjs`、`docs/decisions.md` D34–D36 |
 | 10 | Real Robot | ✅ | 机构角色 / 标定 / 限位 / 零位**已实测就绪**（Phase 4.5 + `config/robot.yaml`）；Serial 已落地 ⇒ 浏览器拖动能**真实驱动物理机械臂**。**2026-09-12 修复 mode↔transport 联动缺口**：`Real Robot` 按钮原先只改 UI 样式、命令照样走当前 transport（"点了真机不动 / 切回仿真仍在动真机"），现补准入校验 + 安全门 + 去向提示（ADR **D41**）。⚠️ 相机验收已测出**肩标定增益偏差 −13.1%**（肘 +1.4% 已证实），需按锁死曝光重布台面后重测 |
+| **10.5** | **一键启动 `start.bat`** | ✅ | 根目录 `start.bat`：前置检查（backend exe / robot.yaml / node）、端口探测+确认清理（8090/5273）、按模式起前后端、打印本机+局域网地址。**关键**：注入 `VITE_AUTO_CONNECT=ws`（+ `--real` 时 `VITE_AUTO_REAL=1`）让页面**自动连后端并切 Real Robot** —— 原先页面默认停在 MockTransport 且不会自动连接，"脚本起好了但只动仿真臂"（ADR **D42**）。`npm run dev` 不注入，手动调试行为不变 |
 | 11 | Real Feedback | ⏳ | 误差链路与「Actual 由实际舵机角反算」的机制已在 Phase 8 的 sim 上验证过 |
 | 12 | 虚拟 / 真实同步 | ⏳ | — |
 

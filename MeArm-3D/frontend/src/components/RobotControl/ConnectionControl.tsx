@@ -25,33 +25,9 @@ import {
   disconnectTransport,
   tuneTransport,
 } from '@/store/transportBridge';
+import { getDefaultWsUrl } from './wsUrl';
 
 type TransportChoice = 'mock' | 'websocket';
-
-/**
- * 推导后端 WebSocket 默认地址（`armpilot-backend` 的 /ws/joint）。
- *
- * 为什么不能写成字面量 `ws://localhost:8090`：
- * 局域网内其他设备通过 `http://<本机IP>:5273` 打开页面时，浏览器里的
- * `localhost` 指的是**访问者自己那台设备**，而不是跑着后端的这台机器 ——
- * 于是必然连不上（表现是"页面能开、但一直重连"）。
- *
- * 因此按**页面自身的来源主机**推导：本机访问 -> localhost，
- * 局域网访问 -> 同一个 IP，端口换后端端口。协议随页面 http/https 切换。
- *
- * 优先级：VITE_WS_URL（显式覆盖，部署到任意后端时用） > 自动推导。
- */
-function getDefaultWsUrl(): string {
-  const fromEnv = import.meta.env?.VITE_WS_URL as string | undefined;
-  if (fromEnv) return fromEnv;
-
-  // 非浏览器环境（单测 / SSR）：退回字面量默认值
-  const loc = globalThis.location;
-  if (!loc?.hostname) return 'ws://localhost:8090/ws/joint';
-
-  const proto = loc.protocol === 'https:' ? 'wss:' : 'ws:';
-  return `${proto}//${loc.hostname}:8090/ws/joint`;
-}
 
 const DEFAULT_WS_URL = getDefaultWsUrl();
 

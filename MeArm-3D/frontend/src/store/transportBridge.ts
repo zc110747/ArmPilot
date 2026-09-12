@@ -114,6 +114,8 @@ export class TransportBridge {
   private disposed = false;
   /** 是否已经成功连接过一次（用于区分"首次连接"与"重连后补发命令"） */
   private hasConnectedOnce = false;
+  /** 被安全门拦下的下发次数（mode=simulation 却连着真机链路） */
+  private blockedSince = 0;
 
   constructor(options: TransportBridgeOptions = {}) {
     this.timer = options.timer ?? realTimer;
@@ -141,6 +143,23 @@ export class TransportBridge {
   /** 当前传输类型（mock / websocket…） */
   kind(): string {
     return this.transport.kind;
+  }
+
+  /**
+   * 当前链路是否**真的连着物理硬件**。
+   *
+   * 判据两条同时成立：
+   *   1. 传输是 WebSocket（浏览器内 Mock 永远不是真机）
+   *   2. 后端 hello/stats 上报的 `device === 'serial'`
+   *
+   * `device` 未知（尚未收到 hello）时按 **false** 处理 —— 宁可少拦，
+   * 也不要因为"还没握手"就把正常仿真误判成真机而拒绝下发。
+   */
+  private isRealHardwareLink(): boolean {
+    if (this.transport.kind !== 'websocket') return false;
+    const stats = this.transport.stats?.();
+    const device = stats !== undefined && stats !== null && 'device' in stats ? stats.device : null;
+    return device === 'serial';
   }
 
   async connect(): Promise<void> {
@@ -181,6 +200,7 @@ export class TransportBridge {
     await this.transport.disconnect();
     this.pendingJoints = null;
     this.hasConnectedOnce = false;
+    this.blockedSince = 0;
 
     // ⚠️ 这里必须**显式**复位，不能指望 transport.disconnect() 发出的 disconnected 事件：
     //    上面已经退订了 status 监听，事件根本没人接。早先的写法就是踩了这个坑 ——
@@ -236,6 +256,20 @@ export class TransportBridge {
     if (joints === null || this.disposed) return;
     this.pendingJoints = null;
     this.lastSendAt = now;
+
+    // ---- 安全门（mode ↔ transport 联动）----
+    //
+    // `mode === 'simulation'` 表示用户明确要求"只在仿真里动，别碰真机"。
+    // 此时若连的是**真机链路**（websocket + serial），必须**拒绝下发** ——
+    // 否则"切回 Simulation"就成了纯装饰，真机照样被驱动（危险且不可预期）。
+    //
+    // 注意只拦"真机链路"：mock 与 device=sim 的后端本就是仿真，照常放行，
+    // 否则会把 Phase 7/8 的既有仿真闭环一起打死。
+    if (this.store().mode === 'simulation' && this.isRealHardwareLink()) {
+      this.blockedSince += 1;
+      return;
+    }
+
     this.txSince += 1;
     void this.transport.sendJointState(joints);
   }
@@ -333,6 +367,16 @@ export class TransportBridge {
       this.lastRxLogAt = now;
       store.pushLog('in', `joint_state ×${this.rxSince} ← ${this.transport.kind}`);
       this.rxSince = 0;
+    }
+    // 安全门拦下的下发必须**可见**：否则用户会看到"滑杆动了但机械臂没动"，
+    // 却没有任何线索说明为什么 —— 正是本次要修的那类静默失败。
+    if (this.blockedSince > 0) {
+      store.pushLog(
+        'err',
+        `已拦截 ${this.blockedSince} 条命令：当前为 Simulation 模式，` +
+          '不下发给真机（切到 Real Robot 才会下发）',
+      );
+      this.blockedSince = 0;
     }
   }
 }

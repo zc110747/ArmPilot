@@ -167,6 +167,36 @@ node tests/e2e/ui-smoke.mjs http://localhost:5273 9333 ../docs/images/armpilot-c
 > **e2e 会自动拉起后端**（`backend/bin/armpilot-backend.exe`）并在结束后清理进程。
 > 若 8090 上已有实例，则复用该实例并**跳过**"断线重连"子项（脚本杀不掉别人的进程）。
 
+### 驱动真实机械臂（Real Robot）
+
+**三步，缺一不可**（顺序错了就会「点了 Real Robot 但真机不动」）：
+
+```bash
+# 1. 用真机配置启动后端（config.yaml 是 sim，不会碰硬件）
+cd backend && ./bin/armpilot-backend.exe -c config.serial.yaml
+#    确认日志出现：[serial] 已连接 COM16 @ 115200 8N1
+#    （端口在 config.serial.yaml 的 device.serial.port 里改）
+
+# 2. 前端连上这个后端
+cd frontend && npm run dev
+#    在 Connection 面板切到 WebSocket → 输入 ws://localhost:8090/ws/joint → Connect
+
+# 3. 在「关节控制」卡片点 Real Robot
+#    按钮下方会显示当前命令去向，必须是「★ 正在驱动真实机械臂（链路末端 serial）」
+```
+
+**「命令去向」提示条的含义**（`data-testid="mode-routing"`）：
+
+| 提示 | 含义 |
+|------|------|
+| 纯仿真（未连接…） | 没连传输，命令只改虚拟臂 |
+| 已拦截：Simulation 模式下不下发给真机 | **连着真机但模式是 Simulation** ⇒ 安全门生效，真机不动 |
+| ★ 正在驱动真实机械臂（链路末端 serial） | 真机模式 + 真机链路，命令会下发给硬件 |
+| Real 模式下…非真机 / 连接的是 Mock | 模式选对了但链路不对，检查第 1、2 步 |
+
+> ⚠️ **真机没有位置反馈**（无编码器）：界面上的 `Actual` 是**固件内部目标值反算**，
+> 不代表已物理到位。唯一的外部真值是相机 —— 见下方 Phase 9 验收与 `tools/verify_pose.py`。
+
 ## 5. 阶段进度
 
 | Phase | 内容 | 状态 | 验收证据 |
@@ -181,7 +211,7 @@ node tests/e2e/ui-smoke.mjs http://localhost:5273 9333 ../docs/images/armpilot-c
 | 7 | MockTransport 闭环 | ✅ | 完整双向闭环（命令 → 尾沿节流 → Mock → 回推 → Actual）；Mock **如实模拟舵机有限角速度 / 传输延迟 / 丢帧 / 限位拒绝**（非等值回显）；回推**只写 Actual**（回环打破，400 点轨迹引用从未改变）；Connection 面板可实时调参（见 `docs/coordinate-system.md` §3.3、D23–D26） |
 | 8 | **Go WebSocket** | ✅ | **后端独立 module `backend/`（8090）+ 内置「假固件」sim**：命令走 `JSON → JR 文本 → 舵机角 → 反算关节角 → STATE` 真实往返，非等值回显；`OK JR` **只做标定核对不发布状态**；ACK 门控 + latest-wins；`hello` 带模型真值在线互检；两层心跳；断线指数退避重连**并补发当前命令**。`go test` 56 项 · 前端新增 66 项单测（`wsProtocol` 25 / `WebSocketTransport` 30 / 接线验收 11）· e2e 新增 21 项真实 WS 端到端（见 `docs/coordinate-system.md` §3.4、`protocol/serial-v1.md` §5、D27–D33） |
 | **9** | **Serial（真机）** | ✅ | `internal/device/serial.go` 落地真串口（Windows 非重叠 I/O，**不用 `bufio`**）；Uno DTR 复位静默窗口 `connect_settle_ms=2600` + 暖机包。**真机端到端闭环实测 PASS 18 / FAIL 1**：`hello=serial` · `homePose` 与 `robot.yaml` 逐位一致 · 7 步链路回推 `max\|Δ\| ≤ 0.004°` · 相机反解重复性肩 `0.26°`/肘 `0.01°`。见 `tools/verify_serial_e2e.mjs`、`docs/decisions.md` D34–D36 |
-| 10 | Real Robot | ✅ | 机构角色 / 标定 / 限位 / 零位**已实测就绪**（Phase 4.5 + `config/robot.yaml`）；Serial 已落地 ⇒ 浏览器拖动能**真实驱动物理机械臂**。⚠️ 相机验收已测出**肩标定增益偏差 −13.1%**（肘 +1.4% 已证实），需按锁死曝光重布台面后重测 |
+| 10 | Real Robot | ✅ | 机构角色 / 标定 / 限位 / 零位**已实测就绪**（Phase 4.5 + `config/robot.yaml`）；Serial 已落地 ⇒ 浏览器拖动能**真实驱动物理机械臂**。**2026-09-12 修复 mode↔transport 联动缺口**：`Real Robot` 按钮原先只改 UI 样式、命令照样走当前 transport（"点了真机不动 / 切回仿真仍在动真机"），现补准入校验 + 安全门 + 去向提示（ADR **D41**）。⚠️ 相机验收已测出**肩标定增益偏差 −13.1%**（肘 +1.4% 已证实），需按锁死曝光重布台面后重测 |
 | 11 | Real Feedback | ⏳ | 误差链路与「Actual 由实际舵机角反算」的机制已在 Phase 8 的 sim 上验证过 |
 | 12 | 虚拟 / 真实同步 | ⏳ | — |
 

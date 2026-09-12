@@ -196,6 +196,28 @@ input[type='checkbox'] {
   color: var(--text-dim);
 }
 
+/*
+ * 命令去向提示（Phase 9 修正）。
+ * JointControl 里 Real / Simulation 按钮的配套说明 —— 把"命令到底发给谁"
+ * 显式写出来，避免"点了 Real Robot 但真机不动"这类静默失败。
+ * 只靠文字色区分，不加背景/边框，与整体极简深色风格一致。
+ */
+.mode-hint {
+  font-size: 12px;
+  line-height: 1.5;
+  padding: 6px 0 2px;
+}
+.mode-hint.dim {
+  color: var(--text-dim);
+}
+.mode-hint.warn {
+  color: var(--warn);
+}
+.mode-hint.live {
+  color: var(--text-strong);
+  font-weight: 600;
+}
+
 .slider-row {
   margin-bottom: 10px;
 }

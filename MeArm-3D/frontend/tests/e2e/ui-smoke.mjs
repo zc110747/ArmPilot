@@ -518,6 +518,33 @@ const readStatRow = (label) => `(() => {
 
 const READ_DEVICE = readStatRow('链路末端');
 
+// ---------------------------------------------------------------------------
+// mode ↔ transport 联动（Phase 9 修正 · ADR D41）
+// ---------------------------------------------------------------------------
+
+/** 关节控制卡片里的「命令去向」提示文本 */
+const READ_MODE_ROUTING = `(() => {
+  const el = document.querySelector('[data-testid="mode-routing"]');
+  return el ? el.textContent.replace(/\\s+/g, ' ').trim() : null;
+})()`;
+
+/** 点关节控制卡片里的 Real Robot / Simulation 按钮 */
+const clickModeButton = (label) => `(() => {
+  const card = ${cardByTitle('关节控制 · Joint Control')};
+  const btn = card
+    ? Array.from(card.querySelectorAll('.btn-row button')).find(b => b.textContent.trim() === '${label}')
+    : null;
+  if (!btn) return false;
+  btn.click();
+  return true;
+})()`;
+
+/** 日志区是否包含某段文本 */
+const LOG_CONTAINS = (needle) => `(() => {
+  const el = document.querySelector('.log');
+  return el ? el.textContent.includes(${JSON.stringify(needle)}) : false;
+})()`;
+
 /** 重连次数（数字） */
 const READ_RECONNECTS = `(() => {
   const raw = ${readStatRow('重连次数')};
@@ -957,9 +984,17 @@ async function main() {
 
       // (c) 拖动 J2：Actual 必须滞后（后端假固件有 15ms 送达延迟 + 240°/s 有限角速度）
       //
-      // ⚠️ 真机特有：**必须先把臂移到远离目标的位置**，否则"命令 = 当前位姿"
+      // ⚠️ 真机特有 ①：**必须先把臂移到远离目标的位置**，否则"命令 = 当前位姿"
       //    时天然就没有滞后（实测复用的真机后端停在 30°，再命令 30° ⇒ 差 0.1°，假红）。
       //    这里先按当前位姿挑一个**相距 >10° 且在限位内**的目标。
+      // ⚠️ 真机特有 ②：**必须先切到 Real Robot**。ADR D41 的安全门在
+      //    `mode === 'simulation'` 时会拦截下发给真机链路的命令 —— 这是**正确行为**，
+      //    但会让本段的"滞后/收敛"观察不到任何变化。而 mode 跨批次残留，
+      //    所以这里显式归位，不依赖上一轮的终态。
+      if (isSerialLink) {
+        await cdp.evaluate(clickModeButton('Real Robot'));
+        await sleep(300);
+      }
       const J2_MIN = -6.093682734102679;
       const J2_MAX = 49.454929244955494;
       const curJ2 = await cdp.evaluate(readJointGap(1));
@@ -1005,6 +1040,73 @@ async function main() {
         typeof wsLog === 'string' && wsLog.includes('joint_command') && wsLog.includes('joint_state'),
         typeof wsLog === 'string' ? wsLog.slice(-90) : 'null',
       );
+
+      // (h) mode ↔ transport 联动（ADR D41）—— 这是本次要修的核心缺口
+      //
+      // 修正前：`mode` 是纯 UI 状态，点 Real Robot 只改按钮样式，
+      //         命令照样走当时连着的 transport ⇒ 真机不动 / 或误驱动真机。
+      // 修正后：真机链路上，simulation 模式必须**拦截**命令、real 模式才放行，
+      //         且"命令去向"必须显式可见。
+      if (isSerialLink) {
+        // h1. **显式**切到 Simulation（(c) 段为了跑通真机链路已切到 real）⇒ 提示应说明"已拦截"
+        await cdp.evaluate(clickModeButton('Simulation'));
+        await sleep(300);
+        const routingSim = await cdp.evaluate(READ_MODE_ROUTING);
+        check(
+          'Phase 8：真机链路 + Simulation → 提示"已拦截"（命令不下发真机）',
+          typeof routingSim === 'string' && routingSim.includes('拦截'),
+          String(routingSim),
+        );
+
+        // h2. 切到 Real Robot ⇒ 提示应变成"正在驱动真实机械臂"
+        await cdp.evaluate(clickModeButton('Real Robot'));
+        await sleep(300);
+        const routingReal = await cdp.evaluate(READ_MODE_ROUTING);
+        check(
+          'Phase 8：真机链路 + Real Robot → 提示"正在驱动真实机械臂"',
+          typeof routingReal === 'string' && routingReal.includes('真实机械臂'),
+          String(routingReal),
+        );
+
+        // h3. Real 模式下命令真的能出去（回守：别把真机路径一起拦死）
+        const curJ2b = await cdp.evaluate(readJointGap(1));
+        const altTarget = Math.min(
+          J2_MAX - 0.5,
+          Math.max(J2_MIN + 0.5, (curJ2b?.actual ?? 0) + ((curJ2b?.actual ?? 0) > (J2_MIN + J2_MAX) / 2 ? -8 : 8)),
+        );
+        await cdp.evaluate(setJointSlider(1, altTarget));
+        const sentInReal = await poll(
+          cdp,
+          LOG_CONTAINS('joint_command'),
+          (v) => v === true,
+          6000,
+        );
+        check('Phase 8：Real Robot 模式下命令确认下发（未被安全门误拦）', sentInReal === true);
+
+        // h4. 切回 Simulation ⇒ 日志出现"已拦截"（"以为在仿真其实在动真机"必须不可能）
+        await sleep(600);
+        await cdp.evaluate(clickModeButton('Simulation'));
+        await sleep(300);
+        await cdp.evaluate(setJointSlider(1, altTarget + 5));
+        const blocked = await poll(cdp, LOG_CONTAINS('已拦截'), (v) => v === true, 8000);
+        check(
+          'Phase 8：切回 Simulation → 命令被拦截且日志可见（不留静默）',
+          blocked === true,
+        );
+
+        // h5. 归位：后续段落默认"命令能下发"，不能把页面留在被拦截的 Simulation 态
+        //     （同理，这也是"跨批次状态残留"防线的最后一步）
+        await cdp.evaluate(clickModeButton('Real Robot'));
+        await sleep(300);
+      } else {
+        // sim 末端：安全门**不应**触发，命令必须照常走（否则打死 Phase 8 仿真闭环）
+        const routingSim = await cdp.evaluate(READ_MODE_ROUTING);
+        check(
+          'Phase 8：sim 末端下命令照常下发（安全门只针对真机链路）',
+          typeof routingSim === 'string' && !routingSim.includes('拦截'),
+          String(routingSim),
+        );
+      }
 
       if (backend.external) {
         console.log('[phase8] 后端为复用实例（非本脚本拉起），跳过断线重连子项');

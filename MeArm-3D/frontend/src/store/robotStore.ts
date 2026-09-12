@@ -359,10 +359,62 @@ export const useRobotStore = create<RobotStore>((set, get) => {
     },
 
     setMode(mode) {
+      // ⚠️ 这不是一个"纯 UI 开关"。
+      //
+      // 规范（本文件头部 §十七）要求 `mode` **决定"要不要发给真实机械臂"**，
+      // 但早期实现只写了 `set({ mode })` + 日志 —— 于是点下「Real Robot」后
+      // 命令照样走当时连着的 transport（多半是 Mock），**真机纹丝不动**，
+      // 而 UI 却显示「Real（真实机械臂）」。这是一个"看起来成功了"的静默失败。
+      //
+      // 因此这里把 mode 变成**带校验的意图**：切到 real 时立刻核对链路是否具备
+      // 驱动真机的能力，不具备就**明确告警**（而不是让用户以为已切过去）。
       set({ mode });
+
+      if (mode !== 'real') {
+        get().pushLog('sys', '切换到 Simulation（命令不再下发给真实机械臂）');
+        return;
+      }
+
+      // ---- 以下为 mode === 'real' 的准入校验 ----
+      const st = get();
+      const stats = st.transportStats;
+      const device = stats && 'device' in stats ? (stats.device as string | null) : null;
+
+      if (st.transportKind === null || !st.transportDriven) {
+        // 没有连接：命令无处可去。这是"点了 Real Robot 但真机不动"的第一大原因。
+        get().pushLog(
+          'err',
+          'Real Robot 未生效：当前**未连接**任何传输。请先在 Connection 面板连接后端' +
+            '（真机需用 config.serial.yaml 启动 armpilot-backend）',
+        );
+        return;
+      }
+
+      if (st.transportKind === 'mock') {
+        get().pushLog(
+          'err',
+          'Real Robot 未生效：当前连接的是 **MockTransport**（浏览器内仿真，不碰硬件）。' +
+            '请在 Connection 面板切到 WebSocket 并连接真机后端',
+        );
+        return;
+      }
+
+      if (device !== null && device !== 'serial') {
+        // 后端连上了，但它自己也没接真机（device=sim 表示用的是内置假固件）。
+        get().pushLog(
+          'err',
+          `Real Robot 未生效：后端链路末端是「${device}」而非 serial。` +
+            '请用 config.serial.yaml 启动后端（并把机械臂接到配置的串口）',
+        );
+        return;
+      }
+
+      // 末端是 serial（或尚未收到 hello，暂按乐观放行并提示等待）
       get().pushLog(
         'sys',
-        mode === 'real' ? '切换到 Real Robot（下发前仍需安全校验）' : '切换到 Simulation',
+        device === 'serial'
+          ? 'Real Robot 已启用：命令将下发给真实机械臂（链路末端 serial）'
+          : 'Real Robot 已启用：等待后端 hello 确认链路末端…',
       );
     },
 

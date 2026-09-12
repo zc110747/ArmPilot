@@ -3,7 +3,85 @@
 记录"为什么这么做"，尤其是**与原 spec 示例不一致**的地方，方便后续复盘与修改。
 每条都有编号，代码注释会引用编号（如 `D2`）。
 
-> 本文**最新条目在前**（D40 在最上，D1 在最下）。
+> 本文**最新条目在前**（D41 在最上，D1 在最下）。
+
+## D41 · **`mode` 曾是"死状态"**：点 Real Robot 只改样式、命令照样走当前 transport
+
+**背景**：用户反馈「real 真机执行时未运行」。排查发现这不是连接问题，
+而是 **`mode` 从未接入命令路径** —— 一个"看起来成功了"的静默失败。
+
+### 一、缺口（代码层铁证）
+
+`robotStore` 头部注释写着：
+
+> `mode`（simulation / real）… **前者决定"要不要发给真实机械臂"**
+
+但实际用法**全部是 UI 渲染**：
+
+| 位置 | 用途 |
+|------|------|
+| `JointControl.tsx` | 按钮 `active` 样式 |
+| `StatusPanel.tsx` | 文案"Real（真实机械臂）"/"Virtual（仿真）" |
+| `ViewportOverlay.tsx` | 角标 |
+| `robotStore.setMode` | `set({ mode })` + 一条日志 |
+
+而命令下发的**唯一判据**在 `transportBridge`：
+
+```ts
+this.unsubscribeStore = useRobotStore.subscribe((state, prev) => {
+  if (state.commandJoints !== prev.commandJoints) this.enqueue(state.commandJoints);
+  //  ↑ 只比 commandJoints，mode 完全没参与
+});
+```
+
+**后果两条，都很糟**：
+
+| 场景 | 期望 | 实际 |
+|------|------|------|
+| 点 Real Robot，但没连后端 | 提示去连接 | 命令发给 Mock，**真机不动**，UI 却显示"真实机械臂" |
+| 切回 Simulation，但连着真机 | 真机不动 | 命令**照常下发给真机**，用户以为在仿真 |
+
+### 二、修法（三层，缺一不可）
+
+1. **`setMode('real')` 变成带校验的意图**（`robotStore.setMode`）
+   按链路状态分别告警，四种情况都说清楚：
+   - 未连接 → "未连接任何传输，请先连接后端"
+   - 连 Mock → "当前是浏览器内仿真，不碰硬件"
+   - 后端末端 `device !== 'serial'` → "末端是「sim」而非 serial"
+   - 末端 serial → "Real Robot 已启用"
+
+2. **安全门**（`transportBridge.flush`，唯一的实际发送点）
+   `mode === 'simulation'` 且链路是**真机**（`kind==='websocket'` **且** `device==='serial'`）
+   ⇒ **拒绝下发**，并累积 `blockedSince` 在日志里明示"已拦截 N 条"。
+
+3. **UI 显式化**（`JointControl` 的 `mode-routing` 提示条）
+   把"命令到底发给谁"写在按钮旁边，三态：纯仿真 / 已拦截 / 正在驱动真机。
+   **不留静默状态** —— 这正是本次缺口的本质。
+
+### 三、关键设计决策：安全门只拦"真机链路"
+
+**不能**简单地"`mode==='simulation'` 就不下发"，那会打死 Phase 7/8 的仿真闭环
+（Mock 与 `device=sim` 的后端本就是仿真，必须照常放行）。
+
+判据收紧为**两条同时成立**：`transport.kind === 'websocket'` **且** `device === 'serial'`。
+
+**`device` 未知（尚未 hello）时按 `false` 处理 —— 宁可少拦，不要误判。**
+理由：握手前把正常仿真当成真机拒绝，会让用户看到"滑杆没反应"却毫无线索，
+比"多下发一条"更糟。此条已有专门单测锁定。
+
+### 四、连带发现的第三例"跨批次状态残留"（e2e）
+
+新增联动断言后 e2e 出现 `Actual 收敛` FAIL（`cmd 20.9° / act 0.8°`）。
+根因不是代码错，而是：**上一轮结束时页面停在 Simulation**，
+于是 (c) 段设的目标被安全门正确拦下 —— 断言观察不到变化。
+
+⇒ 修法与 D40 §四同类：**(c) 段前显式切到 Real Robot**、**(h) 段末尾再切回**，
+不依赖上一轮终态。**凡是依赖 mode/连接状态的分段，都要显式设定入口与出口状态。**
+
+**验收**：tsc 0 error · vitest **214/214**（新增 10 项联动验收）·
+vite build ✓ · e2e **49/49**（连跑三次稳定）。
+
+---
 
 ## D40 · **「手入镜」是新的头号污染源**；重复性判据按 D39 设计成功拦截；局域网访问须按来源推导 ws 地址
 

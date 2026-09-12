@@ -5,7 +5,7 @@
 
 # ---- 串口（对接 arm-device 固件，默认 COM4 / 115200 8N1）----
 serial:
-  port: "COM4"        # Windows: COMx ; Linux/macOS: /dev/ttyUSB0 等
+  port: "COM16"        # Windows: COMx ; Linux/macOS: /dev/ttyUSB0 等
   baud: 115200        # 波特率（arm-device 固件 USART0 默认 115200）
   databits: 8
   stopbits: 1

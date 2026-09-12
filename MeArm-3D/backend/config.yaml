@@ -1,0 +1,37 @@
+# =============================================================================
+# ArmPilot 后端（关节级 WebSocket 服务）运行配置
+# -----------------------------------------------------------------------------
+# ⚠️ 本文件**只放运行参数**。关节限位、标定（offset/scale/reverse）、HOME 位
+#    一律来自 ../config/robot.yaml —— 那是前后端共用的唯一真值。
+#    在这里再抄一份限位，必然漂移（实测已证明按固件命名推定角色会得到反向机构）。
+# =============================================================================
+
+web:
+  host: "0.0.0.0"          # 0.0.0.0 = 本机所有网卡（含局域网）
+  port: 8090               # 刻意避开 MeArm-RemoteControl 的 8080，两者可同时运行
+  path: "/ws/joint"
+  ping_interval_ms: 15000  # 传输层 ping 间隔（浏览器会自动回 pong）
+  client_timeout_ms: 40000 # 静默超过此值判链路已死并断开
+
+robot:
+  # 模型/标定/限位真值文件。支持相对路径；
+  # 不存在时按 ../config/robot.yaml → config/robot.yaml → ../MeArm-3D/config/robot.yaml 回退。
+  config_path: "../config/robot.yaml"
+
+device:
+  # sim    = 内置假固件（Phase 8 验收用；无真机也能跑通字节级闭环）
+  # serial = 真串口（Phase 9）
+  mode: "sim"
+  sim:
+    max_servo_speed: 240   # 舵机最大角速度（度/秒）；0 = 瞬时到位。与前端 Mock 默认一致
+    latency_ms: 15         # 指令送达延迟：延迟期内不回执
+    tick_ms: 20            # 位置推进周期
+    enforce_limits: true   # 越界回 ERR JOINT 且位置保持不动（复刻固件行为）
+    boot_ms: 0             # 开机静默窗口：模拟 Uno bootloader 交权期（0 = 关闭）
+  serial:
+    port: "COM4"           # Phase 9 使用
+    baud: 115200
+
+control:
+  ack_timeout_ms: 800      # 单条指令回执超时；超时判链路异常
+  min_send_interval_ms: 0  # 两次下发最小间隔；0 = 不限制（节流已在浏览器侧做）

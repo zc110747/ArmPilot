@@ -1,0 +1,28 @@
+# ---- Node / 前端 ----
+node_modules/
+dist/
+dist-ssr/
+.vite/
+.vitest/
+coverage/
+*.tsbuildinfo
+.eslintcache
+
+# ---- 日志 / 临时探针文件 ----
+*.log
+npm-debug.log*
+_*.txt
+.tmp-edge/
+
+# ---- 编辑器 / 系统 ----
+.DS_Store
+Thumbs.db
+*.local
+
+# ---- 后端产物（Phase 8+） ----
+/backend/bin/
+
+# ---- Agent 探针产物（相机反解机构的中间图，可由 tools/ 重新生成） ----
+# 注意：/.workbuddy/memory/ 是要入库的（与 MeArm-Device / MeArm-RemoteControl 约定一致）
+/.workbuddy/analysis/
+/.workbuddy/captures/

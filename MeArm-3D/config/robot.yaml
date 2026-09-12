@@ -1,0 +1,382 @@
+# =============================================================================
+# ArmPilot · mARM 机器人模型配置（唯一数据源）
+# -----------------------------------------------------------------------------
+# 本文件是虚拟机械臂（Three.js）与真实机械臂（mARM / AVR）共用的**唯一模型定义**。
+# 前端 RobotModel、FK、IK、标定、安全校验全部由此文件派生；
+# 修改本文件即可改变模型，禁止在业务代码里硬编码任何尺寸 / 角度 / 限位。
+#
+# 硬件基线：开源 meArm（4 舵机，ATmega328P / Arduino Uno）
+#   固件强制范围：S9 30..150 / S8 20..100 / S7 80..160 / S6 40..130
+#   固件开机位：全部 90°；来源 MeArm-Device/bsp/servo.h + core/cmd.c
+#
+#   ⚠️ 舵机 -> 关节的**角色映射以实测为准**（2026-09-12，白色分割背景 + 舵机逐度
+#      扫描 + 相机照片量化，见 docs/hardware-measurement.md）：
+#        S9 -> base      底座旋转（绕竖直轴）
+#        S7 -> shoulder  大臂/下臂（实测：扫 S7 时整条臂绕肩枢轴刚性转动）
+#        S8 -> elbow     小臂/前臂（实测：扫 S8 时只有前臂动，下臂纹丝不动）
+#        S6 -> gripper   夹取
+#      固件里的 "left / right" 只是舵机的物理安装位称呼，**不等于** kinematic 角色；
+#      按它分配肩/肘会得到反向的机构（这是本次修正的一处真实缺陷）。
+#
+#   ⚠️ 小臂是**绝对角**：真机由独立舵机经平行四连杆驱动。实测（tools/fit_pose.py，
+#      把 FK 骨架拟合到实拍照片）扫 S7 使**肩关节**转过 52.91° 时，
+#      小臂**绝对倾角只漂 10.08°**（而相对角变了 42.83°）⇒ 小臂角与肩角解耦。
+#      模型用关节耦合 (coupling.gain = -1) 精确表达这一事实。
+#      （残余漂移约 19%：平行四连杆不完全等长 + 枢轴像素定位误差。若按实测残差
+#        硬拟合，等效增益 ≈ -0.81；模型取理论值 -1，见 docs/hardware-measurement.md。）
+#
+#   标定（offset / scale）与限位**全部由 2026-09-12 实拍反解**，不再沿用推定值：
+#        S7 增益 0.694 关节度/舵机度   S8 增益 0.418 关节度/舵机度
+#      数值自洽：四个舵机代入 90° 恰好得到下方 homePose。
+#
+#   机构尺寸取开源 meArm 标称值（base 60 / 大臂 80 / 小臂 80 / 手部 40），
+#   后续实测微调只需改本文件的数字。
+#   显示几何（geometry / details）按开源 meArm 实物外观参数化拼装：
+#   蓝色倒角薄板 + 4 个黑色舵机（S9 底座 / S7 肩 / S8 肘 / S6 夹取）+ 金属轴销。
+#   **改 geometry 只影响外观，绝不影响 FK / IK / 标定。**
+# -----------------------------------------------------------------------------
+# 单位约定（详见 docs/coordinate-system.md）：
+#   长度 mm；角度 degree；坐标系为右手系 Z-up
+#   X = 前后（+X 正前方）  Y = 左右（+Y 左）  Z = 上下（+Z 上）
+#
+# 【运动学链规则 —— 只需记住这一条】
+#   一根连杆沿「其近端关节坐标系」的 +Z 方向伸展 `length`，末端就是下一个关节的坐标系原点
+#   （再叠加该关节可选的 origin.position 附加偏移）。
+#   因此**改 length 即改机构尺寸**，无需同步修改任何关节字段。
+# =============================================================================
+
+version: 1
+
+robot:
+  id: mearm
+  name: mARM
+  units: mm
+
+  # 工具中心点（TCP / End Effector）：指定关节坐标系下的固定偏移点。
+  # tool 关节的坐标系位于腕部；其连杆向外 40mm 即夹爪铰点。
+  # 参考关节刻意取 tool（而非 gripper），使 TCP 姿态只由 J1/J2/J3 决定，
+  # 不被夹爪开合角污染。
+  tcp:
+    joint: tool
+    offset: [0, 0, 40]
+
+  # 开机 / HOME 位姿（关节角，degree）。
+  # 数值 = 固件开机位（全部舵机 90°）的真实物理姿态，由 2026-09-12 相机实测反算
+  # （tools/fit_pose.py：把 FK 骨架拟合到 RESET 照片，残差 ≈25px），
+  # 且与下方 actuators 的 offset/scale **严格自洽**（代入标定式回算恰好都是 90°）：
+  #   base     0°     —— 正前方（舵机 90° 即中位）
+  #   shoulder 0.85°  —— 大臂近乎竖直（实测大臂轴线仅前倾 0.85°）
+  #   elbow  112.62°  —— 小臂**绝对倾角**：前臂指向正前偏下约 22.6°（= 112.62° 离天顶）
+  #   gripper  50°    —— 两爪约半开（与 RESET 照片一致）
+  # 注意 elbow 存的是绝对角（见关节 coupling），故 FK 里的局部旋转 = 112.62 − 0.85 = 111.77°。
+  homePose:
+    base: 0
+    shoulder: 0.8498937633
+    elbow: 112.6185771989
+    gripper: 50
+
+# -----------------------------------------------------------------------------
+# 连杆（Link）：几何量。链序为 root -> tip。
+#   length：沿近端关节坐标系 +Z 的伸展长度（mm）—— **运动学量，唯一真值**
+#   geometry：仅用于 3D 显示，不参与运动学。position 为相对近端坐标系的偏移。
+#   details：附加显示件（舵机 / 螺栓 / 轴销），挂同一坐标系，同样不参与运动学。
+#
+# 显示几何类型（详见 frontend/src/robot/model/Link.ts）：
+#   plate    倒角薄板 { size, cornerRadius }        —— 低多边形工程外观主力件
+#   box      直角方盒 { size }                      —— 无倒角的连接件
+#   cylinder 圆柱   { radius, height, radialSegments }
+#   sphere   球体   { radius }
+#   servo    舵机   { size?, shaftLength?, ears? }   —— 壳体 + 安装耳 + 金属输出轴 + 舵盘
+#   none     不出几何
+#
+#   ⚠️ servo 本体约定：**局部 +Z = 输出轴方向，原点 = 壳体中心**。
+#      轴朝上（+Z）不写 rotation；轴朝 +Y 写 rotation: [-90, 0, 0]；轴朝 +X 写 rotation: [0, 90, 0]。
+#
+# 机构布置（与实物 meArm 对齐）：
+#   base_link    固定底盘 + 四角螺栓 + S9 底座舵机（平躺居中，输出轴朝上）
+#   column_link  转盘（随 base 旋转）+ 两片立柱侧板 + S7 肩舵机（顶部，轴沿 Y）
+#   upper_arm    两片大臂侧板 + 端部横撑 + S8 肘舵机（末端，轴沿 Y）
+#   forearm      两片小臂侧板 + 腕部支座
+#   tool         腕座 + S6 夹取舵机（轴沿 X，与夹爪铰轴同向）+ 爪铰轴
+#   jaw          仅提供两片爪的尺寸（本体由渲染层特例化为对称开合），不出独立几何
+# -----------------------------------------------------------------------------
+links:
+
+  # ---- 固定底盘（链根）：不随任何关节运动 ------------------------------------
+  - id: base_link
+    name: Base
+    parent: null
+    length: 0
+    geometry:
+      type: plate
+      size: [94, 82, 7]
+      cornerRadius: 5
+      position: [0, 0, 3.5]
+      color: "#2e3849"
+    details:
+      # 四角安装螺栓
+      - { type: cylinder, radius: 4.2, height: 3, position: [37, 31, 8.5], color: "#161a21" }
+      - { type: cylinder, radius: 4.2, height: 3, position: [-37, 31, 8.5], color: "#161a21" }
+      - { type: cylinder, radius: 4.2, height: 3, position: [37, -31, 8.5], color: "#161a21" }
+      - { type: cylinder, radius: 4.2, height: 3, position: [-37, -31, 8.5], color: "#161a21" }
+      # S9 底座舵机：平躺居中，输出轴（+Z）朝上驱动转盘
+      - type: servo
+        position: [0, 0, 19.5]
+        color: "#2f3644"
+
+  # ---- 立柱总成：随 base 关节绕 Z 旋转 --------------------------------------
+  - id: column_link
+    name: Column
+    parent: base_link
+    length: 60
+    geometry:
+      type: plate
+      size: [66, 60, 7]
+      cornerRadius: 4
+      position: [0, 0, 34]
+      color: "#44567a"
+    details:
+      # 两片立柱侧板（夹住 S9 舵机体）
+      - { type: plate, size: [30, 6, 22], cornerRadius: 2, position: [0, 13, 49], color: "#4d8fe8" }
+      - { type: plate, size: [30, 6, 22], cornerRadius: 2, position: [0, -13, 49], color: "#4d8fe8" }
+      # S7 肩舵机：装在立柱顶，输出轴沿 Y（肩关节轴）
+      - type: servo
+        rotation: [-90, 0, 0]
+        position: [0, 0, 60]
+        color: "#2f3644"
+
+  # ---- 大臂（肩 -> 肘）------------------------------------------------------
+  - id: upper_arm_link
+    name: UpperArm
+    parent: column_link
+    length: 80
+    geometry:
+      type: plate
+      size: [22, 5, 74]
+      cornerRadius: 2
+      position: [0, 14, 37]
+      color: "#4d8fe8"
+    details:
+      - { type: plate, size: [22, 5, 74], cornerRadius: 2, position: [0, -14, 37], color: "#4d8fe8" }
+      # 肩轴端盖
+      - { type: cylinder, radius: 5.5, height: 4, position: [0, 17.5, 0], color: "#2b3446" }
+      - { type: cylinder, radius: 5.5, height: 4, position: [0, -17.5, 0], color: "#2b3446" }
+      # 端部横撑
+      - { type: plate, size: [22, 28, 5], cornerRadius: 2, position: [0, 0, 68], color: "#3d6fc0" }
+      # S8 肘舵机：装在大臂末端，输出轴沿 Y（肘关节轴）
+      - type: servo
+        rotation: [-90, 0, 0]
+        position: [0, 0, 80]
+        color: "#2f3644"
+
+  # ---- 小臂（肘 -> 腕）------------------------------------------------------
+  - id: forearm_link
+    name: ForeArm
+    parent: upper_arm_link
+    length: 80
+    geometry:
+      type: plate
+      size: [18, 5, 68]
+      cornerRadius: 2
+      position: [0, 13.5, 34]
+      color: "#6aa0ff"
+    details:
+      - { type: plate, size: [18, 5, 68], cornerRadius: 2, position: [0, -13.5, 34], color: "#6aa0ff" }
+      # 肘轴端盖（肘关节轴）
+      - { type: cylinder, radius: 5, height: 4, position: [0, 16.5, 0], color: "#2b3446" }
+      - { type: cylinder, radius: 5, height: 4, position: [0, -16.5, 0], color: "#2b3446" }
+      # 腕部横撑
+      - { type: plate, size: [18, 22, 5], cornerRadius: 2, position: [0, 0, 64], color: "#4d8fe8" }
+
+  # ---- 腕 / 手部总成（固定连杆，无自由度）-----------------------------------
+  - id: tool_link
+    name: Tool
+    parent: forearm_link
+    length: 40
+    geometry:
+      type: plate
+      size: [22, 26, 11]
+      cornerRadius: 3
+      position: [0, 0, 6]
+      color: "#39455a"
+    details:
+      # S6 夹取舵机：输出轴沿 X，与夹爪铰轴同向
+      - type: servo
+        rotation: [0, 90, 0]
+        position: [0, 0, 26]
+        color: "#2f3644"
+      # 爪铰轴（沿 X）
+      - { type: cylinder, radius: 3.2, height: 32, rotation: [0, 0, 90], position: [0, 0, 40], color: "#2b3446" }
+
+  # ---- 夹爪：仅提供两片爪的尺寸 [宽, 厚, 长] --------------------------------
+  #   本体由渲染层特例化为「两片爪绕 X 铰轴对称开合」，不产生独立几何。
+  - id: jaw_link
+    name: Jaw
+    parent: tool_link
+    length: 0
+    geometry:
+      type: plate
+      size: [9, 4.5, 34]
+      cornerRadius: 1
+      color: "#d29922"
+
+# -----------------------------------------------------------------------------
+# 关节（Joint）：运动学量
+#   origin.position：**可选附加偏移**（mm），默认 [0,0,0]。
+#                    父连杆长度已自动把坐标系推到本关节处，通常无需填写；
+#                    仅当关节不与父连杆共线时才需要额外平移。
+#   origin.rotation：父关节坐标系 -> 本关节坐标系 的固定旋转（intrinsic XYZ, degree）
+#   axis：本关节坐标系下的旋转轴（单位向量）
+#   关节角 θ：绕 axis 按右手定则旋转 θ 度；θ=0 时子连杆沿本坐标系 +Z 伸展
+# -----------------------------------------------------------------------------
+joints:
+
+  # J1 底座旋转：θ=0 指向 +X（正前方），+θ 绕 Z 逆时针（朝 +Y / 左侧转）
+  - id: base
+    name: Base
+    role: base
+    type: revolute
+    parentLink: base_link
+    childLink: column_link
+    axis: [0, 0, 1]
+    origin:
+      position: [0, 0, 0]
+      rotation: [0, 0, 0]
+    limit:
+      min: -60
+      max: 60
+
+  # J2 大臂俯仰：θ=0 竖直向上，+θ 绕 Y 向 +X（前方）倾倒。
+  # 限位 = 舵机 S7 硬限位 80..160 经标定反算（实测增益 0.694 关节度/舵机度）。
+  - id: shoulder
+    name: Shoulder
+    role: shoulder
+    type: revolute
+    parentLink: column_link
+    childLink: upper_arm_link
+    axis: [0, 1, 0]
+    origin:
+      position: [0, 0, 0]
+      rotation: [0, 0, 0]
+    limit:
+      min: -6.0936827341
+      max: 49.454929245
+
+  # J3 小臂俯仰：**存的是绝对倾角**（θ=0 指天顶，+θ 向前倾）。
+  # 真机由独立舵机 S8 经平行四连杆驱动，与肩角解耦 —— 用 coupling 表达：
+  # 串联网里的局部旋转 = 112.62 + (-1) × shoulder。
+  # 限位 = 舵机 S8 硬限位 20..100 经标定反算（实测增益 0.418 关节度/舵机度）。
+  - id: elbow
+    name: Elbow
+    role: elbow
+    type: revolute
+    parentLink: upper_arm_link
+    childLink: forearm_link
+    axis: [0, 1, 0]
+    origin:
+      position: [0, 0, 0]
+      rotation: [0, 0, 0]
+    coupling:
+      joint: shoulder
+      gain: -1
+    limit:
+      min: 108.4414852068
+      max: 141.8582211436
+
+  # 腕（固定关节，无自由度，仅用于标定 TCP 参考点）
+  - id: tool
+    name: Tool
+    role: tool
+    type: fixed
+    parentLink: forearm_link
+    childLink: tool_link
+    axis: [0, 1, 0]
+    origin:
+      position: [0, 0, 0]
+      rotation: [0, 0, 0]
+    limit:
+      min: 0
+      max: 0
+
+  # 夹取：叶关节，**不参与末端定位**（IK 只解 J1/J2/J3）。
+  # θ=0 完全闭合，θ=90 完全张开；铰轴取工具系 X 轴（爪沿 ±Y 分开）。
+  - id: gripper
+    name: Gripper
+    role: gripper
+    type: revolute
+    parentLink: tool_link
+    childLink: jaw_link
+    axis: [1, 0, 0]
+    origin:
+      position: [0, 0, 0]
+      rotation: [0, 0, 0]
+    limit:
+      min: 0
+      max: 90
+
+# -----------------------------------------------------------------------------
+# 执行器（Actuator）：关节空间 -> 舵机空间的映射（标定），以及舵机硬件限位
+#   servo = reverse ? (-θ * scale + offset) : (θ * scale + offset)
+#   limits：**舵机**（0..180 度）硬件强制范围，与固件 bsp/servo.h 一致
+#   channel：串口协议中的舵机 ID（arm-device: 6/7/8/9）
+#
+#   ⚠️ offset / reverse / scale 为 **2026-09-12 实拍反解值**（见
+#      docs/hardware-measurement.md）：舵机逐度扫描 + 白底暗件分割 +
+#      FK 骨架拟合（tools/fit_pose.py，对称 Chamfer，残差 ≈25px）。
+#      **已确证的结构事实**：角色映射（S7=肩 / S8=肘）与「小臂绝对角（平行四连杆）」。
+#      标定增益（S7 0.694 / S8 0.418 关节度/舵机度）来自 6–7 帧的线性拟合，
+#      相关系数良好但绝对角仍有 ±5° 量级不确定度；
+#      待第二次实测（加标尺 + 水平取景 + 正交投影）进一步收紧。**只改本文件，不要改代码。**
+#
+#   多舵机关节（spec §二十五）无需新增字段：给同一 jointId 写两条 actuator 即可，
+#   上层 IK / UI / RobotState 完全无感。
+# -----------------------------------------------------------------------------
+actuators:
+
+  - id: servo_9
+    name: Base Servo
+    jointId: base
+    channel: 9
+    offset: 90
+    scale: 1
+    reverse: false
+    limits:
+      min: 30
+      max: 150
+
+  # S7 = 大臂/肩（真机实测：扫它时整条臂绕肩枢轴刚性转动）
+  # 锚点：舵机 90°（RESET）<-> 肩关节 0.85°（照片拟合值）
+  - id: servo_7
+    name: Shoulder Servo
+    jointId: shoulder
+    channel: 7
+    offset: 88.776
+    scale: 1.44018
+    reverse: false
+    limits:
+      min: 80
+      max: 160
+
+  # S8 = 小臂/肘（真机实测：扫它时只有前臂动，下臂不动 ⇒ 绝对角 + 平行四连杆）
+  # 锚点：舵机 90°（RESET）<-> 小臂绝对角 112.62°（照片拟合值）
+  - id: servo_8
+    name: Elbow Servo
+    jointId: elbow
+    channel: 8
+    offset: 359.61
+    scale: 2.39401
+    reverse: true
+    limits:
+      min: 20
+      max: 100
+
+  - id: servo_6
+    name: Gripper Servo
+    jointId: gripper
+    channel: 6
+    offset: 40
+    scale: 1
+    reverse: false
+    limits:
+      min: 40
+      max: 130

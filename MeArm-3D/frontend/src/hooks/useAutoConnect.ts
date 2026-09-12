@@ -12,8 +12,8 @@
  * ----
  * 让 `start.bat` 注入 `VITE_AUTO_CONNECT`（+ `VITE_AUTO_REAL`），本模块在挂载后：
  *   1. 连 WebSocket（默认按 `window.location.hostname` 推导，局域网访问也对）
- *   2. 连接成功后，若要求 real 则切到 Real Robot（**带校验**：链路末端必须是 serial，
- *      否则告警但不阻断 —— sim 降级要看得见，不要静默）
+ *   2. 连接成功**且链路末端已知**后，若要求 real 才切到 Real Robot
+ *      （`setMode` 的准入校验要求 device==='serial'；不满足则拒绝并留日志）
  *
  * 为什么不做成"页面永远自动连 WS"
  * ---------------------------------
@@ -57,6 +57,34 @@ export function parseAutoConnectIntent(
 /** 本次启动是否要求自动切 Real Robot（与连接状态无关，故不放进 store） */
 function isRealRequested(): boolean {
   return parseAutoConnectIntent(import.meta.env, getDefaultWsUrl())?.real === true;
+}
+
+/** 判定所需的 store 切片（只取必要字段，便于纯函数单测） */
+export interface AutoSwitchSnapshot {
+  connection: string;
+  mode: string;
+  transportStats: unknown;
+}
+
+/**
+ * 自动切 Real Robot 的**决策**：现在能不能切？
+ *
+ * 抽成纯函数是为了可测 —— 这段逻辑的核心是**时序**（hello 尚未到达时不能切），
+ * 而 hook 本身需要 React 运行时，本项目 vitest 跑在 node 环境、没有 jsdom。
+ *
+ * 返回 'switch' | 'wait' | 'done'：
+ *   - `done`   已经是 real，或连接没好（连接没好时**等** connection 变化，不算失败）
+ *   - `wait`   连上了但 device 未知（hello 未到）—— 等下一轮 poll，别急着调 setMode
+ *               （调了也会被拒，只会刷屏 err 日志）
+ *   - `switch` 条件齐备，可以调 setMode('real')
+ */
+export function decideAutoRealSwitch(s: AutoSwitchSnapshot): 'switch' | 'wait' | 'done' {
+  if (s.connection !== 'connected') return 'done';
+  if (s.mode === 'real') return 'done';
+  const stats = s.transportStats;
+  const device = stats && typeof stats === 'object' && 'device' in stats ? stats.device : null;
+  if (device === null || device === undefined) return 'wait';
+  return 'switch';
 }
 
 /**
@@ -107,6 +135,14 @@ export function useAutoConnect(enabled = true): void {
 
   // ---- 2. 连接成功后按需切 Real Robot ---------------------------------------
   // 用独立 effect + 状态订阅：连接完成是异步事件，不能依赖第 1 步的 await 时序。
+  //
+  // ⚠️ 光订阅 `connection` 还不够（D43）。`setMode('real')` 的准入校验要读
+  //    `transportStats.device`，而它是由 bridge 的 **poll** 周期写入的：
+  //    `connection` 变 'connected' 时 `device` 往往还是 null。早期实现在这里
+  //    乐观放行 ⇒ 「--real」把 mode 切成了 real，可末端其实是 sim。现在 setMode
+  //    在 device 未知时**明确拒绝**，所以必须**等 device 到达**再切。
+  //
+  //    因此订阅两件事：connection 变化 + device 变化。谁先到都行，切成功即止。
   const realRequested = isRealRequested();
 
   useEffect(() => {
@@ -114,11 +150,14 @@ export function useAutoConnect(enabled = true): void {
 
     const apply = () => {
       const st = useRobotStore.getState();
-      if (st.connection !== 'connected') return;
-      if (st.mode === 'real') return;
+      const verdict = decideAutoRealSwitch({
+        connection: st.connection,
+        mode: st.mode,
+        transportStats: st.transportStats,
+      });
+      // 'wait' 与 'done' 都不动作：前者等下一轮 poll（device 到达），后者无事可做。
+      if (verdict !== 'switch') return;
 
-      // 复用 store 的准入校验：它自己判断链路末端是不是 serial 并给出提示。
-      // 末端是 sim 时它只 pushLog('err', ...) 而不改 mode —— 即"告警但不阻断"。
       st.setMode('real');
 
       if (useRobotStore.getState().mode !== 'real') {
@@ -133,9 +172,11 @@ export function useAutoConnect(enabled = true): void {
     };
 
     apply();
-    // 握手 + hello 可能稍后才完成，订阅一次 connection 变化兜底
+    // connection 与 device 谁后到都要兜底，故两者变化都触发（幂等：切成功即 return）
     return useRobotStore.subscribe((state, prev) => {
-      if (state.connection !== prev.connection) apply();
+      const connChanged = state.connection !== prev.connection;
+      const deviceChanged = state.transportStats !== prev.transportStats;
+      if (connChanged || deviceChanged) apply();
     });
   }, [enabled, realRequested]);
 }

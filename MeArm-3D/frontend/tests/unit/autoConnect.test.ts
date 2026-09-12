@@ -9,7 +9,7 @@
  * 注：只测纯函数。真实连接行为由 e2e（浏览器内）覆盖。
  */
 import { describe, expect, it } from 'vitest';
-import { parseAutoConnectIntent } from '@/hooks/useAutoConnect';
+import { decideAutoRealSwitch, parseAutoConnectIntent } from '@/hooks/useAutoConnect';
 
 const FALLBACK = 'ws://localhost:8090/ws/joint';
 
@@ -100,5 +100,42 @@ describe('parseAutoConnectIntent · mock 模式', () => {
       FALLBACK,
     );
     expect(got).toEqual({ kind: 'mock', real: false });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 自动切 Real Robot 的**时序决策**（D43）
+//
+// 背景：`--real` 自动切曾经"成功"过，但末端其实是 sim。根因是它抢在 hello 之前
+// 调了 setMode，而当时的 setMode 对 device 未知是乐观放行的。现在 setMode 会拒绝，
+// 所以这里必须先判"能不能切"，等 device 到达再动手。
+// ---------------------------------------------------------------------------
+describe('decideAutoRealSwitch · 时序决策', () => {
+  const base = { connection: 'connected', mode: 'simulation' };
+
+  it('未连接 → done（等 connection 变化，不算失败）', () => {
+    expect(decideAutoRealSwitch({ ...base, connection: 'disconnected', transportStats: null }))
+      .toBe('done');
+  });
+
+  it('已是 real → done（幂等，不重复切）', () => {
+    expect(decideAutoRealSwitch({ ...base, mode: 'real', transportStats: { device: 'serial' } }))
+      .toBe('done');
+  });
+
+  it('已连 WS 但 device 未知（hello 未到）→ wait，不急着调 setMode', () => {
+    expect(decideAutoRealSwitch({ ...base, transportStats: null })).toBe('wait');
+    expect(decideAutoRealSwitch({ ...base, transportStats: {} })).toBe('wait');
+    expect(decideAutoRealSwitch({ ...base, transportStats: { device: null } })).toBe('wait');
+  });
+
+  it('device 到达（sim 或 serial）→ switch（让 setMode 去做真正的准入判断）', () => {
+    expect(decideAutoRealSwitch({ ...base, transportStats: { device: 'sim' } })).toBe('switch');
+    expect(decideAutoRealSwitch({ ...base, transportStats: { device: 'serial' } })).toBe('switch');
+  });
+
+  it('transportStats 是字符串/数字等异常形状 → wait（不炸，也不误切）', () => {
+    expect(decideAutoRealSwitch({ ...base, transportStats: 'oops' })).toBe('wait');
+    expect(decideAutoRealSwitch({ ...base, transportStats: 42 })).toBe('wait');
   });
 });

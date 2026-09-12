@@ -361,23 +361,31 @@ export const useRobotStore = create<RobotStore>((set, get) => {
     },
 
     setMode(mode) {
-      // ⚠️ 这不是一个"纯 UI 开关"。
+      // ⚠️ 这不是一个"纯 UI 开关"，也不是"只发告警的意图"。
       //
-      // 规范（本文件头部 §十七）要求 `mode` **决定"要不要发给真实机械臂"**，
-      // 但早期实现只写了 `set({ mode })` + 日志 —— 于是点下「Real Robot」后
-      // 命令照样走当时连着的 transport（多半是 Mock），**真机纹丝不动**，
-      // 而 UI 却显示「Real（真实机械臂）」。这是一个"看起来成功了"的静默失败。
+      // 规范（本文件头部 §十七）要求 `mode` **决定"要不要发给真实机械臂"**。
+      // 这个 getter 经历过两轮修正，每一轮都留下了教训：
       //
-      // 因此这里把 mode 变成**带校验的意图**：切到 real 时立刻核对链路是否具备
-      // 驱动真机的能力，不具备就**明确告警**（而不是让用户以为已切过去）。
-      set({ mode });
-
+      //   v1（Phase 6）只写 `set({ mode })` —— 点 Real Robot 命令仍走当前
+      //     transport，真机不动而 UI 显示"真实机械臂"（静默失败，见 D41）。
+      //
+      //   v2（Phase 9 / D41）加了准入校验，但 `set({ mode })` 仍留在校验**之前**
+      //     ⇒ 校验只是"发一条 err 日志"，mode 照样变成 real。用户看到的仍是
+      //     「Real 模式」高亮的按钮 + 一行小字说末端是 sim（见 D43）。
+      //
+      //   v3（现在）**校验通过才改状态**：不具备驱动真机的条件时，mode 保持
+      //     simulation，按钮回弹到 Simulation。所见即所是。
+      //
+      // 「校验失败就拒绝」的代价是：用户点按钮可能"没反应"。所以每条拒绝
+      // 都必须 pushLog('err') 说明**为什么**和**怎么修** —— 拒绝不是目的，
+      // 让用户知道当前到底在驱动谁才是。
       if (mode !== 'real') {
+        set({ mode });
         get().pushLog('sys', '切换到 Simulation（命令不再下发给真实机械臂）');
         return;
       }
 
-      // ---- 以下为 mode === 'real' 的准入校验 ----
+      // ---- mode === 'real' 的准入校验：全部通过才真正切换 ----
       const st = get();
       const stats = st.transportStats;
       const device = stats && 'device' in stats ? (stats.device as string | null) : null;
@@ -386,8 +394,8 @@ export const useRobotStore = create<RobotStore>((set, get) => {
         // 没有连接：命令无处可去。这是"点了 Real Robot 但真机不动"的第一大原因。
         get().pushLog(
           'err',
-          'Real Robot 未生效：当前**未连接**任何传输。请先在 Connection 面板连接后端' +
-            '（真机需用 config.serial.yaml 启动 armpilot-backend）',
+          'Real Robot 未启用：当前**未连接**任何传输，保持 Simulation。' +
+            '请先在 Connection 面板连接后端（真机需用 config.serial.yaml 启动 armpilot-backend）',
         );
         return;
       }
@@ -395,28 +403,42 @@ export const useRobotStore = create<RobotStore>((set, get) => {
       if (st.transportKind === 'mock') {
         get().pushLog(
           'err',
-          'Real Robot 未生效：当前连接的是 **MockTransport**（浏览器内仿真，不碰硬件）。' +
-            '请在 Connection 面板切到 WebSocket 并连接真机后端',
+          'Real Robot 未启用：当前连接的是 **MockTransport**（浏览器内仿真，不碰硬件），' +
+            '保持 Simulation。请在 Connection 面板切到 WebSocket 并连接真机后端',
         );
         return;
       }
 
-      if (device !== null && device !== 'serial') {
+      if (device === null) {
+        // 已连上 WebSocket，但 hello 尚未到达 ⇒ **末端还未知**。
+        //
+        // 早期版本在这里"乐观放行"，理由是"宁可少拦"。实践证明这个理由在
+        // **UI 切换**这个场景下是错的：`--real` 自动切换常常抢在 hello 之前，
+        // 于是切换"成功"了，可末端其实是 sim —— 用户就看到了本次报障的现象。
+        // 现在改为**拒绝并说明**：让调用方（自动连接）等 hello 后再来。
+        get().pushLog(
+          'err',
+          'Real Robot 未启用：尚未收到后端 hello，**链路末端未知**，为安全起见保持 Simulation。' +
+            '请稍候重试（连接建立后约 1 秒内会到达）',
+        );
+        return;
+      }
+
+      if (device !== 'serial') {
         // 后端连上了，但它自己也没接真机（device=sim 表示用的是内置假固件）。
         get().pushLog(
           'err',
-          `Real Robot 未生效：后端链路末端是「${device}」而非 serial。` +
+          `Real Robot 未启用：后端链路末端是「${device}」而非 serial，保持 Simulation。` +
             '请用 config.serial.yaml 启动后端（并把机械臂接到配置的串口）',
         );
         return;
       }
 
-      // 末端是 serial（或尚未收到 hello，暂按乐观放行并提示等待）
+      // ---- 全部通过：真正切换 ----
+      set({ mode: 'real' });
       get().pushLog(
         'sys',
-        device === 'serial'
-          ? 'Real Robot 已启用：命令将下发给真实机械臂（链路末端 serial）'
-          : 'Real Robot 已启用：等待后端 hello 确认链路末端…',
+        `切换到 Real Robot：命令将下发给真实机械臂（链路末端 serial）`,
       );
     },
 

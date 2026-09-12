@@ -3,7 +3,109 @@
 记录"为什么这么做"，尤其是**与原 spec 示例不一致**的地方，方便后续复盘与修改。
 每条都有编号，代码注释会引用编号（如 `D2`）。
 
-> 本文**最新条目在前**（D42 在最上，D1 在最下）。
+> 本文**最新条目在前**（D43 在最上，D1 在最下）。
+
+## D43 · **`setMode('real')` 的准入校验必须"拒绝"，不能只发日志** —— D41 修了一半
+
+**背景**：用户报障「前端显示 Real 模式后端末端是 sim，非真机」。
+
+排查结果：**这不是连接问题，也不是 `start.bat` 的问题**。用户没加 `--real`，
+后端跑 `config.yaml`（`device: sim`）是**完全正确**的默认行为。
+错的是前端——它一边把按钮切成 Real、一边显示"末端是 sim"，
+把一个"本该拒绝的操作"呈现成了"已完成但有警告"。
+
+### 一、根因（代码层铁证）
+
+`robotStore.setMode` 把状态写入放在了准入校验**之前**：
+
+```ts
+setMode(mode) {
+  set({ mode });          // ← 无条件先写！D41 留下的
+  if (mode !== 'real') { …; return; }
+  // ---- 以下才是准入校验 ----
+  if (device !== null && device !== 'serial') {
+    get().pushLog('err', `…末端是「${device}」而非 serial…`);
+    return;               // ← 只 return，可 mode 已经是 'real' 了
+  }
+}
+```
+
+于是「点了 Real Robot」的**唯一实际效果**是：按钮高亮切到 Real + 日志里多一条 err。
+UI 结论与事实相反，这正是本项目反复要消灭的那类**静默失败**——
+只不过它伪装成了"有警告"，看起来像已处理。
+
+**更糟的是测试把这个 bug 固化成了契约**（`mode-transport-link.test.ts` 旧版）：
+
+```ts
+// 模式本身仍然切换（用户意图被记录），但告警必须出现
+expect(useRobotStore.getState().mode).toBe('real');   // ← 给 bug 背书
+```
+
+`expect(mode).toBe('real')` 让这个错误行为成了"受保护的设计"，
+所以 D41 之后没人发现它还错着。**测试锁定了错误，比没有测试更危险。**
+
+### 二、修法（三层，缺一不可）
+
+| # | 位置 | 变化 |
+|---|------|------|
+| 1 | `robotStore.setMode` | 校验**全部通过**才 `set({ mode: 'real' })`；任何一条不满足则**保持 simulation** 并 pushLog 说明原因与修法 |
+| 2 | `robotStore.setMode` | 新增 `device === null`（hello 未到）分支：**拒绝**。旧版在此"乐观放行"，是 `--real` 自动切能"成功"的真凶 |
+| 3 | `useAutoConnect` | 抽 `decideAutoRealSwitch()` 纯函数；订阅 **connection + transportStats** 双变化，等 `device` 到达再切（否则会撞上第 2 条的拒绝） |
+| 4 | `JointControl` | 两条 `mode==='real'` 但末端不对的提示改为"⚠ 状态异常（应由 setMode 拒绝）"—— 降级为**纵深防御**，正常路径已不可达 |
+
+### 三、关键设计决策
+
+**为什么"拒绝"而不是"切换 + 醒目警告"**
+
+用户明确拍板：拒绝切换，按钮保持 Simulation 高亮。理由是所见即所是 ——
+`mode` 的语义是"**要不要发给真实机械臂**"（本文件 D41 §一），
+它不是一个可以"记录意图"的 UI 开关。一个不能反映现实的 `mode` 只会继续误导。
+
+**拒绝的代价必须由日志补上**。点按钮"没反应"体验很差，所以每条拒绝都要说清
+**为什么**（末端是 sim / 未连接 / hello 未到）和**怎么修**（用 config.serial.yaml 启动）。
+拒绝不是目的，让用户知道当前到底在驱动谁才是。
+
+**`device === null` 从"乐观放行"改为"拒绝"** —— 这条最容易漏
+
+旧逻辑的注释写着「宁可少拦，不要误判仿真」。**在安全门（`flush`）场景下这是对的**
+（少拦一条命令 ≠ 危险），但在 **UI 切换**场景下它是错的：`--real` 自动切常常抢在
+hello 之前执行，于是切"成功"了、末端实为 sim。两个场景的取向必须分开——
+
+| 场景 | 未知 device 时 | 理由 |
+|------|---------------|------|
+| 安全门 `flush`（D41） | **放行** | 少拦一条，无害 |
+| UI 切换 `setMode`（D43） | **拒绝** | 假"已切"会误导操作，有害 |
+
+### 四、连带发现：跨批次状态残留（第 6 例）
+
+e2e 首轮出现 `[FAIL] 状态表 Command 列跟随滑杆（≈40°） — 0 / 0`。
+根因不是代码：5273 上跑着**注入了 `VITE_AUTO_CONNECT=ws` 的旧 vite dev 实例**
+（本会话早些时候起的），页面自动连了后端，`readCommandCell` 读到被回推干扰的值。
+换**干净 vite dev** 后同一条断言 `39.9°` PASS。
+
+⇒ 与 D40 §四、D41 §四同源：**跑 e2e 前必须清掉带 env 的残留 dev server**，
+否则"环境差异"会被读成"代码回归"。
+
+### 五、验收
+
+| 项 | 结果 |
+|---|---|
+| tsc | **0 error** |
+| vitest | **233/233**（226 → 233：autoConnect +5、mode-transport-link +2） |
+| `vite build` | ✓ built in 671ms |
+| e2e | **52/52 PASS**（46 → 52，新增 Phase 8 (h2) 2 条 + Phase 10.6 4 条） |
+
+**直接复现用户报障场景的断言**（e2e Phase 8 (h2)，链路**连着 sim 后端**时点 Real Robot）：
+
+```
+[PASS] 连着后端（末端非 serial）点 Real Robot → 拒绝切换，按钮仍在 Simulation
+       — simActive=true realActive=false
+[PASS] 拒绝原因必须点名链路末端
+       — ERR Real Robot 未启用：后端链路末端是「sim」而非 serial，保持 Simulation。
+         请用 config.serial.yaml 启动后端（并把机械臂接到配置的串口）
+```
+
+---
 
 ## D42 · 一键启动脚本：页面默认停在 Mock ⇒ 必须由**环境变量**驱动自动连接
 

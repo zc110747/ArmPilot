@@ -8,7 +8,8 @@
  *   B. 切回「Simulation」后命令仍下发给真机 ⇒ 以为在仿真，实际在驱动硬件
  *
  * 本文件锁定两条修正后的契约：
- *   1. `setMode('real')` 在链路不具备时**必须明确告警**（不静默）
+ *   1. `setMode('real')` 在链路不具备时**必须拒绝切换**并明确告警（D43 收紧：
+ *      v2 只告警不改状态，结果 UI 显示 Real 而末端是 sim —— 用户就报了这个障）
  *   2. `mode === 'simulation'` 时，**真机链路**（websocket + device=serial）不得收到命令；
  *      但仿真链路（mock / device=sim）**必须照常放行**（否则打死 Phase 7/8 闭环）
  *
@@ -125,37 +126,73 @@ afterEach(async () => {
 });
 
 // ---------------------------------------------------------------------------
-// 一、setMode('real') 的准入校验：不具备条件时必须**说出来**
+// 一、setMode('real') 的准入校验：不具备条件时必须**拒绝切换**
+//
+// ⚠️ D43 收紧：早期（D41）这里断言的是"模式本身仍然切换（用户意图被记录），
+//    但告警必须出现" —— 也就是 `set({ mode })` 留在校验之前。那等于校验只发
+//    日志、不拦状态，UI 于是显示「Real」高亮而链路末端是 sim。用户报了障，
+//    测试还把这个行为背书成了"设计"。现在改为：**拒绝 + 保持 Simulation**。
 // ---------------------------------------------------------------------------
 
 describe('mode 联动 · Real Robot 准入校验', () => {
-  it('未连接任何传输时点 Real Robot → 明确告警，不静默', () => {
+  it('未连接任何传输时点 Real Robot → 拒绝切换，保持 Simulation，并告警', () => {
     useRobotStore.getState().setMode('real');
     const logs = useRobotStore.getState().log.map((l) => l.text).join('\n');
     expect(logs).toContain('未连接');
-    // 模式本身仍然切换（用户意图被记录），但告警必须出现
-    expect(useRobotStore.getState().mode).toBe('real');
+    // ★ 关键：不得切过去。所见即所是。
+    expect(useRobotStore.getState().mode).toBe('simulation');
   });
 
-  it('连着 MockTransport 时点 Real Robot → 告警指明是浏览器内仿真', async () => {
+  it('连着 MockTransport 时点 Real Robot → 拒绝切换，告警指明是浏览器内仿真', async () => {
     await connectMock();
     useRobotStore.getState().setMode('real');
     const logs = useRobotStore.getState().log.map((l) => l.text).join('\n');
     expect(logs).toContain('MockTransport');
+    expect(useRobotStore.getState().mode).toBe('simulation');
   });
 
-  it('连着后端但末端是 sim 时点 Real Robot → 告警指明末端非 serial', async () => {
+  it('连着后端但末端是 sim 时点 Real Robot → 拒绝切换，告警指明末端非 serial', async () => {
     await connect('sim');
     useRobotStore.getState().setMode('real');
     const logs = useRobotStore.getState().log.map((l) => l.text).join('\n');
     expect(logs).toMatch(/末端是「sim」|非真机|serial/);
+    expect(useRobotStore.getState().mode).toBe('simulation');
   });
 
-  it('连着真机（device=serial）时点 Real Robot → 确认已启用', async () => {
+  it('已连 WebSocket 但 hello 未到（device 未知）→ 拒绝切换（不乐观放行）', async () => {
+    const h = await connect(null); // 不发 hello ⇒ device 未知
+    expect(h.transport?.kind).toBe('websocket');
+    useRobotStore.getState().setMode('real');
+    const logs = useRobotStore.getState().log.map((l) => l.text).join('\n');
+    expect(logs).toContain('链路末端未知');
+    // D43：早期这里会乐观放行 ⇒ 「Real」高亮而末端实为 sim。现在必须拒绝。
+    expect(useRobotStore.getState().mode).toBe('simulation');
+  });
+
+  it('连着真机（device=serial）时点 Real Robot → 切换成功', async () => {
     await connect('serial');
     useRobotStore.getState().setMode('real');
     const logs = useRobotStore.getState().log.map((l) => l.text).join('\n');
-    expect(logs).toContain('Real Robot 已启用');
+    expect(logs).toContain('切换到 Real Robot');
+    expect(useRobotStore.getState().mode).toBe('real');
+  });
+
+  it('device 从 sim 变为 serial 后再点 → 这次成功（拒绝不是永久黑名单）', async () => {
+    const h = await connect('sim');
+    useRobotStore.getState().setMode('real');
+    expect(useRobotStore.getState().mode).toBe('simulation');
+
+    // 后端换成真机（重连并上报 serial）
+    h.factory.last.deliver({
+      version: 1,
+      type: 'hello',
+      model: backendInfoFromLocal(model),
+      device: 'serial',
+    });
+    h.timer.advance(300);
+
+    useRobotStore.getState().setMode('real');
+    expect(useRobotStore.getState().mode).toBe('real');
   });
 });
 

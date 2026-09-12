@@ -580,6 +580,40 @@ const LOG_CONTAINS = (needle) => `(() => {
   return el ? el.textContent.includes(${JSON.stringify(needle)}) : false;
 })()`;
 
+/** 日志区最后一段文本（用于断言"最新的那条说了什么"） */
+const READ_LOG_TAIL = `(() => {
+  const el = document.querySelector('.log');
+  if (!el) return null;
+  return el.textContent.replace(/\\s+/g, ' ').trim().slice(-400);
+})()`;
+
+/** 日志条目数（用于"只看点击之后新增的日志"，避免读到历史同类文本造成假绿） */
+const READ_LOG_LENGTH = `(() => {
+  const el = document.querySelector('.log');
+  if (!el) return null;
+  return el.children.length;
+})()`;
+
+/**
+ * Real / Simulation 两个按钮的 active 状态。
+ *
+ * 这是断言"拒绝切换"的关键：修复前点 Real Robot 会让 realActive 变 true
+ * （mode 被改掉），修复后必须仍停在 Simulation。
+ */
+const READ_MODE_BUTTONS = `(() => {
+  const card = ${cardByTitle('关节控制 · Joint Control')};
+  if (!card) return null;
+  const btns = Array.from(card.querySelectorAll('.btn-row button'));
+  const sim = btns.find(b => b.textContent.trim() === 'Simulation');
+  const real = btns.find(b => b.textContent.trim() === 'Real Robot');
+  if (!sim || !real) return null;
+  return { simActive: sim.classList.contains('active'), realActive: real.classList.contains('active') };
+})()`;
+
+/** 点 Real Robot / Simulation（复用 clickModeButton 工厂） */
+const CLICK_REAL_ROBOT = clickModeButton('Real Robot');
+const CLICK_SIMULATION = clickModeButton('Simulation');
+
 /** 重连次数（数字） */
 const READ_RECONNECTS = `(() => {
   const raw = ${readStatRow('重连次数')};
@@ -1161,6 +1195,49 @@ async function main() {
         );
       }
 
+      // (h2) **用户报障场景的精确复现**：连着后端（末端=sim）时点 Real Robot。
+      //
+      // 报障原文：「前端显示 Real 模式后端末端是 sim，非真机」。
+      // 根因：`setMode('real')` 把 `set({ mode })` 写在准入校验之前 ⇒ 校验只发日志、
+      // mode 照样变 real。这里在**链路仍然连着**的时刻断言修复后的语义：
+      // 按钮不得切到 Real，且日志必须说清"末端是 sim"。
+      //
+      // ⚠️ 入口/出口状态必须显式设定（跨批次残留，§9.10 第 7 例）：mode 可能被
+      //    上一轮的 (c)/(h1) 段留在 real，先归位到 Simulation 再点，否则断言读到的是
+      //    "上一轮的结果"，与本次点击无关。
+      {
+        const connNow = await cdp.evaluate(READ_CONNECTION);
+        if (connNow === 'Connected') {
+          await cdp.evaluate(CLICK_SIMULATION);
+          await sleep(200);
+          // 只比对"点击之后新增"的日志：历史里可能已有同类文本，读全量会假绿
+          const logLenBefore = await cdp.evaluate(READ_LOG_LENGTH);
+          const clicked = await cdp.evaluate(CLICK_REAL_ROBOT);
+          await sleep(400);
+          const btns = await cdp.evaluate(READ_MODE_BUTTONS);
+          const tail = await cdp.evaluate(READ_LOG_TAIL);
+          const logLenAfter = await cdp.evaluate(READ_LOG_LENGTH);
+          check(
+            'Phase 8：连着后端（末端非 serial）点 Real Robot → **拒绝切换**，按钮仍在 Simulation',
+            clicked === true && btns !== null && btns.realActive === false && btns.simActive === true,
+            btns ? `simActive=${btns.simActive} realActive=${btns.realActive}` : 'null',
+          );
+          check(
+            'Phase 8：拒绝原因必须点名链路末端（不留静默）',
+            typeof tail === 'string' &&
+              /Real Robot 未启用/.test(tail) &&
+              typeof logLenAfter === 'number' &&
+              logLenAfter > logLenBefore,
+            tail === null ? 'null' : tail.slice(-100),
+          );
+          // 收尾：确保停在 Simulation，不把状态泄漏给后续分段
+          await cdp.evaluate(CLICK_SIMULATION);
+          await sleep(200);
+        } else {
+          console.log('[phase8] 当前未连接，跳过「连着后端点 Real Robot」子项');
+        }
+      }
+
       if (backend.external) {
         console.log('[phase8] 后端为复用实例（非本脚本拉起），跳过断线重连子项');
       } else {
@@ -1235,6 +1312,43 @@ async function main() {
         wsAfterDisconnect !== null && wsAfterDisconnect.gap <= 0.05,
         wsAfterDisconnect ? `差 ${wsAfterDisconnect.gap.toFixed(2)}°` : 'null',
       );
+    }
+
+    // (j) Phase 10.6：Real Robot 准入必须是**拒绝**，不能只是"发条日志"
+    //
+    // 用户报障原文：「前端显示 Real 模式后端末端是 sim，非真机」。
+    // 根因是 `setMode('real')` 的 `set({ mode })` 写在准入校验**之前** ——
+    // 校验只 pushLog，mode 照样变成 real，于是按钮显示 Real 而链路是 sim。
+    // 这里断言修复后的语义：点 Real Robot **不切**，且给出拒绝原因。
+    {
+      // 前端此刻连着 sim 后端（或已断开）—— 两种情形都**不该**切得过去。
+      const clicked = await cdp.evaluate(CLICK_REAL_ROBOT);
+      await sleep(400);
+      const after = await cdp.evaluate(READ_MODE_BUTTONS);
+      const hint = await cdp.evaluate(READ_MODE_ROUTING);
+      const tail = await cdp.evaluate(READ_LOG_TAIL);
+
+      check('Phase 10.6：Real Robot 按钮可点击', clicked === true, String(clicked));
+      check(
+        'Phase 10.6：链路末端非 serial 时点 Real Robot → **拒绝切换**（按钮仍高亮 Simulation）',
+        after !== null && after.realActive === false && after.simActive === true,
+        after
+          ? `simActive=${after.simActive} realActive=${after.realActive}`
+          : 'null（按钮未找到）',
+      );
+      check(
+        'Phase 10.6：拒绝时必须给出原因（不留静默）',
+        typeof tail === 'string' && /Real Robot 未启用/.test(tail),
+        tail === null ? 'null' : tail.slice(-90),
+      );
+      check(
+        'Phase 10.6：提示条不得显示"正在驱动真实机械臂"',
+        typeof hint === 'string' && !/正在驱动真实机械臂/.test(hint),
+        hint === null ? 'null' : hint,
+      );
+      // 收尾：确保 mode 停在 Simulation，避免影响后续分段
+      await cdp.evaluate(CLICK_SIMULATION);
+      await sleep(200);
     }
 
     // 复位，保证截图与文档基线一致

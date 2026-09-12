@@ -89,11 +89,13 @@ describe('Phase 4 · 关节控制 → RobotState', () => {
     expect(store().commandJoints).toEqual(homeJointState(model));
   });
 
-  it('模式切换不会在 Simulation 下产生任何下发副作用', () => {
+  it('无连接时点 Real Robot 被拒绝：mode 保持 Simulation，但日志有拒绝原因', () => {
     const logBefore = store().log.length;
     store().setMode('real');
+    expect(store().mode).toBe('simulation'); // ★ D43：拒绝，不切
+    expect(store().log.length).toBeGreaterThan(logBefore);
+
     store().setMode('simulation');
     expect(store().mode).toBe('simulation');
-    expect(store().log.length).toBeGreaterThan(logBefore);
   });
 });

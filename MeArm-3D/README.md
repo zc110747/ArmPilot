@@ -149,8 +149,11 @@ start.bat --help       :: 用法
 | `VITE_AUTO_REAL` | 不设 | `1` | 连接成功后自动切到 Real Robot（带校验，见下） |
 
 > ⚠️ **REAL 模式下若后端链路末端不是 serial**（例如没插机械臂、串口号不对），
-> 自动切换会**告警但不下发命令**，提示条会显示实际末端。
+> 自动切换会**被拒绝**（按钮保持 Simulation），日志给出拒绝原因与实际末端。
 > 这是刻意的：静默降级比明确报错更危险。
+>
+> 同理，**SIM 模式下手动点 Real Robot 也会被拒绝** —— 后端末端是 `sim` 就不该显示
+> "正在驱动真实机械臂"。判据见 ADR **D43**。
 >
 > 不想要自动连接时，直接 `cd frontend && npm run dev` —— 未注入环境变量时行为完全不变
 > （仍停在 Mock，等你手动点 Connect）。
@@ -163,7 +166,7 @@ cd frontend
 npm install
 npm run dev            # 本机 http://localhost:5273；局域网 http://<本机IP>:5273
 npm run typecheck      # tsc -b，零错误
-npm test               # vitest（单元 + 验收），226 项
+npm test               # vitest（单元 + 验收），233 项
 npm run test:e2e       # 真浏览器冒烟（需先 npm run dev；见下方参数说明）
 npm run build          # 生产构建
 
@@ -254,6 +257,7 @@ cd frontend && npm run dev
 | **9** | **Serial（真机）** | ✅ | `internal/device/serial.go` 落地真串口（Windows 非重叠 I/O，**不用 `bufio`**）；Uno DTR 复位静默窗口 `connect_settle_ms=2600` + 暖机包。**真机端到端闭环实测 PASS 18 / FAIL 1**：`hello=serial` · `homePose` 与 `robot.yaml` 逐位一致 · 7 步链路回推 `max\|Δ\| ≤ 0.004°` · 相机反解重复性肩 `0.26°`/肘 `0.01°`。见 `tools/verify_serial_e2e.mjs`、`docs/decisions.md` D34–D36 |
 | 10 | Real Robot | ✅ | 机构角色 / 标定 / 限位 / 零位**已实测就绪**（Phase 4.5 + `config/robot.yaml`）；Serial 已落地 ⇒ 浏览器拖动能**真实驱动物理机械臂**。**2026-09-12 修复 mode↔transport 联动缺口**：`Real Robot` 按钮原先只改 UI 样式、命令照样走当前 transport（"点了真机不动 / 切回仿真仍在动真机"），现补准入校验 + 安全门 + 去向提示（ADR **D41**）。⚠️ 相机验收已测出**肩标定增益偏差 −13.1%**（肘 +1.4% 已证实），需按锁死曝光重布台面后重测 |
 | **10.5** | **一键启动 `start.bat`** | ✅ | 根目录 `start.bat`：前置检查（backend exe / robot.yaml / node）、端口探测+确认清理（8090/5273）、按模式起前后端、打印本机+局域网地址。**关键**：注入 `VITE_AUTO_CONNECT=ws`（+ `--real` 时 `VITE_AUTO_REAL=1`）让页面**自动连后端并切 Real Robot** —— 原先页面默认停在 MockTransport 且不会自动连接，"脚本起好了但只动仿真臂"（ADR **D42**）。`npm run dev` 不注入，手动调试行为不变 |
+| **10.6** | **Real Robot 准入改为"拒绝"** | ✅ | 用户报障「前端显示 Real 模式但后端末端是 sim」。根因：`setMode('real')` 把 `set({ mode })` 写在准入校验**之前**，校验只 pushLog、状态照改（D41 只修了一半，且旧测试还把该行为固化成契约）。现改为**校验全通过才切换**，否则保持 Simulation 并说明原因；`device` 未知（hello 未到）也拒绝，`useAutoConnect` 相应改为等 device 到达再切（ADR **D43**） |
 | 11 | Real Feedback | ⏳ | 误差链路与「Actual 由实际舵机角反算」的机制已在 Phase 8 的 sim 上验证过 |
 | 12 | 虚拟 / 真实同步 | ⏳ | — |
 
@@ -268,12 +272,14 @@ ONNX · 语音控制 · 动作学习 · MuJoCo 训练 · Sim2Real。
 
 ```
 类型检查      tsc -b                    0 error
-单元测试      vitest run                204 / 204 PASS（15 文件；含 13 项几何回归 · 19 项 IK · 19 项拖动平面 ·
-                                       13 项目标语义 · 25 项 wsProtocol · 30 项 WebSocketTransport）
+单元测试      vitest run                233 / 233 PASS（17 文件；含 13 项几何回归 · 19 项 IK · 19 项拖动平面 ·
+                                       13 项目标语义 · 30 项 wsProtocol · 33 项 WebSocketTransport ·
+                                       17 项自动连接意图与切换时序 · 12 项 mode↔transport 联动）
 后端单测      go test ./...             56 / 56 PASS（5 包：robot · protocol · device · controller · wsserver）
                                         + go vet 干净 · gofmt -l 无输出
-浏览器 e2e    node tests/e2e/ui-smoke   49 / 49 PASS（含 21 项 Phase 8 真实 WebSocket 端到端）
-生产构建      vite build                1,290.60 kB (gzip 362.64 kB)
+浏览器 e2e    node tests/e2e/ui-smoke   52 / 52 PASS（含 25 项 Phase 8 真实 WebSocket 端到端
+                                        + 4 项 Phase 10.6 Real Robot 准入拒绝；连跑三轮稳定）
+生产构建      vite build                1,294.98 kB (gzip 364.40 kB)
 FK↔Three.js  200 组随机关节状态         末端位置最大误差 8.673e-14 mm
                                        关节矩阵最大元素误差 8.527e-14
 FK(IK(XYZ))  2000 组随机可达位姿         末端位置最大残差 1.401e-13 mm（失败 0 组）

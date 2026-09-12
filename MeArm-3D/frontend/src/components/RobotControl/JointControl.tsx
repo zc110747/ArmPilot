@@ -36,6 +36,11 @@ export function JointControl() {
   const isRealLink = transportKind === 'websocket' && device === 'serial';
 
   // 当前模式下命令的实际去向 —— 三态，必须说清楚
+  //
+  // 注（D43）：下面两条 `mode === 'real'` 的 warn 分支，在**正常路径**下已不可达
+  // —— `setMode('real')` 会在链路不具备时**拒绝切换**，所以 mode 不可能停在 real
+  // 而末端是 sim/Mock。保留它们作**纵深防御**：若有外部代码用 `setState` 直接改
+  // mode（绕过 setMode），这里依然能把不一致暴露出来，而不是显示成"正在驱动真机"。
   const routing = !transportDriven
     ? { text: '纯仿真（未连接，命令只改虚拟臂）', tone: 'dim' as const }
     : mode === 'simulation' && isRealLink
@@ -43,9 +48,9 @@ export function JointControl() {
       : mode === 'real' && isRealLink
         ? { text: '★ 正在驱动真实机械臂（链路末端 serial）', tone: 'live' as const }
         : mode === 'real' && transportKind === 'websocket'
-          ? { text: `Real 模式下后端末端是「${device ?? '未知'}」，非真机`, tone: 'warn' as const }
+          ? { text: `⚠ 状态异常：Real 模式但末端是「${device ?? '未知'}」（应由 setMode 拒绝）`, tone: 'warn' as const }
           : mode === 'real'
-            ? { text: 'Real 模式下连接的是 Mock，未驱动硬件', tone: 'warn' as const }
+            ? { text: '⚠ 状态异常：Real 模式但连接的是 Mock（应由 setMode 拒绝）', tone: 'warn' as const }
             : { text: `仿真（连接 ${transportKind ?? '—'}，命令照常下发到仿真链路）`, tone: 'dim' as const };
 
   return (

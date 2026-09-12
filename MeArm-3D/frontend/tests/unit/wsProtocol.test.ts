@@ -22,8 +22,11 @@ import {
   isHello,
   isJointState,
   isPong,
+  jointToServo,
   loadRobotModel,
   quantizeForWire,
+  quantizeViaServo,
+  servoToJoint,
 } from '@robot/index';
 import { backendInfoFromLocal } from '../helpers/backendModel';
 
@@ -222,5 +225,60 @@ describe('wsProtocol · 链路精度（quantizeForWire）', () => {
     const input = { shoulder: 29.9063172659 };
     quantizeForWire(input);
     expect(input.shoulder).toBe(29.9063172659);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 9：真机（固件舵机角为整数）的归整口径
+// ---------------------------------------------------------------------------
+
+describe('wsProtocol · 真机量化（quantizeViaServo）', () => {
+  const shoulder = model.actuators.find((a) => a.jointId === 'shoulder')!;
+  const elbow = model.actuators.find((a) => a.jointId === 'elbow')!;
+
+  it('命令先经舵机空间取整再反算 —— 与固件实际会停的位置同口径', () => {
+    // S7：jointToServo(20) = 20*1.44018 + 88.776 = 117.5796 → 固件取整成 118
+    expect(jointToServo(shoulder, 20)).toBeCloseTo(117.5796, 4);
+    const q = quantizeViaServo(model, { base: 0, shoulder: 20, elbow: 112.6, gripper: 50 });
+    expect(q.shoulder).toBeCloseTo(servoToJoint(shoulder, 118), 12);
+  });
+
+  it('残差量级 = 半个舵机度 ÷ |scale|（肩 0.347°、肘 0.209°）', () => {
+    // 这不是"误差"，而是真机物理上无法表达更细命令的**量化下限**
+    const cmd = { base: 0, shoulder: 20, elbow: 112.6185771989, gripper: 50 };
+    const q = quantizeViaServo(model, cmd);
+    expect(Math.abs(q.shoulder - cmd.shoulder)).toBeLessThanOrEqual(0.5 / shoulder.scale + 1e-9);
+    expect(Math.abs(q.elbow - cmd.elbow)).toBeLessThanOrEqual(0.5 / elbow.scale + 1e-9);
+    // 反例：若拿**未量化**的全精度命令去比对，就会永久停在这个假误差上
+    expect(Math.abs(cmd.shoulder - q.shoulder)).toBeGreaterThan(0.1);
+  });
+
+  it('幂等：量化结果再量化不变（否则连续命令会持续漂移）', () => {
+    const once = quantizeViaServo(model, {
+      base: 0,
+      shoulder: 20,
+      elbow: 112.6185771989,
+      gripper: 50,
+    });
+    const twice = quantizeViaServo(model, once);
+    for (const id of Object.keys(once)) {
+      expect(twice[id]).toBeCloseTo(once[id], 9);
+    }
+  });
+
+  it('与后端 STATE 的 2 位小数格式化叠加后，残差仍远小于真机量化下限', () => {
+    const cmd = { base: 0, shoulder: 20, elbow: 112.6185771989, gripper: 50 };
+    const q = quantizeViaServo(model, cmd);
+    for (const v of Object.values(q)) {
+      const printed = Math.round(v * 100) / 100; // 后端 EncodeState 用 %.2f
+      expect(Math.abs(printed - v)).toBeLessThanOrEqual(0.005 + 1e-12);
+    }
+  });
+
+  it('不改动入参，且剔除非有限值', () => {
+    const input = { shoulder: 20, base: Number.NaN };
+    const out = quantizeViaServo(model, input);
+    expect(input.shoulder).toBe(20);
+    expect(out).not.toHaveProperty('base');
   });
 });

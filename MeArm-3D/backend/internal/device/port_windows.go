@@ -1,0 +1,203 @@
+//go:build windows
+
+package device
+
+import (
+	"fmt"
+	"io"
+	"strings"
+	"syscall"
+	"unsafe"
+)
+
+// 本文件是从 MeArm-RemoteControl/internal/serial/windows_serial.go 移植的
+// 零依赖 Windows 串口实现（只用标准库 syscall 直连 kernel32，不引任何第三方串口库）。
+//
+// 移植时保持逐字节等价，因为这里的每个常量都是**实测调出来的**：
+//
+//	立即返回读模式   CH340 等 USB 串口的非重叠 I/O 会在读进行中把并发写挡住，
+//	                 若 ReadFile 以较长总超时驻留，命令-应答门控的每次写出都要排队，
+//	                 实测单条指令被拖到 218~560ms；改成 MAXDWORD 三元组后降到 ~13ms。
+//	共享打开         允许被其它程序共享打开，规避"端口被占用"连不上。
+//	DCB 布局         必须与 winbase.h 逐字段对齐（共 28 字节，含隐式 padding）。
+
+var (
+	k32                 = syscall.NewLazyDLL("kernel32.dll")
+	procCreateFileW     = k32.NewProc("CreateFileW")
+	procCloseHandle     = k32.NewProc("CloseHandle")
+	procSetCommState    = k32.NewProc("SetCommState")
+	procSetCommTimeouts = k32.NewProc("SetCommTimeouts")
+	procReadFile        = k32.NewProc("ReadFile")
+	procWriteFile       = k32.NewProc("WriteFile")
+)
+
+const (
+	genericRead    = 0x80000000
+	genericWrite   = 0x40000000
+	openExisting   = 3
+	fileShareRead  = 0x00000001
+	fileShareWrite = 0x00000002
+	invalidHandle  = ^uintptr(0)
+
+	// winERROR_TIMEOUT = Windows ERROR_TIMEOUT (1460)：读超时（无数据），非致命。
+	winERROR_TIMEOUT = 1460
+)
+
+// errTimeout 表示串口读超时（Windows ERROR_TIMEOUT）。readLoop 视其为"暂无数据"，
+// 继续等待，而非断开连接——否则空闲 200ms 就会把连接反复撕裂重连
+// （而重连会拉 DTR 使 Uno 复位，舵机全部弹回 90°）。
+var errTimeout = &serialTimeoutError{}
+
+type serialTimeoutError struct{}
+
+func (e *serialTimeoutError) Error() string   { return "serial read timeout" }
+func (e *serialTimeoutError) Timeout() bool   { return true }
+func (e *serialTimeoutError) Temporary() bool { return true }
+
+// dcb 是 Windows 通信设备控制块（与 winbase.h 布局一致，共 28 字节）。
+type dcb struct {
+	dcbLength  uint32
+	baudRate   uint32
+	flags      uint32 // bit0=fBinary(必须1)
+	wReserved  uint16
+	xonLim     uint16
+	xoffLim    uint16
+	byteSize   byte
+	parity     byte
+	stopBits   byte
+	xonChar    byte
+	xoffChar   byte
+	errorChar  byte
+	eofChar    byte
+	evtChar    byte
+	wReserved1 uint16
+}
+
+// commTimeouts 控制读写超时；此处配置为"有数据立即返回，无数据立即返回 0 字节"。
+type commTimeouts struct {
+	readIntervalTimeout         uint32
+	readTotalTimeoutMultiplier  uint32
+	readTotalTimeoutConstant    uint32
+	writeTotalTimeoutMultiplier uint32
+	writeTotalTimeoutConstant   uint32
+}
+
+type winSerial struct {
+	handle uintptr
+}
+
+func openPort(cfg SerialConfig) (io.ReadWriteCloser, error) {
+	name, err := syscall.UTF16PtrFromString("\\\\.\\" + cfg.Port)
+	if err != nil {
+		return nil, err
+	}
+	r, _, e := procCreateFileW.Call(
+		uintptr(unsafe.Pointer(name)),
+		genericRead|genericWrite,
+		fileShareRead|fileShareWrite,
+		0,
+		openExisting,
+		0,
+		0,
+	)
+	if r == invalidHandle {
+		return nil, fmt.Errorf("CreateFileW %s 失败: %v（端口可能被其它程序占用或名称错误，请确认 COM 号）", cfg.Port, e)
+	}
+
+	s := &winSerial{handle: r}
+
+	parity := byte(0) // N
+	switch strings.ToUpper(cfg.Parity) {
+	case "E":
+		parity = 2
+	case "O":
+		parity = 1
+	}
+	stop := byte(0) // 1 停止位
+	if cfg.StopBits == 2 {
+		stop = 2
+	}
+	baud := cfg.Baud
+	if baud <= 0 {
+		baud = 115200
+	}
+
+	// DataBits 必须落在 5..8；调用方未显式给出（默认 0）时回退到标准 8 位，
+	// 否则 SetCommState 会因 byteSize=0 返回"参数不正确"而打开失败。
+	byteSize := byte(cfg.DataBits)
+	if byteSize < 5 || byteSize > 8 {
+		byteSize = 8
+	}
+
+	var d dcb
+	d.dcbLength = uint32(unsafe.Sizeof(d))
+	d.baudRate = uint32(baud)
+	// flags: fBinary=1(必需) | fDtrControl=1(DTR 使能) | fRtsControl=1(RTS 使能)
+	// 标准 3 线串口均以此配置工作。
+	// ⚠️ DTR 使能 = 打开端口即拉低 DTR = Uno 复位（这是既知且必需的副作用，见 serial.go）。
+	d.flags = 1 | (1 << 4) | (1 << 12)
+	d.byteSize = byteSize
+	d.parity = parity
+	d.stopBits = stop
+
+	if r, _, e := procSetCommState.Call(s.handle, uintptr(unsafe.Pointer(&d))); r == 0 {
+		_ = s.Close()
+		return nil, fmt.Errorf("SetCommState 失败: %v", e)
+	}
+
+	var t commTimeouts
+	// 读：MAXDWORD 三元组 = "立即返回"模式——ReadFile 马上带回驱动缓冲里现有字节
+	// （无数据返回 0 字节且不报错）。这是本项目的关键性能修复：CH340 的非重叠 I/O
+	// 会把并发 WriteFile 挡到读返回为止，立即返回模式下读调用微秒级完成，写几乎无等待；
+	// 空轮询由 readLoop 的 2ms sleep 节流。
+	// 写：WriteTotalTimeoutConstant=500 => 单次写最多 500ms，设备无响应时快速失败。
+	t.readIntervalTimeout = 0xFFFFFFFF // MAXDWORD
+	t.readTotalTimeoutMultiplier = 0xFFFFFFFF
+	t.readTotalTimeoutConstant = 0
+	t.writeTotalTimeoutConstant = 500
+	if r, _, e := procSetCommTimeouts.Call(s.handle, uintptr(unsafe.Pointer(&t))); r == 0 {
+		_ = s.Close()
+		return nil, fmt.Errorf("SetCommTimeouts 失败: %v", e)
+	}
+
+	return s, nil
+}
+
+func (s *winSerial) Read(p []byte) (int, error) {
+	if len(p) == 0 {
+		return 0, nil
+	}
+	var n uint32
+	r, _, e := procReadFile.Call(s.handle, uintptr(unsafe.Pointer(&p[0])), uintptr(len(p)), uintptr(unsafe.Pointer(&n)), 0)
+	if r == 0 {
+		if errno, ok := e.(syscall.Errno); ok && uint32(errno) == winERROR_TIMEOUT {
+			return 0, errTimeout
+		}
+		if e == nil {
+			return 0, fmt.Errorf("ReadFile 返回 0 字节（未知错误）")
+		}
+		return 0, e
+	}
+	return int(n), nil
+}
+
+func (s *winSerial) Write(p []byte) (int, error) {
+	if len(p) == 0 {
+		return 0, nil
+	}
+	var n uint32
+	r, _, e := procWriteFile.Call(s.handle, uintptr(unsafe.Pointer(&p[0])), uintptr(len(p)), uintptr(unsafe.Pointer(&n)), 0)
+	if r == 0 {
+		return 0, e
+	}
+	return int(n), nil
+}
+
+func (s *winSerial) Close() error {
+	if s.handle == invalidHandle || s.handle == 0 {
+		return nil
+	}
+	procCloseHandle.Call(s.handle)
+	s.handle = invalidHandle
+	return nil
+}

@@ -1,4 +1,4 @@
-# armpilot-backend · 关节级 WebSocket 服务（Phase 8）
+# armpilot-backend · 关节级 WebSocket 服务（Phase 8–9）
 
 ArmPilot 数字孪生的后端：把浏览器下发的**关节角**转成 arm-device 文本协议写到链路末端，
 并把末端反算回来的关节角推回浏览器。
@@ -22,8 +22,17 @@ Browser ──WebSocket(JSON)──▶ wsserver ──▶ controller ──▶ d
 ```bash
 cd MeArm-3D/backend
 go build -o bin/armpilot-backend.exe .
+
+# ① 仿真（默认，链路末端 = 内置假固件）
 ./bin/armpilot-backend.exe -c config.yaml
+
+# ② 真机（Phase 9）：驱动物理舵机，串口见 config.serial.yaml
+./bin/armpilot-backend.exe -c config.serial.yaml
 ```
+
+> ⚠️ **真机模式会真的动舵机。** 两个配置的差别只有 `device.mode` / `device.serial.*`；
+> **关节限位、标定（offset/scale/reverse）、HOME 位一律仍来自 `../config/robot.yaml`**
+> —— 这是"标定只有一份"铁律在配置层的体现，真机模式不允许有自己的第二份标定。
 
 启动后：
 
@@ -129,6 +138,7 @@ STATE 0.00 20.80 112.60 50.00                 状态（由**舵机实际角反�
 ```bash
 cd MeArm-3D/backend
 GOFLAGS=-mod=mod GOPROXY=off go test ./... -count=1      # 56 / 56 PASS（5 包）
+# ⚠️ 本环境 go test -race 无法启动（0xc0000139），需要竞态检查请换机跑
 go vet ./... && gofmt -l .                               # 无输出
 ```
 
@@ -145,17 +155,60 @@ go vet ./... && gofmt -l .                               # 无输出
 | `internal/controller` | 限位同步拒绝且不写设备、`JR` 编码、**ACK 不发布状态**、STATE 发布、latest-wins 合并、ERR 放行门控、ACK 超时上报并补发、设备不可用拒绝、部分帧保留其余关节、真 sim 集成（6 步收敛） |
 | `internal/wsserver` | 握手 + `hello` 模型真值（含通道映射 S7=肩/S8=肘）、完整往返并**先经过中间态**、限位拒绝、版本不匹配、ping/pong、坏 JSON、多客户端广播、`/healthz` |
 
-## 6. Phase 9 衔接
+## 6. Phase 9：真串口（**已完成**）
 
-`device.Device` 接口已就位，Phase 9 只需实现 `NewSerial`，`controller` / `wsserver` **零改动**。
+`device.Device` 接口的价值在这里兑现：`NewSerial` 落地后 `controller` / `wsserver` **零改动**。
 
-实现要点（来自 skill `arm-robot-serial` 的实测经验，勿重复踩）：
+实现要点（来自 skill `arm-robot-serial` 的实测经验）：
 
-1. Uno 开串口后 bootloader 有 ~2.5s 交权期，窗口内指令被吞 → 需要静默窗口
+1. Uno 开串口后 bootloader 有 ~2.5s 交权期，窗口内指令被吞 → `connect_settle_ms: 2600` 静默窗口
 2. 连接后首包常丢 → 先发一个暖机包
 3. Windows 非重叠 I/O 读写互斥（单条命令 200~900ms）→ 必须用「立即返回」读超时 + 手动行缓冲，
-   且**不能用 bufio**（空闲 20s 会因空读抛错而断连）
+   且**不能用 `bufio`**（空闲 20s 会因空读抛错而断连）
 4. 命令-应答门控下周期性 `STATUS` 查询会饿死控制流 → 状态改由固件**主动上报** `STATE`
 
-固件侧还需实现 `JR` / `STATE` 解析（`protocol/serial-v1.md` §4），
-并**由 `config/robot.yaml` 生成**内置标定表，而不是手抄。
+### 6.1 ⚠️ 真机没有位置反馈：`joint_state` **不等于**物理到位
+
+这是接真机后最容易踩的认知陷阱，也是本后端**能力边界**所在：
+
+meArm 固件**没有编码器、没有电位器回读**。`arm_get_angle()` 返回的是固件变量里记着的
+**目标值**。因此：
+
+| 环节 | 它在说什么 | 能证明"物理到位"吗 |
+|------|-----------|------------------|
+| 固件 `OK SET` / `OK JR` | "我把目标设成了 X" | ❌ |
+| 固件 `STATE` | "我记得我应该在 X" | ❌ |
+| 后端 `joint_state` 回推 | 上面这条的转发 | ❌ |
+| **`tools/verify_pose.py` 相机反解** | 它**实际上**在哪 | ✅ **唯一途径** |
+
+**机械臂卡死在桌面上，上面四条回执依然一字不差。** 所以本后端的 `joint_state`
+在验收口径里**只作链路自洽性参考**（证明命令确实穿过了整条链路），
+**绝不作为「到位」证据**。要验收物理到位，必须走相机：
+
+```bash
+# 真机端到端闭环（会真的驱动机械臂 + 调用相机抓帧）
+node MeArm-3D/tools/verify_serial_e2e.mjs
+```
+
+它串起 `WebSocket → 本服务 → 串口 → 固件 → 舵机 → ffmpeg 抓帧 → verify_pose.py 反解比对`。
+
+### 6.2 Phase 9 首次真机闭环实测（PASS 18 / FAIL 1）
+
+| 项 | 值 |
+|----|-----|
+| 链路末端 | `hello` → `device=serial`（真机） |
+| 标定单一真值 | `homePose` 与 `config/robot.yaml` **逐位一致**（容差 `1e-6`） |
+| 开机就绪门 | Uno DTR 复位静默窗口 2.7s；不等待会报 `DEVICE_UNAVAILABLE: 串口未就绪` |
+| 链路回推 | 7 步 JR `max\|Δ\| ≤ 0.004°`（**纯链路自洽，不含物理**） |
+| 相机重复性 | 同位姿两帧反解差 肩 `0.26°` / 肘 `0.01°` |
+| 增益复核 · 肘 | 反解 `−0.4235` vs yaml `−0.4177` ⇒ **+1.4%，肘标定被独立证实 ✅** |
+| 增益复核 · 肩 | 反解 `+0.6033` vs yaml `+0.6944` ⇒ **−13.1%，肩标定需重测 ❌** |
+| ⚠️ 主导误差源 | 同台面同取景相隔 2 分钟两批，锚点绝对角偏置 `+2.69° → +7.75°`（**漂 5°**），Otsu 阈值两批同为 164 ⇒ **相机自动曝光** |
+
+### 6.3 固件侧仍待办
+
+- 固件 `core/cmd.c` 实现 `JR` / `STATE` 解析与回执（`protocol/serial-v1.md` §4）
+- 固件内置标定表**由 `config/robot.yaml` 生成**，避免手抄造成双份真值
+
+决策记录：`docs/decisions.md` **D34**（相机是唯一真值）· **D35**（帧间差为锐利判据）·
+**D36**（自动曝光是主导误差源 ⇒ 必须锁死曝光）。

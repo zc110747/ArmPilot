@@ -62,15 +62,44 @@ type SimConfig struct {
 }
 
 // SerialConfig 真串口参数（Phase 9 使用）。
+//
+// ⚠️ 这里**只放运行参数**。关节限位与舵机标定一律来自 config/robot.yaml，
+// 写进运行配置就会立刻造成双份真值。
 type SerialConfig struct {
-	Port string `yaml:"port"`
-	Baud int    `yaml:"baud"`
+	Port     string `yaml:"port"`
+	Baud     int    `yaml:"baud"`
+	DataBits int    `yaml:"data_bits"`
+	StopBits int    `yaml:"stop_bits"`
+	Parity   string `yaml:"parity"`
+	// ReconnectSec 打开失败/断链后的重试间隔（秒）
+	ReconnectSec int `yaml:"reconnect_sec"`
+	// AckTimeoutMs 单条**固件指令**的等待上限（ms）。
+	// 注意它与 control.ack_timeout_ms 不是一回事：一条关节级 JR 会被拆成
+	// 多条固件 SET（MAX_PAIRS=3 ⇒ 四舵机 2 条），故 control 层的超时必须
+	// ≥ 本条 × 拆包数 + 余量，否则会误报 ACK_TIMEOUT。
+	AckTimeoutMs int `yaml:"ack_timeout_ms"`
+	// ConnectSettleMs 打开端口后的 bootloader 静默窗口（ms）。
+	// Uno 被 DTR 复位后 optiboot 等待 ~2500ms 才交权，窗口内指令会被丢弃。
+	ConnectSettleMs int `yaml:"connect_settle_ms"`
+	// Warmup 暖机包 + STATUS 探测（Uno 引导交接后首个数据包常被吞）
+	Warmup *bool `yaml:"warmup"`
+}
+
+// WarmupEnabled 默认开启暖机（yaml 未写时为 true）。
+func (s SerialConfig) WarmupEnabled() bool {
+	return s.Warmup == nil || *s.Warmup
 }
 
 // ControlConfig 控制器策略。
 type ControlConfig struct {
 	AckTimeoutMs      int `yaml:"ack_timeout_ms"`
 	MinSendIntervalMs int `yaml:"min_send_interval_ms"`
+	// CalibToleranceDeg 标定回执核对容差（舵机角度）。
+	//
+	// 必须按**链路末端的量化步长**设置，否则会刷出满屏假告警：
+	//   sim    —— 回执是内部计算值，量化 0.01°      => 0.1 足够
+	//   serial —— 固件舵机角是**整数**，取整误差 ≤0.5° => 需要 ≥0.5
+	CalibToleranceDeg float64 `yaml:"calib_tolerance_deg"`
 }
 
 // Default 返回默认配置（文件缺失时使用）。
@@ -87,9 +116,17 @@ func Default() Config {
 				MaxServoSpeed: 240, LatencyMs: 15, TickMs: 20,
 				EnforceLimits: true, BootMs: 0,
 			},
-			Serial: SerialConfig{Port: "COM4", Baud: 115200},
+			Serial: SerialConfig{
+				Port: "COM16", Baud: 115200,
+				DataBits: 8, StopBits: 1, Parity: "N",
+				ReconnectSec: 3,
+				// 单条固件 SET 的等待上限；4 舵机会被拆成 2 条 SET。
+				AckTimeoutMs: 600,
+				// Uno 复位后 optiboot 交权窗口实测 ~2.2~2.6s
+				ConnectSettleMs: 2600,
+			},
 		},
-		Control: ControlConfig{AckTimeoutMs: 800, MinSendIntervalMs: 0},
+		Control: ControlConfig{AckTimeoutMs: 800, MinSendIntervalMs: 0, CalibToleranceDeg: 0.1},
 	}
 }
 
@@ -112,6 +149,14 @@ func Load(path string) (Config, error) {
 	}
 	if c.Device.Mode == "" {
 		c.Device.Mode = "sim"
+	}
+	// 兜底：yaml 里写了 `control:` 却漏了容差时，给一个安全带默认值。
+	// （yaml.Unmarshal 不会重置未出现的字段，所以这里只处理显式写 0 的情况。）
+	if c.Control.CalibToleranceDeg <= 0 {
+		c.Control.CalibToleranceDeg = 0.1
+	}
+	if c.Control.AckTimeoutMs <= 0 {
+		c.Control.AckTimeoutMs = 800
 	}
 	return c, nil
 }

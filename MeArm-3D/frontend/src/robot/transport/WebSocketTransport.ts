@@ -53,12 +53,28 @@ import {
   encodePing,
   encodeStatusRequest,
   quantizeForWire,
+  quantizeViaServo,
   type BackendModelInfo,
   type ServerEnvelope,
 } from './wsProtocol';
 
-/** 关节角"已到位"阈值（度） */
+/** 关节角"已到位"阈值（度）—— sim：模型内部精确收敛，故取极小值 */
 const ARRIVED_EPS_DEG = 1e-6;
+
+/**
+ * 真机（`device === 'serial'`）的"已到位"阈值（度）。
+ *
+ * 真机残差有两个来源：
+ *   ① 固件舵机角是**整数** —— 关节侧最大 0.347°（S7 scale 1.44018）。
+ *      这一项已经被 `quantizeViaServo` 在比较基准里**精确抵消**了，
+ *      不属于"未到位"，所以这里不再为它留余量。
+ *   ② 后端把 `STATE` 格式化成 2 位小数 —— 残差 ≤0.005°。
+ *
+ * 取 0.02°：只为吸收 ②，比 ① 小 17 倍以上。也就是说它
+ * **不会掩盖任何物理量化误差**，仅避免"两边其实是同一个位置、
+ * 只因打印精度不同而被判成还没到位"。
+ */
+const ARRIVED_EPS_SERIAL_DEG = 0.02;
 
 export interface WebSocketTransportOptions {
   /** 后端地址，如 `ws://localhost:8090/ws/joint` */
@@ -232,7 +248,7 @@ export class WebSocketTransport implements RobotTransport {
     return {
       kind: this.kind,
       ...this.counters,
-      moving: lagDeg > ARRIVED_EPS_DEG,
+      moving: lagDeg > this.arrivedEps(),
       lagDeg,
       reconnects: this.reconnects,
       rttMs: this.rttMs,
@@ -480,14 +496,24 @@ export class WebSocketTransport implements RobotTransport {
   /**
    * 最近一次命令与最近一次实际状态的最大关节差（度）。
    *
-   * ⚠️ 命令侧必须先用 `quantizeForWire` 归整到 `JR` 线精度（0.1°）再比对。
-   * 否则量化残差会被当成"永远收敛不了的跟踪误差"：实测 `elbow` 内部命令
-   * `112.6185771989` 与线上 / 回推的 `112.6` 恒差 `0.0186°`，
-   * 面板会永久显示 `0.02°` 且 `moving` 永不归零（"正在逼近目标"熄灭不掉）。
-   * 详见 `wsProtocol.ts` 的 `WIRE_JOINT_STEP_DEG`。
+   * ⚠️ 命令侧必须先用**链路末端实际能表达的精度**归整再比对，
+   * 否则量化残差会被当成"永远收敛不了的跟踪误差"。
+   * 两种末端的瓶颈不同，必须分别处理：
+   *
+   *   sim    瓶颈是 `JR` 文本（保留 1 位小数）⇒ `quantizeForWire`（0.1°）
+   *          实测 `elbow` 内部命令 `112.6185771989` 与线上 `112.6` 恒差
+   *          `0.0186°`，面板永久显示 `0.02°`、`moving` 永不归零。
+   *
+   *   serial 瓶颈是**固件舵机角为整数**（`parse_u8`）⇒ `quantizeViaServo`。
+   *          同样不处理的话残差是 `0.347°`（S7），比 sim 那次大一个量级。
+   *
+   * 详见 `wsProtocol.ts` 的 `WIRE_JOINT_STEP_DEG` / `quantizeViaServo`。
    */
   private lagDeg(): number {
-    const commanded = quantizeForWire(this.lastCommand);
+    const commanded =
+      this.device === 'serial'
+        ? quantizeViaServo(this.model, this.lastCommand)
+        : quantizeForWire(this.lastCommand);
     const ids = new Set([...Object.keys(commanded), ...Object.keys(this.lastState)]);
     let worst = 0;
     for (const id of ids) {
@@ -495,6 +521,11 @@ export class WebSocketTransport implements RobotTransport {
       if (d > worst) worst = d;
     }
     return worst;
+  }
+
+  /** "已到位"阈值：真机与 sim 的链路精度不同，阈值必须分开（理由见常量注释）。 */
+  private arrivedEps(): number {
+    return this.device === 'serial' ? ARRIVED_EPS_SERIAL_DEG : ARRIVED_EPS_DEG;
   }
 
   private emitStatus(status: TransportStatus, reason?: string): void {

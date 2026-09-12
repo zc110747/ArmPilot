@@ -1,0 +1,47 @@
+# =============================================================================
+# ArmPilot 后端 · 真机模式运行配置（Phase 9）
+# -----------------------------------------------------------------------------
+# 用途：供「浏览器 → Go → 真串口 → 机械臂 → 相机」的端到端验收使用。
+#       *不要*把它当作默认配置：默认走 sim，真机模式会驱动物理舵机。
+#
+# 启动：cd MeArm-3D/backend && ./bin/armpilot-backend.exe -c config.serial.yaml
+#
+# ⚠️ 与 config.yaml 一样，本文件**只放运行参数**。
+#    关节限位、标定（offset/scale/reverse）、HOME 位一律来自 ../config/robot.yaml。
+#
+# ⚠️ 真机没有位置反馈（无编码器）：joint_state 是**固件内部目标值**（开环），
+#    不代表机械臂已物理到位。唯一能证明"真的动了、动到哪"的是相机
+#    —— tools/verify_pose.py 与 frontend/tests/e2e/ui-smoke.mjs 的 Phase 9 段落。
+# =============================================================================
+
+web:
+  host: "0.0.0.0"
+  port: 8090
+  path: "/ws/joint"
+  ping_interval_ms: 15000
+  client_timeout_ms: 40000
+
+robot:
+  config_path: "../config/robot.yaml"
+
+device:
+  mode: "serial"
+  serial:
+    port: "COM16"          # 本机实测：USB-SERIAL CH340 = 机械臂
+    baud: 115200
+    data_bits: 8
+    stop_bits: 1
+    parity: "N"
+    reconnect_sec: 3
+    ack_timeout_ms: 600
+    # Uno 被 DTR 复位后 optiboot 交权窗口实测 ~2.2~2.6s
+    connect_settle_ms: 2600
+    warmup: true
+
+control:
+  # 一条关节级 JR 会被拆成 2 条固件 SET（固件 MAX_PAIRS=3），
+  # 因此这里必须覆盖两个「写→等回执」来回 + 余量。
+  ack_timeout_ms: 2000
+  min_send_interval_ms: 0
+  # 固件舵机角是整数：取整误差最大 0.5°。容差小于它会让每次回执都报假偏差。
+  calib_tolerance_deg: 1.0

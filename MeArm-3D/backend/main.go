@@ -72,7 +72,18 @@ func run(cfgPath string) error {
 			BootMs:        c.Device.Sim.BootMs,
 		})
 	case "serial":
-		dev, err = device.NewSerial(device.SerialConfig{Port: c.Device.Serial.Port, Baud: c.Device.Serial.Baud})
+		warm := c.Device.Serial.WarmupEnabled()
+		dev, err = device.NewSerial(device.SerialConfig{
+			Port:            c.Device.Serial.Port,
+			Baud:            c.Device.Serial.Baud,
+			DataBits:        c.Device.Serial.DataBits,
+			StopBits:        c.Device.Serial.StopBits,
+			Parity:          c.Device.Serial.Parity,
+			ReconnectSec:    c.Device.Serial.ReconnectSec,
+			AckTimeoutMs:    c.Device.Serial.AckTimeoutMs,
+			ConnectSettleMs: c.Device.Serial.ConnectSettleMs,
+			Warmup:          warm,
+		}, model)
 	default:
 		log.Fatalf("[fatal] 未知 device.mode=%q（应为 sim 或 serial）", c.Device.Mode)
 	}
@@ -80,14 +91,24 @@ func run(cfgPath string) error {
 		return err
 	}
 	defer dev.Close()
-	log.Printf("链路末端: %s (舵机 %.0f°/s · 延迟 %dms · tick %dms · 限位校验 %v)",
-		dev.Kind(), c.Device.Sim.MaxServoSpeed, c.Device.Sim.LatencyMs, c.Device.Sim.TickMs, c.Device.Sim.EnforceLimits)
+	if c.Device.Mode == "sim" {
+		log.Printf("链路末端: %s (舵机 %.0f°/s · 延迟 %dms · tick %dms · 限位校验 %v)",
+			dev.Kind(), c.Device.Sim.MaxServoSpeed, c.Device.Sim.LatencyMs, c.Device.Sim.TickMs, c.Device.Sim.EnforceLimits)
+	} else {
+		log.Printf("链路末端: %s (%s @ %d %d%s%d · 静默窗口 %dms · 暖机 %v · 单条固件指令超时 %dms)",
+			dev.Kind(), c.Device.Serial.Port, c.Device.Serial.Baud,
+			c.Device.Serial.DataBits, c.Device.Serial.Parity, c.Device.Serial.StopBits,
+			c.Device.Serial.ConnectSettleMs, c.Device.Serial.WarmupEnabled(), c.Device.Serial.AckTimeoutMs)
+		log.Printf("⚠️ 真机**没有位置反馈**：joint_state 是固件内部目标值（开环），" +
+			"不代表已物理到位；机械臂是否真的动到目标，只能用相机验收（tools/verify_pose.py）")
+	}
 
 	// ---- 控制器 ------------------------------------------------------------
 	ctl := controller.New(model, dev, controller.Config{
 		AckTimeoutMs:      c.Control.AckTimeoutMs,
 		MinSendIntervalMs: c.Control.MinSendIntervalMs,
 		EchoJointState:    true,
+		CalibToleranceDeg: c.Control.CalibToleranceDeg,
 	})
 	ctl.Start()
 	defer ctl.Close()

@@ -22,6 +22,10 @@ export default defineConfig({
 
   server: {
     port: 5273,
+    // 监听所有网卡（0.0.0.0 / ::），否则局域网内其他设备打不开。
+    // 注意：只开放 Vite 不够 —— 前端连后端的 WebSocket 地址也必须随之指向
+    // 「这台机器」而不是 localhost（见 ConnectionControl.tsx 的 getDefaultWsUrl）。
+    host: true,
     // 允许读取仓库根下的 config/robot.yaml（位于 vite root 之外）
     fs: { allow: [dirname, repoRoot] },
   },

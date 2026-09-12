@@ -208,9 +208,52 @@ WebSocket Client → Protocol(编解码) → Robot Controller → Device(sim | s
 - [ ] 固件 `core/cmd.c` 增加 `JR` / `STATE <关节>` 解析与回执
 - [x] Go `internal/protocol` 增加关节级编解码 + 单测（Phase 8：`EncodeJR` / `EncodeOKJR` /
       `EncodeState` / `ParseReply` / `ServoAnglesToJoints`，含"`ERR` 判定必须先于 `OK JR`"）
-- [ ] `internal/device/serial.go` 落地真实串口（已留桩：显式返回"未实现"，不静默降级）
+- [x] `internal/device/serial.go` 落地真实串口（Phase 9：Windows 非重叠 I/O，**不用 `bufio`**；
+      Uno DTR 复位静默窗口 `connect_settle_ms=2600` + 暖机包）
 - [ ] `MeArm-RemoteControl` 现有摇杆通道与关节通道并存，注意 ACK 门控饥饿问题
       （见 skill `arm-robot-serial` 关键坑 6：周期查询会饿死遥控流）
+
+### 6.2 Phase 9 真机实测：**回执证明不了物理到位**
+
+> 这是本节最重要的一条，也是 Phase 9 验收方法论的基石。
+
+固件**没有位置反馈**（无编码器、无电位器回读）。`arm_get_angle()` 返回的是固件变量里
+记着的**目标值**，因此：
+
+| 回执 / 字段 | 它在说什么 | 能不能证明"到位" |
+|-------------|-----------|-----------------|
+| `OK SET S7=118` | 我收到了，把目标设成 118 | ❌ 不能 |
+| `OK JR S9=.. S8=..` | 我按标定算出的**目标**舵机角 | ❌ 不能 |
+| `STATE <sh> <el> <ba> <grip>` | 固件当前记着的关节角 | ❌ 不能 |
+| 后端回推 `joint_state` | 上面这条的转发 | ❌ 不能 |
+| **相机反解照片** | 它**实际上**在哪 | ✅ 唯一能 |
+
+**哪怕机械臂卡死在桌面上，前四条依然一字不差。** 所以：
+
+1. 回推的 `joint_state` **只作链路自洽性参考**（证明命令确实穿过了整条链路），
+   验收里**绝不作为「到位」证据**。
+2. 真机验收必须走 `tools/verify_serial_e2e.mjs`（串起 WebSocket → 串口 → 相机抓帧 →
+   `tools/verify_pose.py` 反解比对），见 `docs/decisions.md` D34。
+3. 期望值取**量化后**的关节角：固件只吃整数舵机度，物理落点是
+   `servoToJoint(round(jointToServo(θ)))`，与意图角天然差 `0.347°`(肩)/`0.209°`(肘)。
+   拿意图角当期望 = 白送一份假误差。
+4. **base 必须留 0°**：相机只能测矢状面，base 离面即判 SKIP。
+
+**Phase 9 首次真机闭环实测结果**（PASS 18 / FAIL 1）：
+
+| 项 | 值 |
+|----|-----|
+| 链路末端 | `device=serial`（真机） |
+| 标定单一真值 | `homePose` 与 `config/robot.yaml` **逐位一致**（容差 `1e-6`） |
+| 开机就绪门 | Uno DTR 复位静默窗口 2.7s；不等待会报 `DEVICE_UNAVAILABLE` |
+| 链路回推 | 7 步 JR 命令 `max\|Δ\| ≤ 0.004°`（**纯链路自洽，不含物理**） |
+| 相机重复性 | 同位姿两帧反解差 肩 `0.26°` / 肘 `0.01°` |
+| 增益复核 · 肘 | 反解 `−0.4235` vs yaml `−0.4177` ⇒ **+1.4%，肘标定被独立证实 ✅** |
+| 增益复核 · 肩 | 反解 `+0.6033` vs yaml `+0.6944` ⇒ **−13.1%，肩标定需重测 ❌** |
+| ⚠️ 误差源 | 同台面同取景相隔 2 分钟两批，锚点绝对角偏置 `+2.69° → +7.75°`（**漂 5°**），而两批 Otsu 阈值同为 164 ⇒ **自动曝光是绝对角主导误差源** |
+
+⇒ **高精度复测的前置条件**：按 `docs/hardware-measurement.md` 的 Phase 4.5 标准重布台面
+（白分割板铺满视场 + 画面内放尺 + 正交侧视 + **锁死相机曝光**）。**锁死曝光是硬要求。**
 
 ### 6.1 Phase 9 接串口时的实测坑（已写入 `device/serial.go` 注释）
 

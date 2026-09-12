@@ -126,9 +126,13 @@ def make_cost(dt, mask_pts, geom, roi_lt):
         px = ox + pts[:, 0] * s - roi_lt[0]
         py = oy + pts[:, 1] * s - roi_lt[1]
         h, w = dt.shape
-        if px.min() < 0 or px.max() >= w or py.min() < 0 or py.max() >= h:
+        ix = np.rint(px).astype(int)
+        iy = np.rint(py).astype(int)
+        # 边界判据必须用**取整后**的整数索引：若用浮点 px/py 判，py = h-0.4 这类值会
+        # 通过 px.max() < w 检查、却在 rint() 后变成 h 而越界（把种子放到 ROI 边缘即可复现）。
+        if ix.min() < 0 or ix.max() >= w or iy.min() < 0 or iy.max() >= h:
             return 1e6
-        a = float(dt[np.rint(py).astype(int), np.rint(px).astype(int)].mean())
+        a = float(dt[iy, ix].mean())
         d = np.hypot(mask_pts[:, 0][:, None] - px[None, :],
                      mask_pts[:, 1][:, None] - py[None, :])
         b = float(d.min(axis=1).mean())

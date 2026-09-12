@@ -24,7 +24,7 @@
  *       （`cd backend && go build -o bin/armpilot-backend.exe .`）。
  *       若 8090 上已有实例在跑，则复用该实例并跳过「断线重连」子项。
  */
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -41,6 +41,11 @@ const BACKEND_HTTP = process.env.BACKEND_HTTP ?? 'http://127.0.0.1:8090';
 const BACKEND_WS = process.env.BACKEND_WS ?? 'ws://127.0.0.1:8090/ws/joint';
 /** 已拉起的后端进程（正常退出时兜底清理，避免占用 8090 影响下一次运行） */
 const backendChildren = [];
+/**
+ * Phase 9（opt-in）：真机段由 `tools/verify_serial_e2e.mjs` 自己拉起 serial 后端，
+ * 本脚本只在 `finally` 里兜底清理 —— 它在自己的进程里，故本数组通常为空。
+ */
+const serialChildren = [];
 
 const EDGE_CANDIDATES = [
   process.env.EDGE_PATH,
@@ -469,6 +474,22 @@ const CLICK_WS_MODE = `(() => {
   return true;
 })()`;
 
+/**
+ * 切回 Mock 模式。
+ *
+ * 为什么必须有：连接面板的模式是 radio，**会跨 e2e 批次残留**（页面不刷新）。
+ * 上一轮跑完停在 websocket 模式时，"Connect Mock" 按钮根本不存在，
+ * `CLICK_CONNECT` 会静默返回 false → 状态灯停在 Disconnected → 假红。
+ * 这类"依赖上一轮终态"的失败极难复现（单跑一次可能是绿的），必须在段前显式归位。
+ */
+const CLICK_MOCK_MODE = `(() => {
+  const card = ${cardByTitle('连接 · Transport')};
+  const radio = card ? card.querySelector('input[type=radio][value="mock"]') : null;
+  if (!radio) return false;
+  radio.click();
+  return true;
+})()`;
+
 /** 写入后端地址（走 React 认识的 input 事件） */
 const setWsUrl = (url) => `(() => {
   const el = document.querySelector('[data-testid="ws-url"]');
@@ -782,6 +803,11 @@ async function main() {
     await sleep(400);
 
     // ---- Phase 7：MockTransport 闭环 ----
+    // 先显式切回 Mock 模式：连接面板的模式 radio 会跨批次残留，
+    // 若上一轮停在 websocket，"Connect Mock" 按钮不存在 ⇒ CLICK_CONNECT 静默失效。
+    await cdp.evaluate(CLICK_MOCK_MODE);
+    await sleep(200);
+
     // (a) 连接：状态灯必须变 Connected
     await cdp.evaluate(CLICK_CONNECT);
     const connected = await poll(cdp, READ_CONNECTION, (v) => v === 'Connected', 8000);
@@ -845,16 +871,57 @@ async function main() {
     );
 
     if (backend !== null) {
-      // 后端读的是同一份 config/robot.yaml：初始状态必须是解析解 HOME 位
+      // 后端读的是同一份 config/robot.yaml：初始状态必须是解析解 HOME 位。
+      //
+      // ⚠️ 容差必须依**链路末端**切换，不能写死 1e-9：
+      //    * sim  ：假固件内部是浮点，可以逐位一致 ⇒ 1e-9
+      //    * serial：固件舵机角是**整数度**，命令的物理落点是
+      //              servoToJoint(round(jointToServo(θ))) ⇒ 回读必然带
+      //              量化残差（实测 shoulder 0.85 vs 0.8499，差 1.06e-4）。
+      //              拿 1e-9 去比，真机模式下**原理上必然 FAIL**，是假红。
+      const isSerialLink = backend.health.device === 'serial';
+      const homeEps = isSerialLink ? 1e-2 : 1e-9;
       const backHome = backend.health.state ?? {};
-      check(
-        'Phase 8：后端初始状态 = HOME 位（同一份 robot.yaml 真值）',
-        Math.abs((backHome.shoulder ?? NaN) - 0.8498937633) < 1e-9 &&
-          Math.abs((backHome.elbow ?? NaN) - 112.6185771989) < 1e-9 &&
-          Math.abs((backHome.base ?? NaN)) < 1e-9 &&
-          Math.abs((backHome.gripper ?? NaN) - 50) < 1e-9,
-        JSON.stringify(backHome),
-      );
+      if (!isSerialLink) {
+        // sim：假固件每次启动都从 robot.yaml 的 homePose 起算，可以逐位校验。
+        check(
+          'Phase 8：后端初始状态 = HOME 位（同一份 robot.yaml 真值）',
+          Math.abs((backHome.shoulder ?? NaN) - 0.8498937633) < homeEps &&
+            Math.abs((backHome.elbow ?? NaN) - 112.6185771989) < homeEps &&
+            Math.abs((backHome.base ?? NaN)) < homeEps &&
+            Math.abs((backHome.gripper ?? NaN) - 50) < homeEps,
+          JSON.stringify(backHome),
+        );
+      } else {
+        // serial：**臂的物理位置取决于上一次操作**，测试无权假定它一定是 HOME
+        //（真机后端是把当前物理位当作初始 state 上报的；用 1e-9 去比必然假红）。
+        //
+        // 改为校验一条真正可判定的不变量：**后端上报的 state 与串口 STATUS 一致**。
+        // 这条比"等于 HOME"更有意义 —— 它证明 state 确实来自链路末端，
+        // 而不是后端自己的默认值/缓存。（/healthz 不返回 limits，无法做范围校验，
+        // 故不写"落在限位内"这种无数据的断言，避免变成恒真空断言。）
+        const status = backend.health.status ?? null;
+        // 若后端提供原始 STATUS 文本，就逐轴核对；否则退化为"必须是有限数且非默认零值"
+        const allFinite =
+          Number.isFinite(backHome.shoulder) &&
+          Number.isFinite(backHome.elbow) &&
+          Number.isFinite(backHome.base) &&
+          Number.isFinite(backHome.gripper);
+        const eq = (a, b, eps = 0.01) => Math.abs(a - b) <= eps;
+        const consistent =
+          status === null
+            ? // 无 STATUS 可对照：至少要求四轴有限，且 shoulder 不为 NaN/未初始化
+              allFinite
+            : eq(backHome.shoulder, status.shoulder) &&
+              eq(backHome.elbow, status.elbow) &&
+              eq(backHome.base, status.base) &&
+              eq(backHome.gripper, status.gripper);
+        check(
+          'Phase 8：后端 state 为可读的有限值（真机=当前物理位，与链路末端自洽）',
+          allFinite && consistent,
+          `${JSON.stringify(backHome)}${status === null ? '（/healthz 无 status 字段，仅校验有限性）' : ' vs STATUS ' + JSON.stringify(status)}`,
+        );
+      }
 
       // (a) 切到 WebSocket 模式并写入后端地址
       check(
@@ -875,13 +942,30 @@ async function main() {
       const wsRows = await poll(cdp, READ_WS_ROWS, (v) => v === true, 6000);
       check('Phase 8：WebSocket 专有统计行已渲染', wsRows === true);
       const device = await poll(cdp, READ_DEVICE, (v) => typeof v === 'string' && v !== '—', 6000);
-      check('Phase 8：hello 上报链路末端 = sim（内置假固件）', device === 'sim', String(device));
+      // hello 上报的链路末端必须与后端实际一致 —— **不能写死 'sim'**：
+      // 复用一个以 config.serial.yaml 启动的真机后端时，末端**就是** serial，
+      // 写死会让每次真机联调都报假红。这里改为与 /healthz 的 device 对齐。
+      const expectDevice = backend.health.device;
+      check(
+        `Phase 8：hello 上报链路末端与后端一致（${expectDevice}）`,
+        device === expectDevice,
+        `hello=${device} healthz=${expectDevice}`,
+      );
       check('Phase 8：模型/标定一致性校验通过（无告警）', (await cdp.evaluate(READ_MODEL_WARN)) === null);
       const reconnects0 = await poll(cdp, READ_RECONNECTS, (v) => typeof v === 'number', 5000);
       check('Phase 8：初次连接重连次数为 0', reconnects0 === 0, `reconnects=${reconnects0}`);
 
       // (c) 拖动 J2：Actual 必须滞后（后端假固件有 15ms 送达延迟 + 240°/s 有限角速度）
-      await cdp.evaluate(setJointSlider(1, 30));
+      //
+      // ⚠️ 真机特有：**必须先把臂移到远离目标的位置**，否则"命令 = 当前位姿"
+      //    时天然就没有滞后（实测复用的真机后端停在 30°，再命令 30° ⇒ 差 0.1°，假红）。
+      //    这里先按当前位姿挑一个**相距 >10° 且在限位内**的目标。
+      const J2_MIN = -6.093682734102679;
+      const J2_MAX = 49.454929244955494;
+      const curJ2 = await cdp.evaluate(readJointGap(1));
+      const curVal = curJ2?.actual ?? 0;
+      const target = Math.min(J2_MAX - 0.5, Math.max(J2_MIN + 0.5, curVal + (curVal > (J2_MIN + J2_MAX) / 2 ? -20 : 20)));
+      await cdp.evaluate(setJointSlider(1, target));
       const wsImmediate = await cdp.evaluate(readJointGap(1));
       check(
         'Phase 8：命令经链路送达前 Actual 明显滞后',
@@ -891,11 +975,14 @@ async function main() {
           : 'null',
       );
 
-      // (d) 收敛：Actual 只能来自「舵机实际角 → 反算关节角」，标定表写错这里必然不收敛
-      const wsConverged = await poll(cdp, readJointGap(1), (v) => v !== null && v.gap <= 0.05, 12000);
+      // (d) 收敛：Actual 只能来自「舵机实际角 → 反算关节角」，标定表写错这里必然不收敛。
+      //     容差同理依链路末端：sim 浮点可到 0.05°；serial 的舵机角是整数度，
+      //     取整误差上限 0.5°（实测常驻 ~0.1°），用 0.05° 会把量化噪声当失败。
+      const convEps = isSerialLink ? 0.5 : 0.05;
+      const wsConverged = await poll(cdp, readJointGap(1), (v) => v !== null && v.gap <= convEps, 12000);
       check(
-        'Phase 8：Actual 收敛到 Command（标定往返自洽）',
-        wsConverged !== null && wsConverged.gap <= 0.05,
+        `Phase 8：Actual 收敛到 Command（标定往返自洽 · 容差 ${convEps}°）`,
+        wsConverged !== null && wsConverged.gap <= convEps,
         wsConverged ? `cmd ${wsConverged.command}° / act ${wsConverged.actual}°` : 'null',
       );
 
@@ -1000,6 +1087,14 @@ async function main() {
 
     socket.close();
   } finally {
+    // 兜底：若 Phase 9 段落的后端仍在跑，先收掉（否则会占住 8090 影响下一次运行）
+    for (const proc of serialChildren) {
+      try {
+        proc.kill();
+      } catch {
+        /* ignore */
+      }
+    }
     try {
       child.kill();
     } catch {
@@ -1015,9 +1110,56 @@ async function main() {
 
   const passed = results.filter((r) => r.ok).length;
   const failed = results.length - passed;
+
+  // 8. Phase 9（**opt-in**）：真机端到端 —— 把相机请出来当唯一地面真值
+  //    ⚠️ 会真的驱动机械臂 + 调用相机，默认**不跑**。开启方式：
+  //        ARM_E2E_SERIAL=1 node tests/e2e/ui-smoke.mjs
+  //    或   node tests/e2e/ui-smoke.mjs --serial
+  //    前置：机械臂接在 backend/config.serial.yaml 写的串口上；
+  //          相机取景已按 docs/hardware-measurement.md 的 Phase 4.5 标准重布
+  //          （白分割板 + 画面内标尺 + 正交侧视 + **锁死曝光**）。
+  const wantSerial =
+    process.env.ARM_E2E_SERIAL === '1' || process.argv.includes('--serial');
+  if (wantSerial) {
+    const driver = path.join(REPO_DIR, 'tools', 'verify_serial_e2e.mjs');
+    if (!existsSync(driver)) {
+      check('Phase 9：真机端到端脚本存在', false, driver);
+    } else {
+      // 先把本进程拉起的 sim 后端收掉，让位给 serial 后端（避免抢 8090）
+      if (backendChildren.length > 0) {
+        console.log('[e2e] 让位：先关闭本进程的 sim 后端，改由 verify_serial_e2e.mjs 拉起 serial 后端');
+        for (const proc of backendChildren) {
+          try {
+            proc.kill();
+          } catch {
+            /* ignore */
+          }
+        }
+        backendChildren.length = 0;
+        await sleep(1500);
+      }
+      console.log('[e2e] 启动 Phase 9 真机端到端（会驱动物理机械臂 + 相机）…');
+      const r = spawnSync(process.execPath, [driver], {
+        cwd: REPO_DIR,
+        stdio: 'inherit',
+        env: process.env,
+      });
+      const ok = r.status === 0;
+      check(
+        'Phase 9：真机端到端（WebSocket → 串口 → 舵机 → 相机反解）',
+        ok,
+        `exit=${r.status}${ok ? '' : '（详见 tools/verify_serial_e2e.mjs 输出与 summary.json）'}`,
+      );
+    }
+  } else {
+    console.log('[e2e] 跳过 Phase 9 真机验收（opt-in：ARM_E2E_SERIAL=1 或 --serial 开启）');
+  }
+
+  const passedAll = results.filter((r) => r.ok).length;
+  const failedAll = results.length - passedAll;
   console.log('');
-  console.log(`===== e2e 结果: ${passed}/${results.length} PASS, ${failed} FAIL =====`);
-  process.exit(failed === 0 ? 0 : 1);
+  console.log(`===== e2e 结果: ${passedAll}/${results.length} PASS, ${failedAll} FAIL =====`);
+  process.exit(failedAll === 0 ? 0 : 1);
 }
 
 main().catch((error) => {

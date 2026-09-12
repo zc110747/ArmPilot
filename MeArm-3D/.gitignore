@@ -22,6 +22,10 @@ Thumbs.db
 # ---- 后端产物（Phase 8+） ----
 /backend/bin/
 
+# ---- Python 工具字节码（tools/*.py 被 verify 脚本反复 import） ----
+__pycache__/
+*.pyc
+
 # ---- Agent 探针产物（相机反解机构的中间图，可由 tools/ 重新生成） ----
 # 注意：/.workbuddy/memory/ 是要入库的（与 MeArm-Device / MeArm-RemoteControl 约定一致）
 /.workbuddy/analysis/

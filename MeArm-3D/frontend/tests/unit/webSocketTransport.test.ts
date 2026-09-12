@@ -12,6 +12,7 @@ import {
   endEffectorPose,
   loadRobotModel,
   quantizeForWire,
+  quantizeViaServo,
   type JointState,
   type RobotState,
   type TransportStatusDetail,
@@ -433,5 +434,69 @@ describe('WebSocketTransport · 连接超时', () => {
     h.timer.advance(10_000);
     expect(h.transport.status()).toBe('connected');
     expect(h.factory.count).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 9：真机（device === 'serial'）的到位判定
+// ---------------------------------------------------------------------------
+
+describe('WebSocketTransport · 真机到位判定', () => {
+  /** 让 transport 进入 serial 模式（hello 里带 device:'serial'） */
+  const asSerial = (h: Harness) => {
+    h.factory.last.deliver({
+      version: 1,
+      type: 'hello',
+      timestamp: 1,
+      model: backendInfoFromLocal(model),
+      device: 'serial',
+    });
+  };
+
+  it('固件按整数舵机取整后回推 → 跟踪误差归零，moving 不永亮', async () => {
+    const h = await connected();
+    asSerial(h);
+
+    await h.transport.sendJointState(jointsAt(30));
+    // 后端把命令经整数舵机量化后再回推（真机固件只吃整数度）
+    const echoed = quantizeViaServo(model, jointsAt(30));
+    // 再叠加 EncodeState 的 %.2f 格式化
+    const printed: JointState = {};
+    for (const [id, v] of Object.entries(echoed)) printed[id] = Math.round(v * 100) / 100;
+    h.factory.last.deliver({ version: 1, type: 'joint_state', joints: printed });
+
+    expect(h.transport.stats().lagDeg).toBeLessThan(0.02);
+    expect(h.transport.stats().moving).toBe(false);
+  });
+
+  it('⚠️ 反例：不按真机口径归整（用 sim 的 0.1° 格点）会留下 0.35° 假误差', async () => {
+    const h = await connected();
+    asSerial(h);
+
+    await h.transport.sendJointState(jointsAt(30));
+    const echoed = quantizeViaServo(model, jointsAt(30));
+    const printed: JointState = {};
+    for (const [id, v] of Object.entries(echoed)) printed[id] = Math.round(v * 100) / 100;
+    h.factory.last.deliver({ version: 1, type: 'joint_state', joints: printed });
+
+    // 若拿 sim 的口径（0.1° 文本格点）当比较基准，残差落在 0.02~0.4 之间
+    const wrong = quantizeForWire(jointsAt(30));
+    let worst = 0;
+    for (const id of Object.keys(wrong)) {
+      worst = Math.max(worst, Math.abs((printed[id] ?? 0) - (wrong[id] ?? 0)));
+    }
+    expect(worst).toBeGreaterThan(0.02);
+  });
+
+  it('真机模式下仍能识别"真的没到位"（容差不掩盖真实滞后）', async () => {
+    const h = await connected();
+    asSerial(h);
+
+    await h.transport.sendJointState(jointsAt(30));
+    // 固件报告它还在 10°（差 20°）—— 远超 0.02° 容差
+    h.factory.last.deliver({ version: 1, type: 'joint_state', joints: jointsAt(10) });
+
+    expect(h.transport.stats().lagDeg).toBeGreaterThan(15);
+    expect(h.transport.stats().moving).toBe(true);
   });
 });

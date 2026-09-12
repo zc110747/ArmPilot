@@ -27,17 +27,24 @@ import (
 
 // Config 控制器策略参数。
 type Config struct {
-	// AckTimeoutMs 单条指令的回执超时（ms）。超时判链路异常，转入安全态。
+	// AckTimeoutMs 单条 JR 的回执超时（ms）。超时判链路异常，转入安全态。
 	AckTimeoutMs int
 	// MinSendIntervalMs 两次下发之间的最小间隔（ms）。0 = 不限制。
 	MinSendIntervalMs int
 	// EchoJointState 是否把 STATE 回执行透传给浏览器（默认 true）。
 	EchoJointState bool
+	// CalibToleranceDeg 标定回执核对容差（舵机角度）。
+	//
+	// ⚠️ 必须按链路末端的**量化步长**设置：
+	//   sim    —— 回执来自内部计算，量化 0.01°       => 0.1
+	//   serial —— 固件舵机角是**整数**，取整误差 ≤0.5° => ≥0.5
+	// 若不管设备一律用 0.1，真机每次回执都会打出"标定偏差"假告警。
+	CalibToleranceDeg float64
 }
 
 // DefaultConfig 返回推荐策略。
 func DefaultConfig() Config {
-	return Config{AckTimeoutMs: 800, MinSendIntervalMs: 0, EchoJointState: true}
+	return Config{AckTimeoutMs: 800, MinSendIntervalMs: 0, EchoJointState: true, CalibToleranceDeg: 0.1}
 }
 
 // JointStateHandler 收到设备状态（关节角）。
@@ -300,9 +307,18 @@ func (c *Controller) finishInflight() {
 	}
 }
 
-// calibToleranceDeg 舵机角回执与本地标定值的允许偏差（度）。
-// 文本协议 JR 保留 1 位小数（量化 0.05°），此处放到 0.1° 留余量。
+// calibToleranceDeg 是未显式配置时的标定核对容差（度），适用于 sim。
+// 真机（固件舵机角为整数）必须由 cfg 显式给到 ≥0.5，否则回执取整误差会
+// 变成每次一条的假告警。
 const calibToleranceDeg = 0.1
+
+// tol 返回实际使用的标定核对容差。
+func (c *Controller) tol() float64 {
+	if c.cfg.CalibToleranceDeg > 0 {
+		return c.cfg.CalibToleranceDeg
+	}
+	return calibToleranceDeg
+}
 
 // verifyCalibrationEcho 核对设备回执里的舵机角与本地标定算出的值。
 //
@@ -335,9 +351,9 @@ func (c *Controller) verifyCalibrationEcho(servoAngles map[int]float64) {
 			}
 		}
 	}
-	if haveWorst && worstDelta > calibToleranceDeg {
+	if haveWorst && worstDelta > c.tol() {
 		log.Printf("[ctl] ⚠️ 标定回执偏差 S%d: 本地 %.3f° vs 设备 %.3f°（差 %.3f°，容差 %.2f°）—— 检查两侧标定表",
-			worstCh, worstLocal, worstEcho, worstDelta, calibToleranceDeg)
+			worstCh, worstLocal, worstEcho, worstDelta, c.tol())
 	}
 }
 

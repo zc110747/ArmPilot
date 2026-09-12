@@ -29,9 +29,25 @@ device:
     enforce_limits: true   # 越界回 ERR JOINT 且位置保持不动（复刻固件行为）
     boot_ms: 0             # 开机静默窗口：模拟 Uno bootloader 交权期（0 = 关闭）
   serial:
-    port: "COM4"           # Phase 9 使用
+    # ⚠️ 运行参数在这里；**标定/限位不在这里**（全在 config/robot.yaml）
+    port: "COM16"          # 本机实测：USB-SERIAL CH340 = 机械臂
     baud: 115200
+    data_bits: 8
+    stop_bits: 1
+    parity: "N"
+    reconnect_sec: 3       # 打开失败/断链后的重试间隔
+    # 单条**固件指令**的等待上限。一条关节级 JR 会被拆成多条固件 SET
+    # （固件 MAX_PAIRS=3 ⇒ 四舵机 2 条），故 control.ack_timeout_ms 必须更大。
+    ack_timeout_ms: 600
+    # 打开端口会拉低 DTR 使 Uno 复位，optiboot 交权窗口实测 ~2.2~2.6s；
+    # 窗口内不下发任何指令，Connected() 也保持 false（不假装可用）。
+    connect_settle_ms: 2600
+    warmup: true           # 先投一个会被吞掉的换行，让首条真指令成为第 2 个包
 
 control:
-  ack_timeout_ms: 800      # 单条指令回执超时；超时判链路异常
+  ack_timeout_ms: 1500     # 一条 JR 可能含 2 条固件 SET，超时要覆盖两个来回
   min_send_interval_ms: 0  # 两次下发最小间隔；0 = 不限制（节流已在浏览器侧做）
+  # 标定回执核对容差（舵机角度）。必须按链路末端的量化步长设置：
+  #   sim    = 0.1   （回执是内部计算值，量化 0.01°）
+  #   serial = 1.0   （固件舵机角是**整数**，取整误差最大 0.5°，留一倍余量）
+  calib_tolerance_deg: 0.1

@@ -10,6 +10,8 @@
  */
 import type { JointState } from '../model/Pose';
 import type { RobotModel } from '../model/RobotModel';
+import { actuatorsForJoint } from '../model/RobotModel';
+import { jointToServo, servoToJoint } from '../calibration/calibration';
 
 /** 与后端 `protocol.Version` 必须一致，不一致直接拒绝（避免字段静默错解） */
 export const PROTOCOL_VERSION = 1;
@@ -52,6 +54,40 @@ export function quantizeForWire(joints: JointState): JointState {
   for (const [id, value] of Object.entries(joints)) {
     if (!Number.isFinite(value)) continue;
     out[id] = Math.round(value * 10) / 10;
+  }
+  return out;
+}
+
+/**
+ * 把关节命令归整到**真机固件能表达的格点**（Phase 9）。
+ *
+ * 真机的瓶颈不在 JSON，而在**固件的舵机角是整数**：`MeArm-Device/core/cmd.c`
+ * 用 `parse_u8` 收角度、`arm_set_angle` 按硬限位钳位，只吃整数度。
+ * 所以命令经过「舵机空间取整 → 反算回关节角」之后那个值，
+ * 才是设备侧真正会停的位置。
+ *
+ * ⚠️ 不这样做会重演 sim 那次的假误差，而且**大一个量级**：
+ * S7（肩）的 `scale = 1.44018` ⇒ 0.5 舵机度的取整误差在关节侧是 **0.347°**，
+ * 而 sim 那次只有 0.0186° —— 面板会永久停在一个假的 `0.35°` 跟踪误差上，
+ * "正在逼近目标"熄灭不掉。
+ *
+ * 多舵机关节取平均，与后端 `protocol.ServoAnglesToJoints` 同口径。
+ */
+export function quantizeViaServo(model: RobotModel, joints: JointState): JointState {
+  const out: JointState = {};
+  for (const [id, value] of Object.entries(joints)) {
+    if (!Number.isFinite(value)) continue;
+    const acts = actuatorsForJoint(model, id);
+    if (acts.length === 0) {
+      out[id] = value; // 无执行器的关节（不该出现）原样透传
+      continue;
+    }
+    let sum = 0;
+    for (const a of acts) {
+      // 与固件一致：先取整到整数舵机度，再反算回关节角
+      sum += servoToJoint(a, Math.round(jointToServo(a, value)));
+    }
+    out[id] = sum / acts.length;
   }
   return out;
 }

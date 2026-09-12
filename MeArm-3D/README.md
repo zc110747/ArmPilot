@@ -130,9 +130,9 @@ MeArm-3D/
 # 前端
 cd frontend
 npm install
-npm run dev            # http://localhost:5273（vite 只监听 IPv6 ::1，用 127.0.0.1 连不上）
+npm run dev            # 本机 http://localhost:5273；局域网 http://<本机IP>:5273
 npm run typecheck      # tsc -b，零错误
-npm test               # vitest（单元 + 验收），196 项
+npm test               # vitest（单元 + 验收），204 项
 npm run test:e2e       # 真浏览器冒烟（需先 npm run dev；见下方参数说明）
 npm run build          # 生产构建
 
@@ -143,6 +143,18 @@ go build -o bin/armpilot-backend.exe .
 curl http://127.0.0.1:8090/healthz            # {"ok":true,"device":"sim","linked":true,"state":{…}}
 go test ./...                                 # 56 项
 ```
+
+> **局域网访问**：Vite 已设 `server.host: true`、后端已监听 `0.0.0.0:8090`，
+> 同一 WiFi 下的手机/平板打开 `http://<本机IP>:5273` 即可。
+>
+> 前端**不写死** `ws://localhost:8090` —— 那样局域网访问时浏览器会把 `localhost`
+> 解析成**访问者自己那台设备**，表现为"页面能开、但一直重连"。实际按
+> `window.location.hostname` 推导（见 `ConnectionControl.tsx` 的 `getDefaultWsUrl`）：
+> 本机访问 → `ws://localhost:8090`，局域网访问 → `ws://<本机IP>:8090`。
+> 需要指向别的后端时用 `VITE_WS_URL=ws://host:port/ws/joint` 显式覆盖。
+>
+> 首次从局域网访问若连不上，检查 Windows 防火墙是否放行
+> `node.exe` / `armpilot-backend`（本机已有这两条入站规则，生效于**公用**配置档）。
 
 > e2e 脚本（零依赖 CDP，直接驱动无头 Edge/Chrome）参数为
 > `node tests/e2e/ui-smoke.mjs [url] [debugPort] [screenshotPngPath]`；
@@ -168,8 +180,8 @@ node tests/e2e/ui-smoke.mjs http://localhost:5273 9333 ../docs/images/armpilot-c
 | 6 | XYZ / 鼠标拖动末端 | ✅ | XYZ 直输 + **鼠标真实拖拽**（e2e 用 CDP 派发真实鼠标事件命中场景把手，Δ 17.47mm）；三种拖动平面 xy/xz/camera 在 pointerdown **冻结**；**越界不钳位**（关节逐位不变）；400 点轨迹穿越工作空间边界验收（见 `docs/coordinate-system.md` §3.2、D20–D22） |
 | 7 | MockTransport 闭环 | ✅ | 完整双向闭环（命令 → 尾沿节流 → Mock → 回推 → Actual）；Mock **如实模拟舵机有限角速度 / 传输延迟 / 丢帧 / 限位拒绝**（非等值回显）；回推**只写 Actual**（回环打破，400 点轨迹引用从未改变）；Connection 面板可实时调参（见 `docs/coordinate-system.md` §3.3、D23–D26） |
 | 8 | **Go WebSocket** | ✅ | **后端独立 module `backend/`（8090）+ 内置「假固件」sim**：命令走 `JSON → JR 文本 → 舵机角 → 反算关节角 → STATE` 真实往返，非等值回显；`OK JR` **只做标定核对不发布状态**；ACK 门控 + latest-wins；`hello` 带模型真值在线互检；两层心跳；断线指数退避重连**并补发当前命令**。`go test` 56 项 · 前端新增 66 项单测（`wsProtocol` 25 / `WebSocketTransport` 30 / 接线验收 11）· e2e 新增 21 项真实 WS 端到端（见 `docs/coordinate-system.md` §3.4、`protocol/serial-v1.md` §5、D27–D33） |
-| 9 | Serial | ⏳ | `internal/device/serial.go` 已留桩（**显式返回未实现**，不静默降级）；Phase 9 落点与实测坑已写入该文件注释 |
-| 10 | Real Robot | ⏳ | 机构角色 / 标定 / 限位 / 零位**已实测就绪**（Phase 4.5 + `config/robot.yaml`）；待 Serial 传输落地 |
+| **9** | **Serial（真机）** | ✅ | `internal/device/serial.go` 落地真串口（Windows 非重叠 I/O，**不用 `bufio`**）；Uno DTR 复位静默窗口 `connect_settle_ms=2600` + 暖机包。**真机端到端闭环实测 PASS 18 / FAIL 1**：`hello=serial` · `homePose` 与 `robot.yaml` 逐位一致 · 7 步链路回推 `max\|Δ\| ≤ 0.004°` · 相机反解重复性肩 `0.26°`/肘 `0.01°`。见 `tools/verify_serial_e2e.mjs`、`docs/decisions.md` D34–D36 |
+| 10 | Real Robot | ✅ | 机构角色 / 标定 / 限位 / 零位**已实测就绪**（Phase 4.5 + `config/robot.yaml`）；Serial 已落地 ⇒ 浏览器拖动能**真实驱动物理机械臂**。⚠️ 相机验收已测出**肩标定增益偏差 −13.1%**（肘 +1.4% 已证实），需按锁死曝光重布台面后重测 |
 | 11 | Real Feedback | ⏳ | 误差链路与「Actual 由实际舵机角反算」的机制已在 Phase 8 的 sim 上验证过 |
 | 12 | 虚拟 / 真实同步 | ⏳ | — |
 
@@ -180,16 +192,16 @@ ONNX · 语音控制 · 动作学习 · MuJoCo 训练 · Sim2Real。
 架构已按 spec §三十八 预留 `RobotCommand` / `RobotState` / `RobotModel` / `RobotTransport`
 四个扩展边界，未来能力（视觉 / AI / 语音 / MuJoCo）只需归一到 `RobotCommand` 即可接入。
 
-## 6. 当前验收数据（Phase 1–8）
+## 6. 当前验收数据（Phase 1–9）
 
 ```
 类型检查      tsc -b                    0 error
-单元测试      vitest run                196 / 196 PASS（15 文件；含 13 项几何回归 · 19 项 IK · 19 项拖动平面 ·
+单元测试      vitest run                204 / 204 PASS（15 文件；含 13 项几何回归 · 19 项 IK · 19 项拖动平面 ·
                                        13 项目标语义 · 25 项 wsProtocol · 30 项 WebSocketTransport）
 后端单测      go test ./...             56 / 56 PASS（5 包：robot · protocol · device · controller · wsserver）
                                         + go vet 干净 · gofmt -l 无输出
 浏览器 e2e    node tests/e2e/ui-smoke   49 / 49 PASS（含 21 项 Phase 8 真实 WebSocket 端到端）
-生产构建      vite build                1,290.05 kB (gzip 362.47 kB)
+生产构建      vite build                1,290.60 kB (gzip 362.64 kB)
 FK↔Three.js  200 组随机关节状态         末端位置最大误差 8.673e-14 mm
                                        关节矩阵最大元素误差 8.527e-14
 FK(IK(XYZ))  2000 组随机可达位姿         末端位置最大残差 1.401e-13 mm（失败 0 组）
@@ -221,7 +233,97 @@ ACK 门控      同一时刻 1 条在途            在途期间新命令只覆�
 模型互检      hello 带限位/标定/通道       前后端读同一份 yaml ⇒ 无告警；差异会被逐项报出
 断线重连      指数退避 500→1000→2000…      e2e 杀掉后端再重启（新 sim 从 HOME 起步）⇒ Actual 回到 29.9°
 e2e 实测      滑杆跳 30°                  即时 cmd 29.9° / act 0.8°（差 29.1°）→ 收敛 29.9° / 29.9°
+──────────── Phase 9 · 真串口 + 相机地面真值 ────────────
+链路末端      后端 hello                  device=serial（真机，不再是内置假固件）
+标定单一真值  homePose 逐位比对           base 0 / shoulder 0.8498937633 / elbow 112.6185771989 / gripper 50
+开机就绪门    Uno DTR 复位静默窗口         connect_settle_ms=2600 + 暖机包 ⇒ 不再出现 DEVICE_UNAVAILABLE
+链路回推      7 步 JR 命令                max|Δ(意图角, 回执角)| ≤ 0.004°（纯链路自洽，**不含物理**）
+物理到位      **相机**反解（唯一真值）      PASS 18 / FAIL 1（19 项）
+相机重复性    同位姿两帧（00_reset vs 06_reset2）  肩 0.26° / 肘 0.01° —— 噪声底
+增益复核      反解 Δ关节/Δ舵机 vs yaml    肘 −0.4235 vs −0.4177 ⇒ **+1.4%，肘标定被独立证实**
+                                        肩 +0.6033 vs +0.6944 ⇒ **−13.1%，肩标定需重测**
+曝光漂移      ⚠️ 同台面相隔 2 分钟两批   锚点绝对角偏置 +2.69° → +7.75°（漂 5°），Otsu 两批均 164
+                                        ⇒ **自动曝光是绝对角主导误差源，高精度验收前必须锁死曝光**
 ```
+
+> **Phase 9 最重要的一条结论**：真机固件**没有位置反馈**（`arm_get_angle()` 回的是固件记着的
+> **目标值**）。所以 `OK SET` / `STATUS` / 后端 `joint_state` **全都在说「我打算去哪」**，
+> 没有一条能证明「它实际上在哪」—— 哪怕机械臂卡死在桌上，回执依然一字不差。
+> **串口回执原理上无法验证物理到位，唯一的外部地面真值是相机。**
+> 见 `tools/verify_serial_e2e.mjs`（闭环主控）与 `tools/verify_pose.py`（反解内核），
+> 决策记录见 `docs/decisions.md` D34–D38。
+
+**2026-09-12 复测补记（19:25 批，D37/D38）**
+
+| 项 | 值 |
+|----|-----|
+| 脚本可诊断性 | `verify_serial_e2e.mjs` 加**逐步日志**（`run.log`，带相对时间+耗时）+ 顶层错误打印**完整堆栈**，并区分 **exit 2 = 脚本崩溃 / exit 1 = 验收 FAIL**（此前两者都被当成"崩了"） |
+| **ROI 不改** | 用户要求"用新 ROI 更新数据"；单批实验确曾把锚点偏置从 −2.20° 改善到 **−0.45°**，但**跨批验证推翻**：另一批各帧误差均值 6.29 → **12.17**（翻倍恶化）⇒ 单批"最优"是过拟合，**维持 `(330,150,1040,530)`** |
+| **主误差源定位** | 反解标定增益偏差 **肩 +34% / 肘 −50%**，且**随行程放大**（+5° 命令误差 ~0.5°，+15° 涨到 +3.6~4.5°）⇒ 与 `hardware-measurement.md` §2 早已挂起的**平行四连杆耦合增益残差（实测 ≈ −0.81 而非 −1）** 完全吻合 |
+| 根因（目视复核） | 骨架拟合贴的是臂的**外轮廓边**而非连杆轴线；meArm 小臂是**两根平行杆**，三连杆骨架模型**结构上表达不了它** ⇒ **须改模型，不是调 ROI** |
+| 新增工具 | `tools/measure_roi.py`：量臂紧包围盒 + 给 ROI 建议值 + 可视化（**辅助目视工具**；数值会被线缆/桌沿污染成 `x0=0,x1=1279`，必须目视复核） |
+
+### 真机端到端闭环（Phase 9）
+
+```
+verify_serial_e2e.mjs ──WebSocket(JSON，关节级)──▶ backend(serial) ──JR──▶ 固件 ──▶ 舵机 ──┐
+        ▲                                                                                  │ 物理运动
+        │  joint_state（开环**目标值**，只作链路自洽性参考，不作到位证据）                    │
+        └── ffmpeg 抓帧 ◀────────────────────── 相机 ◀──────────────────────────────────────┘
+                     │
+                     ▼  tools/verify_pose.py（FK 侧视骨架 ↔ 实拍掩膜，反解肩/肘绝对角）
+              与本步意图关节角比对 → PASS / FAIL
+```
+
+| 项 | 值 |
+|----|-----|
+| 动作计划 | `00_reset` / `01_sh_p5` / `02_sh_p15` / `03_el_p5` / `04_el_p15` / `05_combo` / `06_reset2`（单关节 ±5°/±15° 安全流程，结束回 RESET） |
+| **期望值取量化角** | 固件只吃**整数舵机度**，物理落点是 `servoToJoint(round(jointToServo(θ)))`，与意图角天然差 `0.347°`(肩)/`0.209°`(肘) ⇒ 取意图角当期望 = 白送假误差（由 `verify_pose.py --quantize` 给出） |
+| **判据一：绝对误差** | `--tol 5.0°`，会被**轮廓厚度系统偏置**污染 ⇒ **只作粗筛** |
+| **判据二：帧间差** | `--dtol 1.5°`，对 RESET 锚点帧取差、**抵消公共偏置** ⇒ **锐利判据**（结论只认它） |
+| 分割阈值 | `--thresh auto`（全批 Otsu 中位数）。实测新批 164/165/165、老批 111/114/114 |
+| 底座掩膜 | `--base-region self`（**从本批自身派生**）。跨批复用掩膜会让锚点偏置 −5.79°→+2.69°、PASS 1/7→5/7 |
+| base 约束 | 相机只能测矢状面 ⇒ **base 必须留 0°**，离面即判 SKIP（而不是硬算一个假角度） |
+
+> **为什么绝对误差只能当粗筛**：对称 Chamfer 拟合的偏置**随轮廓厚度单调增长**
+> （`--selftest` 自检 B：20px → 肩 −0.24°/肘 +0.10°；60px → +1.19°/+1.78°；100px → +3.40°/+5.49°）。
+> 这与 `robot.yaml` 自述的「绝对角 ±5° 量级不确定度」吻合 —— 单看绝对误差，
+> **分不清「标定错了 3°」和「轮廓画厚了 20px」**。
+>
+> ⚠️ **当前绝对角的不确定度还不足以判定 1° 级标定。** 要压到 1~2° 必须按
+> `docs/hardware-measurement.md` 的 **Phase 4.5 标准重布台面**：
+> 白分割板铺满视场 + 画面内放一把尺 + 尽量正交侧视取景 + **锁死相机曝光**（关闭自动曝光/白平衡）。
+> **锁死曝光是硬要求，不是优化项** —— 实测自动曝光漂移就能让绝对角偏 5°。
+
+#### 复测记录 · 2026-09-12 20:42（线缆固定后 · ADR D40）
+
+按 D39 的前置要求固定线缆后重跑，**D39 的修复得到决定性验证**：
+
+| 指标 | 20:31 批（相机漂 6px） | **20:42 批（线缆已固定）** |
+|------|----------------------|--------------------------|
+| 拟合尺度 `s` | 3.670 px/mm（−7.2%） | **3.969 px/mm** ✅ |
+| 肩枢轴 | 漂移，锚点偏 −4.12° | **(548.7, 520.2)**，锚点偏 −1.62° ✅ |
+| 重复性（肩） | 2.81° ❌ | **0.83°** ✅ |
+| 反解 PASS | 1/7 | **3/7** |
+| 总判定 | PASS 18 / FAIL 2 | **PASS 18 / FAIL 2** |
+
+**新发现的第四类污染源：手入镜。** `06_reset2` 帧的三个异常信号同时出现 ——
+JPEG 体积 +2.7%、反解残差 **69.76px**（其余帧 28~42）、肘帧间差 **−3.81°**；
+目视确认画面右上**有一只正在调线缆的手**。手的像素被分割器并入臂掩膜，
+把联合拟合拉到错误解。
+
+> **这一条 FAIL 恰恰证明判据有效**：失败的是「重复性」—— 正是 D39 §2 定的健康检查。
+> **判据抓到了污染源，而不是被污染误导。**
+
+**开跑前的量化闸门**（新增 `.workbuddy/analysis/_cam_stability.py`，10 帧静止场景）：
+
+```
+逐帧 vs 首帧：dx=0 dy=0（全 10 帧）    相邻帧：dx=0 dy=0（全 9 对）
+整图中位 155.0（波动 0.00）           整图均值波动 0.10
+⇒ 位移恒为 0，可以开跑
+```
+
+⇒ **采集前置硬要求共四条**：锁曝光 · 锁相机 · 锁线缆 · **人员离场**（手/反光物不得入 ROI）。
 
 端到端数值抽查（与解析解逐位吻合，`frontend/tests/e2e/ui-smoke.mjs` 自动断言）：
 
@@ -378,3 +480,4 @@ $PY tools/fit_pose.py .workbuddy/captures/w2_S7 --sweep both --anchor .workbuddy
 | 为什么 `OK JR` 不能当 Actual、为什么要 latest-wins | `docs/decisions.md` D29 / D30 |
 | 跟踪误差为什么是 0.02° 而不是 0（链路精度） | `docs/decisions.md` D31 · `docs/coordinate-system.md` §3.4 |
 | Phase 9 接真串口的落点与实测坑 | `backend/internal/device/serial.go` 注释 · `protocol/serial-v1.md` §6.1 |
+| 真机端到端怎么跑、相机怎么当唯一真值 | `tools/verify_serial_e2e.mjs` · `tools/verify_pose.py` 头注释 · D34–D36 |

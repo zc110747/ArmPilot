@@ -25,6 +25,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   TeachPlayer,
   TEACH_MAX_FRAMES,
+  TEACH_MIN_FRAME_INTERVAL_MS,
+  TEACH_STILL_EPS_DEG,
   parseTrack,
   sampleAt,
   serializeTrack,
@@ -308,7 +310,8 @@ export function TeachPanel() {
       <div className="notes" style={{ marginTop: 6 }}>
         录制的是**命令**（commandJoints），不是物理实际位置 —— 当前固件无位置回读。
         回放走既有命令路径，因此受**节流与安全门**约束：Simulation 模式下不会驱动真机。
-        静止段与过密采样会被合并（阈值 {`${50}ms`} / 0.5°），故帧数少于操作次数是正常的。
+        静止段与过密采样会被合并（阈值 {TEACH_MIN_FRAME_INTERVAL_MS}ms / {TEACH_STILL_EPS_DEG}°），
+        故帧数少于操作次数是正常的。
       </div>
     </div>
   );

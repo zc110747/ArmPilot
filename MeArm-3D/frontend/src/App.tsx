@@ -21,7 +21,7 @@ export default function App() {
       <header className="header">
         <h1>ArmPilot</h1>
         <span className="sub">mARM 虚拟建模 + 真实机械臂同步控制</span>
-        <span className="sub">Phase 1–7</span>
+        <span className="sub">Phase 1–13</span>
         <span className="spacer" />
         <span className="sub mono">
           RobotModel 唯一数据源 · 右手系 Z-up · mm / degree

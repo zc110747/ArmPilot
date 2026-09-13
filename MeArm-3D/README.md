@@ -96,7 +96,8 @@ MeArm-3D/
 │   ├── model-structure.md        # ★ 显式几何（plate/servo/details）与运动学的边界
 │   ├── hardware-measurement.md   # ★★ 真机实测记录：角色映射 / 绝对角解耦 / 标定 / 不确定度
 │   ├── decisions.md              # 设计决策 ADR（D1–D47；D15–D17 实测修正，D27–D33 Phase 8，D44–D47 Phase 11–13 + A1/A2 判定）
-│   └── images/                   # 界面截图（armpilot-console.png 由 e2e 自动重出）
+│   └── images/                   # 界面截图（armpilot-console.png 由 e2e 自动重出；
+│                                 #   armpilot-phase11-13.png 由 tests/e2e/screenshot.mjs 出）
 ├── protocol/serial-v1.md         # ★ 串口 / WS 协议基线（§4 固件侧待 Phase 9；§5 上位机侧 Phase 8 已实现）
 ├── tools/                        # ★ 真机实测工具链（Python 3 + numpy，独立于前端）
 │   ├── mearm_hw.py               # 串口控制 + 相机抓拍（单进程，避开 DTR 复位陷阱）
@@ -284,8 +285,16 @@ ONNX · 语音控制 · 动作学习 · MuJoCo 训练 · Sim2Real。
 架构已按 spec §三十八 预留 `RobotCommand` / `RobotState` / `RobotModel` / `RobotTransport`
 四个扩展边界，未来能力（视觉 / AI / 语音 / MuJoCo）只需归一到 `RobotCommand` 即可接入。
 
-## 6. 当前验收数据（Phase 1–13）
+### Phase 11–13 界面（同框可见三个新面板）
 
+![ArmPilot 控制台 · Phase 11–13](docs/images/armpilot-phase11-13.png)
+
+<sub>左侧 3D 视口右上角新增 **Actual Arm** 勾选框（Phase 12 幽灵臂开关）。右侧栏自上而下：
+**关节控制** → **末端目标** → **示教 · TEACH**（Phase 13）→ **连接 · TRANSPORT** →
+**状态 · STATUS** → **链路误差 · LINK ERROR**（Phase 11：Command→Actual 逐关节偏差条 +
+误差趋势 sparkline + 健康结论）→ **模型 · ROBOT MODEL**。</sub>
+
+## 6. 当前验收数据（Phase 1–13）
 ```
 类型检查      tsc -b                    0 error
 单元测试      vitest run                293 / 293 PASS（21 文件；含 13 项几何回归 · 19 项 IK · 19 项拖动平面 ·

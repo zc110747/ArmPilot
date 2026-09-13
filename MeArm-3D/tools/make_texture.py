@@ -8,18 +8,33 @@
 而且这种歪**看起来不像 bug，像"模型有点怪"**，很难归因。
 
 本脚本把照片里板的**任意四边形**映射成**按真实尺寸归一化的矩形纹理**：
-    raw/<name>.jpg  ──分割──▶ 掩膜 ──PCA 估四角──▶ PIL QUAD 变换 ──▶ tiles/<name>.png
+    raw/<name>.jpg ──分割──▶ 掩膜 ──PCA 估四角──▶ 透视校正 ──▶ 填孔 ──▶ tiles/<name>.png
 
 归一化的目标是**真实尺寸**（来自 `config/robot.yaml` 的板件 `size`，单位 mm），
 所以不同板件的纹理密度天然一致，不需要在照片里放标尺。
+
+为什么还要"填孔"（ADR D61 / D62）
+---------------------------------
+实板是**镂空桁架**，而模型的 `*_vis` 是**实心 box**。照片里"镂空透出的背景 /
+被四角框进来的相邻板 / 悬在板前的线缆"烘到实心盒上，会把背景色一起带进去 ——
+**比不贴更假**。所以默认把非板面区域填成**板面材质**，让纹理与实心几何语义一致。
+
+判据见 `fill_face_background()`，三层，缺一不可：
+    ① **连通性**（不是纯亮度 —— 纯亮度会把板面上的螺栓一起填掉）；
+    ② **形状**（区分"螺栓"与"被暗区包围的线缆小段" —— 只判面积会把后者留下）；
+    ③ **色差**（揪出亮度低于阈值、但偏暖的**暗线缆** —— 只判亮度永远去不掉它）。
 
 铁律
 ----
 1. **四角必须目视复核**。PCA 估计在背景不干净（阴影 / 别的零件 / 线缆）时会给出
    看似合理但**错**的四角 —— 这与 D39/D47 里"量包围盒必须目视复核"是同一类教训。
-   每次运行都会落一张 `<name>_corners.png`，**先看图再信结果**。
+   每次运行都会落一张 `<name>_corners.png`（含"未填孔 / 填充后"两栏），**先看图再信结果**。
 2. 估计不可靠时用 `--corners` 手动给四个角（顺序见 `--help`），不要硬调阈值凑。
 3. 本脚本只处理**外观**，不碰运动学/物理（冻结守卫 D55 对外观层放行）。
+4. **填孔默认开启**（`--no-fill-holes` 可关）。填完是"近黑板 + 螺栓亮点" ——
+   这不是"丢了信息"，实板本来就是这样，只是模型还没有镂空几何。
+   每次运行会打印**四边亮比例**：框精确贴合板时四条边应都接近 0；
+   实测当前四角四边亮 18~62% ⇒ **框比板大**，纹理内容会被压缩（见 D62）。
 
 用法
 ----
@@ -27,6 +42,7 @@
     <python> tools/make_texture.py --all                   # 处理 raw/ 下所有照片
     <python> tools/make_texture.py upper_arm_link          # 处理一张
     <python> tools/make_texture.py upper_arm_link --corners "x,y;x,y;x,y;x,y"
+    <python> tools/make_texture.py upper_arm_link --no-fill-holes   # 看未填孔的校正结果
     <python> tools/make_texture.py --selftest              # 合成数据自测（不需要照片）
 """
 
@@ -50,6 +66,18 @@ PREVIEW_DIR = ROOT / ".workbuddy" / "analysis" / "texture"
 DEFAULT_PX_PER_MM = 10.0
 # 白底暗件分割阈值 —— 与项目既有做法一致（docs/hardware-measurement.md §0）
 DEFAULT_THRESH = 90
+
+# 板面 / 非板面（镂空透出的背景、被框进来的相邻件、线缆）的分界阈值。
+# 实测纹理亮度呈**双峰**：板面峰 0~20、非板面峰 110~125，中间 30~90 是谷底，
+# 60 落在谷底平台上 ⇒ 对阈值不敏感。数据见 `.workbuddy/captures/hole_probe.py`。
+DEFAULT_FACE_THRESH = 60.0
+# 被板面**完全包围**的亮区：面积占比 < 此值当"螺栓"保留，≥ 当"封闭镂空"填掉。
+DEFAULT_KEEP_MAX_FRAC = 0.03
+# ★ 但**只靠面积不够**：被暗区包围的**线缆小段**也会满足面积条件（实测踩到 ——
+#   大臂纹理左下多出一块橙色残留）。加形状判据：
+#   螺栓接近圆/方（bbox 填充率 ≈ π/4 = 0.785），线缆段是不规则细长条。
+DEFAULT_BLOB_FILL_MIN = 0.60    # 亮斑的 bbox 填充率下限（面积 / 外接矩形面积）
+DEFAULT_BLOB_ASPECT = 2.0       # 亮斑的外接矩形长宽比上限（螺栓 ≈ 1）
 
 
 def ensure_utf8_stdout() -> None:
@@ -293,6 +321,191 @@ def project(texture: Image.Image, canvas_wh: tuple[int, int],
 
 
 # ---------------------------------------------------------------------------
+# 孔洞掩膜：把"非板面"区域填成板面材质
+#
+# 为什么需要（ADR D61）：实板是**镂空桁架**，而模型的 `*_vis` 是**实心 box**。
+# 照片里"镂空透出的背景 / 被四角框进来的相邻板 / 悬在板前的线缆"烘到实心盒上，
+# 会把背景色一起带进去 —— **比不贴更假**。填成板面色后，纹理与实心几何语义一致。
+#
+# 判据是**连通性**，不是纯亮度。纯亮度会把板面上的螺栓一起填掉（螺栓也是亮的），
+# 而连通性天然区分两者：
+#     接触纹理边界的亮区  = 板外的东西 ⇒ 填
+#     被板面完全包围的亮区 = 板上的东西 ⇒ 按面积判断（小=螺栓保留，大=镂空填掉）
+# ---------------------------------------------------------------------------
+def _grow_mask(mask: np.ndarray, radius: int = 1) -> np.ndarray:
+    """二值掩膜膨胀（本机无 scipy/cv2，用 PIL 的 MaxFilter）。"""
+    if radius <= 0:
+        return mask
+    img = Image.fromarray((mask * 255).astype(np.uint8))
+    img = img.filter(ImageFilter.MaxFilter(radius * 2 + 1))
+    return np.asarray(img) > 127
+
+
+def _flood_bright_from_border(bright: np.ndarray) -> np.ndarray:
+    """从四条边的亮像素泛洪，返回**与纹理边界连通**的亮区掩膜。
+
+    这是"孔洞 vs 表面细节"的判据核心。
+    """
+    h, w = bright.shape
+    seen = np.zeros_like(bright)
+    stack: list[tuple[int, int]] = []
+
+    def push(y: int, x: int) -> None:
+        if bright[y, x] and not seen[y, x]:
+            seen[y, x] = True
+            stack.append((y, x))
+
+    for x in range(w):
+        push(0, x)
+        push(h - 1, x)
+    for y in range(h):
+        push(y, 0)
+        push(y, w - 1)
+
+    while stack:
+        y, x = stack.pop()
+        if y > 0:
+            push(y - 1, x)
+        if y + 1 < h:
+            push(y + 1, x)
+        if x > 0:
+            push(y, x - 1)
+        if x + 1 < w:
+            push(y, x + 1)
+    return seen
+
+
+def _label_mask(mask: np.ndarray) -> tuple[np.ndarray, int]:
+    """连通域标注（四邻域）。返回 (labels, 区域数)。本机没有 scipy/cv2 —— 手写。"""
+    h, w = mask.shape
+    lab = np.zeros((h, w), np.int32)
+    cur = 0
+    for sy, sx in zip(*np.nonzero(mask)):
+        if lab[sy, sx]:
+            continue
+        cur += 1
+        y0, x0 = int(sy), int(sx)
+        lab[y0, x0] = cur
+        stack = [(y0, x0)]
+        while stack:
+            y, x = stack.pop()
+            for ny, nx in ((y - 1, x), (y + 1, x), (y, x - 1), (y, x + 1)):
+                if 0 <= ny < h and 0 <= nx < w and mask[ny, nx] and not lab[ny, nx]:
+                    lab[ny, nx] = cur
+                    stack.append((ny, nx))
+    return lab, cur
+
+
+def fill_face_background(tile: Image.Image, *, thresh: float = DEFAULT_FACE_THRESH,
+                         keep_max_frac: float = DEFAULT_KEEP_MAX_FRAC,
+                         grow: int = 1) -> tuple[Image.Image, dict]:
+    """把纹理里的**非板面区域**填成板面材质。返回 (填充后纹理, 统计信息)。
+
+    判据（连通性）：
+      - 亮区**接触纹理边界** ⇒ 板外（背景 / 相邻件 / 线缆）⇒ 填；
+      - 亮区**被板面完全包围**且面积占比 < `keep_max_frac` ⇒ 螺栓等表面细节 ⇒ 保留；
+      - 被包围但面积占比 ≥ `keep_max_frac` ⇒ 封闭镂空 ⇒ 填。
+
+    填充色 = **板面像素的中位色**（实测 RGB(1,1,20)：近黑带蓝，**不是纯黑**；
+    填 (0,0,0) 会在板面上留下肉眼可见的色差补丁）。
+
+    `grow` 把填充掩膜外扩若干像素，吃掉透视校正插值留下的半亮过渡带。
+    """
+    rgb = np.asarray(tile.convert("RGB"), dtype=np.float64)
+    gray = rgb.mean(axis=2)
+    total = gray.size
+
+    face = gray < thresh
+    bright = ~face
+    face_frac = float(face.mean())
+    if face_frac < 0.20:
+        raise ValueError(
+            f"板面像素只占 {face_frac*100:.1f}% —— 阈值 {thresh:.0f} 不合适，"
+            "或四角没框住板（先用 preview 复核图确认，不要硬调阈值凑）")
+
+    # 填充色：只在板面像素上取中位，避免被亮区带偏
+    fill_color = np.array([float(np.median(rgb[face, c])) for c in range(3)])
+
+    # ★★ 最干净的"四角贴合吗"判据：**纹理四条边上的亮像素比例**。
+    #    框精确贴合板 ⇒ 四条边全落在板上 ⇒ 应为 0；哪条边亮得多，就是哪条边没贴。
+    #    它比"框外面积"更直接，且**可归因**（上/下/左/右各给一个数）。
+    #    注意：板上镂空若开口到板端，也会顶到纹理的上下边 ⇒ 上下边亮不一定是框没贴，
+    #    要配合下面的 border/enclosed 拆解一起读。
+    band = 3
+    edge_bright = (float(bright[0:band, :].mean()), float(bright[-band:, :].mean()),
+                   float(bright[:, 0:band].mean()), float(bright[:, -band:].mean()))
+
+    # ★ 另一组诊断：把"接触边界的亮区"与"被板面包围的亮区"分开 ——
+    #   border_only   = 接触纹理边界 ⇒ 框比板大（框进了板外的东西）或镂空开口到板端
+    #   enclosed_fill = 被板面完全包围 ⇒ 板上的封闭镂空
+    border_only = _flood_bright_from_border(bright)
+    to_fill = border_only.copy()
+
+    # ★ 暗部的线缆：亮度**低于**阈值（所以被判成"板面"），但它是**暖色**。
+    #   板面是近黑带蓝（实测 R−B 中位 −19、p90 −8、p99 +33），橙色线缆 R−B > 15
+    #   ⇒ 色差是把暗线缆与板面分开的可靠判据。实测大臂纹理左下残留 2.08% 的暗红线缆，
+    #   **只靠亮度永远去不掉**（它在亮度谷里）。
+    #   带占比守卫：板面若整体偏暖（暖色 > 20%）说明判据前提不成立，此时不启用。
+    warm = (rgb[:, :, 0] - rgb[:, :, 2]) > 15.0
+    warm_frac = float(warm.mean())
+    if warm_frac <= 0.20:
+        to_fill |= warm
+    else:
+        warm_frac = -1.0            # 负值 = 判据被守卫弃用（打印时可分辨）
+        warm = np.zeros_like(warm)
+
+    enclosed = bright & ~border_only
+    labels, n_lab = _label_mask(enclosed)
+    enclosed_fill = np.zeros_like(to_fill)
+    kept: list[dict] = []
+    for lid in range(1, n_lab + 1):
+        sel = labels == lid
+        area = int(sel.sum())
+        ys, xs = np.nonzero(sel)
+        bw = int(xs.max() - xs.min() + 1)
+        bh = int(ys.max() - ys.min() + 1)
+        fill_ratio = area / float(bw * bh)
+        aspect = bw / float(bh)
+        info = {"area": area, "frac": area / total,
+                "center": (float(xs.mean()), float(ys.mean())),
+                "fill_ratio": fill_ratio, "aspect": aspect}
+        # 螺栓 = **小** 且 **接近圆/方**。两个条件缺一不可：
+        #   只判面积 ⇒ 线缆小段也被当螺栓留下（实测）；只判形状 ⇒ 大片圆背景被留下。
+        is_bolt = (area / total < keep_max_frac
+                   and fill_ratio >= DEFAULT_BLOB_FILL_MIN
+                   and 1.0 / DEFAULT_BLOB_ASPECT <= aspect <= DEFAULT_BLOB_ASPECT)
+        if is_bolt:
+            kept.append(info)                                # 螺栓等表面细节 ⇒ 保留
+        else:
+            enclosed_fill |= sel                             # 镂空 / 线缆段 ⇒ 填
+            to_fill |= sel
+            info["filled_as_hole"] = True
+            kept.append(info)
+
+    border_frac = float(border_only.mean())
+    enclosed_frac = float(enclosed_fill.mean())
+    to_fill = _grow_mask(to_fill, grow)
+    out = rgb.copy()
+    out[to_fill] = fill_color
+    out = Image.fromarray(np.clip(out, 0, 255).astype(np.uint8))
+
+    stats = {
+        "face_frac": face_frac,
+        "filled_frac": float(to_fill.mean()),
+        "border_frac": border_frac,        # 接触边界 ⇒ 框外区域（或开口到板端的镂空）
+        "enclosed_frac": enclosed_frac,    # 被包围   ⇒ 封闭镂空
+        "edge_bright": edge_bright,        # 四条边的亮比例 ⇒ 四角贴合度的直接判据
+        "warm_frac": warm_frac,            # 暖色（暗线缆）像素占比；<0 = 判据被守卫弃用
+        "fill_color": tuple(int(round(v)) for v in fill_color),
+        "kept_blobs": [k for k in kept if not k.get("filled_as_hole")],
+        "enclosed_blobs": len(kept),
+        "thresh": thresh,
+        "mask": to_fill,          # 仅供复核图可视化，不参与任何判据
+    }
+    return out, stats
+
+
+# ---------------------------------------------------------------------------
 # 主流程
 # ---------------------------------------------------------------------------
 def build_tile(img: Image.Image, corners: np.ndarray, face_mm: tuple[float, float],
@@ -318,31 +531,51 @@ def build_tile(img: Image.Image, corners: np.ndarray, face_mm: tuple[float, floa
     return tile
 
 
+def _fit_height(im: Image.Image, h: int) -> Image.Image:
+    rs = h / max(1, im.height)
+    return im.resize((max(1, int(im.width * rs)), h), Image.LANCZOS)
+
+
 def write_preview(name: str, img: Image.Image, corners: np.ndarray,
-                  tile: Image.Image) -> Path:
-    """复核图：原图叠四角 + 校正结果并排。**先看图再信结果。**"""
+                  tile: Image.Image, *, tile_raw: Image.Image | None = None,
+                  fill_mask: np.ndarray | None = None) -> Path:
+    """复核图：原图叠四角 | 校正后 | （填过孔则）填充后 + 黄色标出被填区域。
+
+    **先看图再信结果。** 最右一栏是判断"该填的填了、不该填的（螺栓）没被填掉"
+    的唯一依据 —— 与"量包围盒必须目视复核"是同一类教训（D39/D47）。
+    """
     PREVIEW_DIR.mkdir(parents=True, exist_ok=True)
     base = img.convert("RGB").copy()
     draw = ImageDraw.Draw(base)
     poly = [tuple(map(float, p)) for p in corners]
     draw.polygon(poly, outline=(255, 0, 0), width=4)
-    labels = ["TL", "TR", "BR", "BL"]
-    for (x, y), lab in zip(corners, labels):
+    for (x, y), lab in zip(corners, ["TL", "TR", "BR", "BL"]):
         draw.ellipse([x - 6, y - 6, x + 6, y + 6], fill=(255, 220, 0))
         draw.text((x + 8, y - 20), lab, fill=(255, 60, 60))
 
-    scale = 360 / max(1, base.height)
-    left = base.resize((max(1, int(base.width * scale)), 360))
-    right = tile.convert("RGB")
-    rs = 360 / max(1, right.height)
-    right = right.resize((max(1, int(right.width * rs)), 360))
+    panels: list[tuple[Image.Image, str]] = [
+        (_fit_height(base, 360), "原图 + 估计四角（红框）")]
+    if tile_raw is not None:
+        panels.append((_fit_height(tile_raw.convert("RGB"), 360), "校正后（未填孔）"))
 
-    canvas = Image.new("RGB", (left.width + right.width + 24, 384), (250, 250, 250))
-    canvas.paste(left, (0, 0))
-    canvas.paste(right, (left.width + 24, 0))
+    shown = tile.convert("RGB")
+    if fill_mask is not None and tile_raw is not None:
+        arr = np.asarray(shown).astype(np.float64).copy()
+        arr[fill_mask] = arr[fill_mask] * 0.45 + np.array([255, 205, 0]) * 0.55
+        shown = Image.fromarray(np.clip(arr, 0, 255).astype(np.uint8))
+    panels.append((_fit_height(shown, 360),
+                   "填充后（黄 = 填入的板面色）" if fill_mask is not None
+                   else "校正后纹理（应为正矩形）"))
+
+    gap = 16
+    width = sum(p.width for p, _ in panels) + gap * (len(panels) - 1)
+    canvas = Image.new("RGB", (width, 384), (250, 250, 250))
     d2 = ImageDraw.Draw(canvas)
-    d2.text((6, 364), "原图 + 估计四角（红框）", fill=(0, 0, 0))
-    d2.text((left.width + 30, 364), "校正后纹理（应为正矩形）", fill=(0, 0, 0))
+    x = 0
+    for im, lab in panels:
+        canvas.paste(im, (x, 0))
+        d2.text((x + 6, 364), lab, fill=(0, 0, 0))
+        x += im.width + gap
 
     path = PREVIEW_DIR / f"{name}_corners.png"
     canvas.save(path)
@@ -364,7 +597,9 @@ def parse_corners(spec: str) -> np.ndarray:
 
 def process_one(name: str, face_mm: tuple[float, float], *, thresh: float,
                 px_per_mm: float, corners: np.ndarray | None,
-                denoise_radius: int) -> dict:
+                denoise_radius: int, fill_holes: bool = True,
+                face_thresh: float = DEFAULT_FACE_THRESH,
+                keep_max_frac: float = DEFAULT_KEEP_MAX_FRAC) -> dict:
     matches = sorted(RAW_DIR.glob(f"{name}*.jpg")) + sorted(RAW_DIR.glob(f"{name}*.png"))
     if not matches:
         raise FileNotFoundError(f"raw/ 下找不到 {name}*.jpg —— 见 docs/texture-capture-guide.md")
@@ -380,14 +615,21 @@ def process_one(name: str, face_mm: tuple[float, float], *, thresh: float,
     else:
         how = "手动指定"
 
-    tile = build_tile(img, corners, face_mm, px_per_mm)
+    tile_raw = build_tile(img, corners, face_mm, px_per_mm)
+    tile, fill_stats = tile_raw, None
+    if fill_holes:
+        tile, fill_stats = fill_face_background(
+            tile_raw, thresh=face_thresh, keep_max_frac=keep_max_frac)
+
     TILE_DIR.mkdir(parents=True, exist_ok=True)
     tile_path = TILE_DIR / f"{name}.png"
     tile.save(tile_path)
-    preview = write_preview(name, img, corners, tile)
+    preview = write_preview(name, img, corners, tile,
+                            tile_raw=tile_raw if fill_holes else None,
+                            fill_mask=(fill_stats or {}).get("mask"))
 
     return {"name": name, "source": src.name, "corners_how": how,
-            "tile": tile_path, "preview": preview,
+            "tile": tile_path, "preview": preview, "fill": fill_stats,
             "size": tile.size, "short_mm": face_mm[0], "long_mm": face_mm[1]}
 
 
@@ -468,6 +710,32 @@ def selftest() -> int:
         print("  ✗ 校正结果大部分是白背景 —— 四角或重采样顺序有问题")
         ok = False
 
+    # 6) 填孔自测：判据必须是**连通性**，不是纯亮度。
+    #    纯亮度会把板面上的螺栓（也是亮的）一起填掉 —— 这里用一个"被板面完全
+    #    包围的小亮斑"代表螺栓，断言它必须**活下来**。
+    print()
+    print("  -- 填孔：连通性判据（不是纯亮度） --")
+    synth = np.zeros((th, tw, 3), dtype=np.float64)
+    synth[:, :, 0] = 12.0
+    synth[:, :, 1] = 12.0
+    synth[:, :, 2] = 22.0                      # 近黑带蓝，模拟实测板面色 RGB(1,1,20)
+    synth[:, 0:18] = 130.0                     # ① 接触边界 ⇒ 板外 ⇒ 应填
+    synth[100:220, 60:170] = 130.0             # ② 被包围但面积大（8%）⇒ 镂空 ⇒ 应填
+    yy, xx = np.mgrid[0:th, 0:tw]
+    synth[(yy - 400) ** 2 + (xx - 110) ** 2 <= 11 ** 2] = 150.0   # ③ 螺栓 ⇒ 应保留
+    filled, fstats = fill_face_background(Image.fromarray(synth.astype(np.uint8)))
+    fa = np.asarray(filled, dtype=np.float64)
+    face_color = np.array([12.0, 12.0, 22.0])
+    for lab, good in (
+            ("① 接触边界的亮带 ⇒ 填掉", float(np.abs(fa[400, 8] - face_color).max()) <= 2),
+            ("② 被包围的大亮区 ⇒ 填掉", float(np.abs(fa[160, 110] - face_color).max()) <= 2),
+            ("③ 被包围的小亮斑（螺栓）⇒ 保留", float(np.abs(fa[400, 110] - 150.0).max()) <= 2)):
+        print(f"    {lab}  {'✓' if good else '✗'}")
+        if not good:
+            ok = False
+    print(f"    统计：板面 {fstats['face_frac']*100:.1f}% · 填入 {fstats['filled_frac']*100:.1f}% · "
+          f"填充色 RGB{fstats['fill_color']} · 保留亮斑 {len(fstats['kept_blobs'])} 个")
+
     print()
     print("=" * 60)
     print("自测 " + ("通过 ✓ —— 校正管线几何正确" if ok else "**失败 ✗**"))
@@ -489,6 +757,12 @@ def main(argv=None) -> int:
     ap.add_argument("--px-per-mm", type=float, default=DEFAULT_PX_PER_MM,
                     help=f"纹理分辨率（默认 {DEFAULT_PX_PER_MM}）")
     ap.add_argument("--denoise-radius", type=int, default=2, help="开运算半径（默认 2）")
+    ap.add_argument("--no-fill-holes", dest="fill_holes", action="store_false",
+                    help="不把非板面亮区填成板面色（默认会填：实板镂空，模型是实心 box）")
+    ap.add_argument("--face-thresh", type=float, default=DEFAULT_FACE_THRESH,
+                    help=f"板面/非板面分界阈值（默认 {DEFAULT_FACE_THRESH:.0f}）")
+    ap.add_argument("--keep-max-frac", type=float, default=DEFAULT_KEEP_MAX_FRAC,
+                    help=f"被板面包围的亮区保留为表面细节的面积上限（默认 {DEFAULT_KEEP_MAX_FRAC}）")
     ap.add_argument("--selftest", action="store_true", help="合成数据自测")
     args = ap.parse_args(argv)
 
@@ -519,7 +793,10 @@ def main(argv=None) -> int:
         try:
             results.append(process_one(name, sizes[name], thresh=args.thresh,
                                        px_per_mm=args.px_per_mm, corners=corners,
-                                       denoise_radius=args.denoise_radius))
+                                       denoise_radius=args.denoise_radius,
+                                       fill_holes=args.fill_holes,
+                                       face_thresh=args.face_thresh,
+                                       keep_max_frac=args.keep_max_frac))
         except Exception as exc:                       # noqa: BLE001
             failed.append((name, f"{type(exc).__name__}: {exc}"))
 
@@ -528,6 +805,18 @@ def main(argv=None) -> int:
         print(f"  ✓ {r['name']:<30} {r['short_mm']:.0f}×{r['long_mm']:.0f}mm -> "
               f"{r['size'][0]}×{r['size'][1]}px  ({r['corners_how']}）")
         print(f"      贴图 {r['tile'].relative_to(ROOT)}")
+        f = r.get("fill")
+        if f:
+            kept = f["kept_blobs"]
+            extra = f"，最大 {max(k['area'] for k in kept)}px" if kept else ""
+            print(f"      填孔 板面 {f['face_frac']*100:4.1f}% · 填入 {f['filled_frac']*100:4.1f}%"
+                  f"（框外 {f['border_frac']*100:4.1f}% + 镂空 {f['enclosed_frac']*100:4.1f}%）"
+                  f" · 填充色 RGB{f['fill_color']} · 保留 {len(kept)} 个亮斑{extra}")
+            t, b, l, r = f["edge_bright"]
+            print(f"      四边亮比例 上 {t*100:4.1f}%  下 {b*100:4.1f}%  左 {l*100:4.1f}%  右 {r*100:4.1f}%"
+                  "   ← 框贴合板时应都接近 0")
+            if min(f["edge_bright"]) > 0.30:
+                print("      ⚠️ 四条边亮比例都高 —— 框很可能比板大（去复查四角，别硬调阈值凑）")
         print(f"      复核图 {r['preview'].relative_to(ROOT)}   ← **先看这张图**")
     for name, why in failed:
         print(f"  ✗ {name}: {why}")

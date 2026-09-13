@@ -17,6 +17,17 @@
   **并且**重跑 `python simulation/mujoco/gen_model.py`（否则 MJCF 与配置脱同步）。
   > 推论：**外观层完全自由** —— 几何 primitive / 颜色 / 未来的照片纹理与重建网格
   > 都可以随便迭代，运动学与物理被钉死。这是做视觉建模的前提。
+- **外观层（视觉）的两条实测铁律**（做任何贴图/建模前必读）：
+  1. **plate 的大面法向 = `size` 里最小那一维**。`[22,5,74]` → 大面 22×74、法向 **±Y**；
+     `[94,82,7]` → 法向 ±Z。⇒ 相机在机械臂**正前方**只能拍到大臂/小臂板的 **5mm 窄边**，
+     拍纹理必须**转 base 关节 90° 或绕到侧面**。
+  2. **`RoundedBoxGeometry` 的 UV 是"每面各自铺满 [0,1]"、与长宽比无关** ⇒
+     不能整块挂一张图（会 6 面各显示一遍且非等比拉伸），必须**按面用材质数组**。
+     实测 6 个 group 覆盖全部顶点，`materialIndex`：`0=+X 1=-X 2=+Y 3=-Y 4=+Z 5=-Z`。
+- **照片纹理链路**：`docs/texture-capture-guide.md`（拍摄清单，文件名权威清单是
+  `python tools/make_texture.py --list`）→ `raw/` → `tools/make_texture.py` → `tiles/`。
+  ⚠️ **禁用 PIL 的 `Image.transform(QUAD)` 做透视校正**：它会引入 +12~17px 的**静默**平移
+  （D56，已加源码扫描测试防倒退）。用 `make_texture.py` 里的 `homography` / `_warp`。
 - **第二份真值（MuJoCo 轨）**：`config/physics.yaml` **只放物理量、全 SI**；
   运动学量（长度 / 轴 / 限位 / TCP / HOME）**一律从 `robot.yaml` 读**，有测试盯着
   （`test_config_truth_is_not_duplicated`）。改 `robot.yaml` 后**必须重跑

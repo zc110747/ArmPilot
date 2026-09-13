@@ -128,7 +128,8 @@ MeArm-3D/
 │   ├── model-structure.md        # ★ 显式几何（plate/servo/details）与运动学的边界
 │   ├── hardware-measurement.md   # ★★ 真机实测记录：角色映射 / 绝对角解耦 / 标定 / 不确定度
 │   ├── ARCHITECTURE_ANALYSIS.md  # ★ MuJoCo 轨 Phase 1：自由度清点 / 五种角度对照 / 接入方案
-│   ├── decisions.md              # 设计决策 ADR（D1–D55；D48–D54 = MuJoCo 物理轨，D55 = 真值冻结）
+│   ├── decisions.md              # 设计决策 ADR（D1–D56；D48–D54 = MuJoCo 物理轨 · D55 = 真值冻结 · D56 = 纹理校正）
+│   ├── texture-capture-guide.md  # ★ 图像采集指南（拍哪块板 / 大面朝向 / 四项硬性要求 / 自查清单）
 │   └── images/                   # 界面截图（armpilot-console.png 由 e2e 自动重出；
 │                                 #   armpilot-phase11-13.png 由 tests/e2e/screenshot.mjs 出）
 ├── protocol/serial-v1.md         # ★ 串口 / WS 协议基线（§4 固件侧待 Phase 9；§5 上位机侧 Phase 8 已实现）
@@ -144,7 +145,9 @@ MeArm-3D/
 │   ├── verify_serial_e2e.mjs     # Phase 9 真机端到端（opt-in）
 │   ├── cam_stability.py          # 相机/台面稳定性抽检
 │   ├── freeze_baseline.py        # ★ 冻结/校验运动学+物理真值（两级判据；改外观放行，改真值报错）
+│   ├── make_texture.py           # ★ 实拍照片 → 板件纹理（PCA 估四角 + homography 校正 + 归一化；--selftest）
 │   └── ws_probe.mjs · lan_e2e_probe.mjs   # WS / 局域网链路探针
+├── assets/textures/mearm/        # ★ 板件纹理资产（raw/ = 原图 · tiles/ = 校正后的贴图）
 ├── frontend/
 │   ├── src/robot/
 │   │   ├── model/             # RobotModel · Link · Joint · Actuator · Pose · RobotState · RobotCommand
@@ -407,7 +410,9 @@ IK 拖动连续性 300 点就近跟随             最大误差 1.017e-13 mm，�
 几何↔运动学  抹掉全部 geometry/details   endEffectorPosition 逐位不变
 真机一致性    HOME 位（四舵机全 90°）    虚拟臂渲染姿态与实拍照片目视一致
 真值冻结      运动学+物理语义核心         与基线一致（L2 哈希未变）；改 geometry 放行 · 改 length/gravity 报错
-                                       （D55；`tools/freeze_baseline.py` + 11 项辨识力测试，pytest 共 117 项）
+                                       （D55；`tools/freeze_baseline.py` + 11 项辨识力测试）
+纹理校正      合成"模拟照片"往返          四角估计 max|Δ| = 1.00 px；刻度线偏差 1/1/1 px；板色 58≈60
+                                       （D56；`tools/make_texture.py --selftest`，pytest 共 129 项）
 ──────────── Phase 7 · 传输闭环（Mock） ────────────
 Mock 物理约束 240°/s · 15ms 延迟 · tick 20ms   每 tick 恰好 4.8°；阶跃 40° 约 182ms 收敛
 延迟语义      命令送达前                  不回推任何状态；送达瞬间走出第一步
@@ -763,3 +768,35 @@ $PY tools/freeze_baseline.py --show     # 打印当前核心摘要
 
 **推论（这是做视觉建模的前提）**：外观层自此完全自由 —— 几何 primitive、颜色、
 以及未来的**照片纹理 / 重建网格**都可以随便迭代，而运动学与物理被钉死在基线上。
+
+## 12. 照片纹理贴图（进行中）—— 让数字孪生更像真机
+
+**问题**：`frontend/` 里**一个图像素材都没有**（无 png/jpg/glb/hdr），模型全靠程序化
+primitive（`plate` / `cylinder` / `servo`）+ 十六进制单色 —— 这就是"不像真机"的根因。
+
+**做法**：把实物照片贴到对应板件的**大面**上。
+
+```
+拍照(你) → assets/textures/mearm/raw/*.jpg
+         → tools/make_texture.py（PCA 估四角 → homography 透视校正 → 按真实尺寸归一化）
+         → assets/textures/mearm/tiles/*.png（+ 目视复核图，强制看图再信结果）
+         → frontend 按面用材质数组贴图（仅 geometry 层，运动学/物理不动）
+```
+
+```bash
+$PY tools/make_texture.py --list          # 待拍清单（文件名 + 大面尺寸，直接来自 robot.yaml）
+$PY tools/make_texture.py --selftest      # 合成数据自测，证明校正几何正确
+$PY tools/make_texture.py --all           # 处理 raw/ 里已有的照片
+```
+
+**两条决定成败的事实**（都是实测，不是推断）：
+
+1. **plate 的大面法向 = `size` 里最小那一维。**
+   例：大臂板 `[22,5,74]` 的大面是 22×74、法向 **±Y（左右）** ⇒ 相机摆正前方只会拍到
+   5mm 窄边。**必须转 base 关节或绕到侧面拍。** 详见 `docs/texture-capture-guide.md` §1。
+2. **`RoundedBoxGeometry` 的 UV 是"每个面各自铺满 [0,1]"，与长宽比无关。**
+   直接挂一张图会 6 个面各显示一遍并被非等比拉伸 ⇒ 必须**按面用材质数组**
+   （实测 6 个 group 覆盖全部顶点：`0=+X 1=-X 2=+Y 3=-Y 4=+Z 5=-Z`）。
+
+**当前状态**：采集指南 + 校正管线（含 12 项测试）已就绪并验证；
+**前端渲染接入尚未开始** —— 等第一批照片到位后做（届时效果才可验证）。

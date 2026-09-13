@@ -84,7 +84,10 @@ export function RobotScene() {
       gl={{ antialias: true }}
       onCreated={({ camera }) => camera.up.set(0, 0, 1)}
     >
-      <color attach="background" args={['#14171c']} />
+      {/* 视口背景：中性灰（产品渲染式背景）。
+          与 UI 面板的 `--bg #14171c` 刻意不同 —— 面板保持深色、视口用灰底，
+          近黑的机件在灰底上轮廓才读得出来（黑件在深底上会糊成一片）。 */}
+      <color attach="background" args={['#8b8e93']} />
 
       <hemisphereLight args={['#8ea6c8', '#1a1d22', 0.55]} />
       <ambientLight intensity={0.35} />
@@ -130,10 +133,12 @@ export function RobotScene() {
 
       {/* 底座参考圆盘，帮助判断 Z=0 地面。
           envMapIntensity=0：它是场景物件而非机器人零件，不接收为贴图件准备的环境反射
-          （否则会在 IBL 开启时被一并点亮，改变原有的地面色感）。 */}
+          （否则会在 IBL 开启时被一并点亮，改变原有的地面色感）。
+          色值随背景一起改：它只比背景**暗一档**（而非原来的近黑 #1d222a）——
+          灰底上放一块近黑圆盘会变成一个突兀的黑洞，那是"背景换了、地面没换"。 */}
       <mesh position={[0, 0, -0.6]}>
         <circleGeometry args={[72, 48]} />
-        <meshStandardMaterial color="#1d222a" metalness={0} roughness={1} envMapIntensity={0} />
+        <meshStandardMaterial color="#7a7e84" metalness={0} roughness={1} envMapIntensity={0} />
       </mesh>
     </Canvas>
   );

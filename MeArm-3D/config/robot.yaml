@@ -112,7 +112,7 @@ links:
       size: [94, 82, 7]
       cornerRadius: 5
       position: [0, 0, 3.5]
-      color: "#2e3849"
+      color: "#232830"
     details:
       # 四角安装螺栓
       - { type: cylinder, radius: 4.2, height: 3, position: [37, 31, 8.5], color: "#161a21" }
@@ -134,11 +134,11 @@ links:
       size: [66, 60, 7]
       cornerRadius: 4
       position: [0, 0, 34]
-      color: "#44567a"
+      color: "#232830"
     details:
       # 两片立柱侧板（夹住 S9 舵机体）
-      - { type: plate, size: [30, 6, 22], cornerRadius: 2, position: [0, 13, 49], color: "#4d8fe8" }
-      - { type: plate, size: [30, 6, 22], cornerRadius: 2, position: [0, -13, 49], color: "#4d8fe8" }
+      - { type: plate, size: [30, 6, 22], cornerRadius: 2, position: [0, 13, 49], color: "#232830" }
+      - { type: plate, size: [30, 6, 22], cornerRadius: 2, position: [0, -13, 49], color: "#232830" }
       # S7 肩舵机：装在立柱顶，输出轴沿 Y（肩关节轴）
       - type: servo
         rotation: [-90, 0, 0]
@@ -155,18 +155,18 @@ links:
       size: [22, 5, 74]
       cornerRadius: 2
       position: [0, 14, 37]
-      color: "#4d8fe8"
+      color: "#232830"
       # 照片纹理（相对 assets/textures/ 的 key）—— 纯外观，不影响 FK/IK。
       # 两侧板各自贴同一张：盒体两个大面的 uv 互为镜像，渲染层会自动处理，
       # 因此**不需要**判断哪一面朝外。
       texture: mearm/tiles/upper_arm_link.png
     details:
-      - { type: plate, size: [22, 5, 74], cornerRadius: 2, position: [0, -14, 37], color: "#4d8fe8", texture: mearm/tiles/upper_arm_link.png }
+      - { type: plate, size: [22, 5, 74], cornerRadius: 2, position: [0, -14, 37], color: "#232830", texture: mearm/tiles/upper_arm_link.png }
       # 肩轴端盖
       - { type: cylinder, radius: 5.5, height: 4, position: [0, 17.5, 0], color: "#2b3446" }
       - { type: cylinder, radius: 5.5, height: 4, position: [0, -17.5, 0], color: "#2b3446" }
       # 端部横撑
-      - { type: plate, size: [22, 28, 5], cornerRadius: 2, position: [0, 0, 68], color: "#3d6fc0" }
+      - { type: plate, size: [22, 28, 5], cornerRadius: 2, position: [0, 0, 68], color: "#232830" }
       # S8 肘舵机：装在大臂末端，输出轴沿 Y（肘关节轴）
       - type: servo
         rotation: [-90, 0, 0]
@@ -183,15 +183,15 @@ links:
       size: [18, 5, 68]
       cornerRadius: 2
       position: [0, 13.5, 34]
-      color: "#6aa0ff"
+      color: "#232830"
       texture: mearm/tiles/forearm_link.png
     details:
-      - { type: plate, size: [18, 5, 68], cornerRadius: 2, position: [0, -13.5, 34], color: "#6aa0ff", texture: mearm/tiles/forearm_link.png }
+      - { type: plate, size: [18, 5, 68], cornerRadius: 2, position: [0, -13.5, 34], color: "#232830", texture: mearm/tiles/forearm_link.png }
       # 肘轴端盖（肘关节轴）
       - { type: cylinder, radius: 5, height: 4, position: [0, 16.5, 0], color: "#2b3446" }
       - { type: cylinder, radius: 5, height: 4, position: [0, -16.5, 0], color: "#2b3446" }
       # 腕部横撑
-      - { type: plate, size: [18, 22, 5], cornerRadius: 2, position: [0, 0, 64], color: "#4d8fe8" }
+      - { type: plate, size: [18, 22, 5], cornerRadius: 2, position: [0, 0, 64], color: "#232830" }
 
   # ---- 腕 / 手部总成（固定连杆，无自由度）-----------------------------------
   - id: tool_link
@@ -203,7 +203,7 @@ links:
       size: [22, 26, 11]
       cornerRadius: 3
       position: [0, 0, 6]
-      color: "#39455a"
+      color: "#232830"
     details:
       # S6 夹取舵机：输出轴沿 X，与夹爪铰轴同向
       - type: servo

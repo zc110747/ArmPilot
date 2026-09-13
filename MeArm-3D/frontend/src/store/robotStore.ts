@@ -274,7 +274,10 @@ export const useRobotStore = create<RobotStore>((set, get) => {
 
     showJointAxes: true,
     showJointOrigins: false,
-    showWorldAxes: true,
+    // 世界轴默认**关**：它是挂在世界原点的三根参考线（Z 蓝轴竖直向上，长得像「机械臂中轴」），
+    // 机械臂一动就会显出「它不跟着动」。几何上它本就该固定在世界系，问题出在默认显示它。
+    // 开关保留（调试坐标系时仍可打开），只是不再默认占用画面。
+    showWorldAxes: false,
     showRobotAxes: false,
     showActualGhost: true,
     showTcp: true,

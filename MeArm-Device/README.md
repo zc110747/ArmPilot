@@ -9,7 +9,7 @@
 
 ## 硬件
 - MCU：ATmega328P（Arduino Uno），16 MHz
-- 串口：USART0，PC 端 **COM4**，9600 8N1（既打印状态，也接收控制指令）
+- 串口：USART0，PC 端 **COM4**，115200 8N1（U2X 双速；既打印状态，也接收控制指令）
 - 舵机（PWM，50 Hz）：
 
   | 逻辑名 | 舵机 | 引脚 | 强制范围 |
@@ -52,7 +52,7 @@ scripts\build.bat          # 编译 + 链接 + 生成 firmware.hex + 打印 FLAS
 scripts\build_upload.bat   # 一键编译并烧录到 COM4 (先 build 再 avrdude arduino/115200)
 scripts\build_upload.bat COM3   # 可指定端口
 scripts\upload.bat  [COM]  # 仅烧录 (firmware.hex 已存在时)
-scripts\monitor.bat        # 打开 COM4 9600 串口监视 (pio device monitor)
+scripts\monitor.bat        # 打开 COM4 115200 串口监视 (pio device monitor)
 scripts\clean.bat          # 清理 .build
 ```
 > 所有脚本为**纯英文 `.bat`**（无中文，无 UTF-8 BOM），在 **cmd 与 PowerShell 中均可直接运行**
@@ -133,7 +133,7 @@ scripts\clean.bat          # 清理 .build
 ## 上位机自动验证
 ```bat
 pip install pyserial
-python tools/host_verify.py            # 默认 COM4 / 9600
+python tools/host_verify.py            # 默认 COM4 / 115200（与固件一致）
 python tools/host_verify.py COM3 115200
 ```
 脚本下发多套指令（单控/钳位/非法id/左右同时/超3个/组合/简写/自变化冻结/

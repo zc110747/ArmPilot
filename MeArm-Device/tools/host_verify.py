@@ -3,12 +3,12 @@
 """
 meArm 机械臂 上位机自动验证脚本 (PC 侧)
 ========================================
-打开 COM4 (9600 8N1)，向裸机 AVR 固件下发多套串口指令，
+打开 COM4 (115200 8N1)，向裸机 AVR 固件下发多套串口指令，
 读取 COM4 回显，对每条指令做 pass/fail 校验并打印报告。
 
 用法:
     pip install pyserial
-    python tools/host_verify.py            # 默认 COM4 / 9600
+    python tools/host_verify.py            # 默认 COM4 / 115200（与固件 uart_init 一致）
     python tools/host_verify.py COM3 115200
 
 说明:
@@ -27,7 +27,7 @@ except ImportError:
     sys.exit("需要 pyserial: 请先 `pip install pyserial`")
 
 PORT = sys.argv[1] if len(sys.argv) > 1 else "COM4"
-BAUD = int(sys.argv[2]) if len(sys.argv) > 2 else 9600
+BAUD = int(sys.argv[2]) if len(sys.argv) > 2 else 115200
 RAMP_WAIT = 1.6  # 斜坡到位等待(s)，RAMP_STEP=3deg/20ms -> 120deg~0.8s，留余量
 
 

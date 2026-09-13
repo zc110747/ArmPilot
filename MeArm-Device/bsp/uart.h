@@ -9,7 +9,8 @@
 extern "C" {
 #endif
 
-/* USART0 @ 9600 8N1 (ATmega328P / Arduino Uno, wired to USB-serial -> PC COM4).
+/* USART0 @ 115200 8N1 (U2X double speed; ATmega328P / Arduino Uno,
+   wired to USB-serial -> PC COM4). Keep in sync with uart_init() in main.cpp.
    RX uses interrupt ring buffer; TX uses interrupt ring buffer so printing
    never blocks the servo ISR / main loop.
 

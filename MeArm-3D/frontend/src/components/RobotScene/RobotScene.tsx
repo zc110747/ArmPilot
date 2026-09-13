@@ -58,6 +58,18 @@ function RobotAxes() {
   return <axesHelper args={[70]} position={[0, 0, 1]} visible={visible} />;
 }
 
+/**
+ * ⚠️ 照片纹理件的环境反射**刻意不在这里做**。
+ *
+ * `scene.environment` 是**全局**的，而且 three 对「材质没有自带 envMap」的情况会用
+ * `scene.environmentIntensity` **覆盖**其 `material.envMapIntensity`
+ * （`WebGLRenderer.js`：`m_uniforms.envMapIntensity.value = scene.environmentIntensity`），
+ * 所以无法把 IBL 只发给贴图件 —— 实测会把整机非贴图件一并点亮（底座蓝板 ×3.75）。
+ *
+ * 正确做法见 `plateEnvironment.ts`：环境纹理由 `RobotArm` 建树时**逐材质**挂到
+ * 照片纹理件上（`material.envMap`），其余材质完全不受影响（ADR D64）。
+ */
+
 export function RobotScene() {
   return (
     <Canvas
@@ -116,10 +128,12 @@ export function RobotScene() {
       {/* E2E 探针只在 dev 构建挂载：生产构建下 import.meta.env.DEV 为 false，整段不渲染 */}
       {import.meta.env.DEV ? <TestProbe /> : null}
 
-      {/* 底座参考圆盘，帮助判断 Z=0 地面 */}
+      {/* 底座参考圆盘，帮助判断 Z=0 地面。
+          envMapIntensity=0：它是场景物件而非机器人零件，不接收为贴图件准备的环境反射
+          （否则会在 IBL 开启时被一并点亮，改变原有的地面色感）。 */}
       <mesh position={[0, 0, -0.6]}>
         <circleGeometry args={[72, 48]} />
-        <meshStandardMaterial color="#1d222a" metalness={0} roughness={1} />
+        <meshStandardMaterial color="#1d222a" metalness={0} roughness={1} envMapIntensity={0} />
       </mesh>
     </Canvas>
   );

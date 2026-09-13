@@ -171,8 +171,18 @@ describe('Phase 1 · RobotModel 加载与自洽性', () => {
   });
 
   it('多舵机关节天然支持：同一 jointId 写两条 actuator', () => {
-    const dual = `${BUNDLED_ROBOT_YAML}
-  # 测试用：给 shoulder 增加第二个舵机（双舵机共同驱动一个机械关节）
+    // ⚠️ 刻意**插入到 actuators 段内**，而不是追加到文件末尾：末尾追加依赖
+    //    「actuators 恰好是最后一节」这一排版假设，robot.yaml 一旦新增段落就会静静坏掉
+    //    （实测：新增 appearance 段后，追加的块序列被解析成 appearance 的隐式 key，
+    //     报 `A block sequence may not be used as an implicit map key`）。
+    //
+    // ⚠️ 锚点必须容忍 CRLF：robot.yaml 是以 CRLF 存的，`replace('actuators:\n', …)`
+    //    对 `actuators:\r\n` **零匹配且不报错**，结果追加块根本没进 YAML —— 而
+    //    `validateRobotModel` 依旧返回 []（它只是少了一条 actuator，不构成错误），
+    //    所以断言会以 `servo[5] === undefined` 的形式在**很下游**才炸出来。
+    //    换行符也一并按源文件取齐，避免文本里混入两种行尾。
+    const eol = BUNDLED_ROBOT_YAML.includes('\r\n') ? '\r\n' : '\n';
+    const extraActuator = `  # 测试用：给 shoulder 增加第二个舵机（双舵机共同驱动一个机械关节）
   - id: servo_8b
     name: Shoulder Secondary
     jointId: shoulder
@@ -183,7 +193,10 @@ describe('Phase 1 · RobotModel 加载与自洽性', () => {
     limits:
       min: 10
       max: 110
-`;
+`
+      .split('\n')
+      .join(eol);
+    const dual = BUNDLED_ROBOT_YAML.replace(/^actuators:\r?\n/m, (m) => m + extraActuator);
     const model = parseRobotModelYaml(dual);
     expect(validateRobotModel(model).filter((i) => i.level === 'error')).toEqual([]);
 

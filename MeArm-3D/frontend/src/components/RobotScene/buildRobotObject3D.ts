@@ -37,7 +37,7 @@ import { resolveTextureUrl } from '@robot/model/textureRegistry';
 import type { Joint } from '@robot/model/Joint';
 import type { JointState, Vec3 } from '@robot/model/Pose';
 import { degToRad } from '@robot/model/Pose';
-import type { RobotModel } from '@robot/model/RobotModel';
+import type { Appearance, RobotModel } from '@robot/model/RobotModel';
 import { jointById, jointByRole, linkById, rootLink } from '@robot/model/RobotModel';
 import { effectiveJointAngle } from '@robot/kinematics/fk';
 
@@ -219,9 +219,12 @@ function createTextureMaterial(
   const material = new THREE.MeshStandardMaterial({
     // 照片本身已含颜色；材质基色保持白，避免二次染色
     color: 0xffffff,
-    metalness: 0.05,
-    roughness: 0.85,
   });
+  // ⚠️ roughness / metalness / 曝光补偿**不在这里定死**：它们来自 robot.yaml 的
+  //    appearance 段，由 applyPlateAppearance() 在对象树建好后统一应用。
+  //    name 是这个后处理的**唯一标识**（不靠 `map != null` 猜，那样会把将来的
+  //    其它贴图材质一并卷进来）。
+  material.name = TEXTURED_PLATE_MATERIAL;
 
   const texture = new THREE.TextureLoader().load(url);
   texture.colorSpace = THREE.SRGBColorSpace;
@@ -512,6 +515,57 @@ function createGripperJaws(
   return { left: make(-1), right: make(1) };
 }
 
+/** 照片纹理材质的 name —— `applyPlateAppearance()` 靠它识别要调整哪一类材质 */
+const TEXTURED_PLATE_MATERIAL = 'plateTexture';
+
+/**
+ * 把 `robot.yaml` 的 appearance 段应用到对象树，**并且把环境反射限定在照片纹理件上**。
+ *
+ * 为什么做成「建好树后统一应用」而不是把参数一路透传进
+ * `createLinkObject → createGeometryObject → createPlateMesh → createPlateMaterial`：
+ * 外观参数是整机级的，透传要改 5 个纯几何职责的函数签名；后处理只有一个入口，
+ * 将来新增贴图件也自动被覆盖。识别身份用 `material.name`，不用 `map != null`
+ * 这类启发式 —— 后者会把别的贴图材质悄悄卷进来。
+ *
+ * 四个量（实测依据见 ADR D64）：
+ * - `roughness` / `metalness`：亚克力是**光泽非金属**。黑件的形状可读性来自镜面反射，
+ *   做成纯漫反射只会得到一块黑（实测板面输出 L≈0.08、max=2.4）。
+ * - `exposureEv`：线性曝光补偿，实现为 `material.color = 2^EV`。three 的
+ *   `diffuse = color ⊗ map`，且 `Color` 分量**不 clamp**，所以这就是一次精确的线性提亮。
+ *   ⚠️ 它同时抬高 F0（`mix(0.04, diffuse, metalness)`）：只要 `metalness ≠ 0`，
+ *   高光就会被一起放大成镜面，所以 yaml 里把 metalness 钉在 0。
+ * - `environmentIntensity` + `envMap`：环境反射**逐材质挂 `material.envMap`**，
+ *   而不是设 `scene.environment` —— 后者是全局的，且 three 会对「没有自带 envMap」
+ *   的材质用 `scene.environmentIntensity` **覆盖**其 `envMapIntensity`
+ *   （`WebGLRenderer.js`），逐材质降级根本做不到；实测整机非贴图件会被一并点亮
+ *   （底座蓝板 ×3.75）。自带 envMap 后只有照片纹理件收到环境反射。
+ */
+export function applyAppearance(
+  root: THREE.Object3D,
+  appearance: Appearance,
+  envMap: THREE.Texture | null = null,
+): void {
+  const { environmentIntensity, exposureEv, roughness, metalness } = appearance.texturedPlate;
+  const gain = Math.pow(2, exposureEv);
+
+  root.traverse((object) => {
+    const mesh = object as THREE.Mesh;
+    if (!mesh.isMesh) return;
+    const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+    for (const material of materials) {
+      if (material.name !== TEXTURED_PLATE_MATERIAL) continue;
+      const standard = material as THREE.MeshStandardMaterial;
+      standard.roughness = roughness;
+      standard.metalness = metalness;
+      standard.color.setScalar(gain);
+      standard.envMap = envMap;
+      standard.envMapIntensity = environmentIntensity;
+      // 换 envMap 会切换 shader 的 ENVMAP 宏分支，必须重编译
+      standard.needsUpdate = true;
+    }
+  });
+}
+
 /**
  * 由 RobotModel 构建完整 Three.js 对象树。
  * 只构建一次；之后每次关节变化调用 `applyJointState()`。
@@ -522,6 +576,14 @@ export interface BuildRobotObject3DOptions {
    * （关节轴 / 关节原点小球）—— 幽灵只负责表达位姿，画上调试球只会让人看花眼。
    */
   ghost?: boolean;
+  /**
+   * 照片纹理件的环境反射纹理（见 `plateEnvironment.ts`）。
+   *
+   * 由调用方（React 侧，持有 renderer）创建后传入 —— 本模块必须保持
+   * **不依赖 DOM / WebGL**，否则 node 环境下的验收测试建不出对象树。
+   * 缺省 `null` = 不给贴图件加环境反射（行为与引入本特性前一致）。
+   */
+  envMap?: THREE.Texture | null;
 }
 
 export function buildRobotObject3D(
@@ -623,6 +685,10 @@ export function buildRobotObject3D(
   };
 
   attachLink(rootLink(model), root);
+
+  // 外观（渲染）参数统一应用：见 applyAppearance 注释。
+  // 放在 attachLink 之后、makeGhost 之前 —— 与半透明化是两个正交的关注点。
+  applyAppearance(root, model.appearance, options.envMap ?? null);
 
   // TCP 标记：挂在 tcp.joint 对应的关节 Group 下，偏移 tcp.offset
   const tcpParent = jointGroups.get(model.tcp.joint) ?? root;

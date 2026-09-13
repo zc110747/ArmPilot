@@ -93,6 +93,16 @@ node tests/e2e/ui-smoke.mjs
   变成**间歇性失败**。
 - **不许用推导量当独立判据**：`TransportStats.moving = lagDeg > eps`，用它判"卡死"永远得不到结论（D44）。
 - **没有正面证据不下断言**（如"卡死"）：宁可停在保守态（`tracking`）。
+- **★ 端口预检不许用「分组 + `\b`」**（D65）：本机 GNU grep 3.0 里 `\b` 紧跟 `)` 会失效，
+  且**漏 `-E` 时 `(` `|` `)` 是字面字符** ⇒ 两个缺陷叠加让预检**恒返回"干净"**。
+  必须用字段级比较：`netstat -ano | tr -d '\r' | awk '$4=="LISTENING"{n=split($2,p,":"); if (p[n]==8090) print $5}'`。
+  同理 `taskkill //PID` 在本机 Git Bash 下**报错并静默失败** ⇒ 杀进程用 PowerShell `Stop-Process`。
+- **★ 固定 ROI 只在同一机位下可比**（D64 七）：换机位必须重定 ROI，并**目视复核 ROI 在物体上**。
+  量一个小面时不要用"掩膜 bbox 画矩形"（会把**确实该变**的邻件圈进来）⇒
+  正解是**用基线图算像素集合、在固定集合上量**（D39/D40）。
+- **e2e 有 SKIP 语义**（D65）：复用 8090 既有实例且 `device=serial` 时，
+  「末端非 serial ⇒ 拒绝切换」前提不成立 ⇒ 走 `skip()` 而非 `check()`，
+  **不许把环境差异伪造成代码回归**（D40/D43）。
 
 ## 四、测量与标定方法论（D37 / D47）
 
@@ -128,6 +138,15 @@ node tests/e2e/ui-smoke.mjs
 ## 六、常用机制速查
 
 - 命令下发：store `commandJoints` → `transportBridge` **尾沿合并 30Hz** → `RobotTransport`。
+- **外观层（D63/D64）**：照片纹理按**面材质数组**贴（大面 = `size` 最小维所在轴）；
+  暗端可见性靠**逐材质 `envMap`**（`plateEnvironment.ts` 程序化 `RoomEnvironment`+PMREM，
+  零外部 HDR 资产），参数在 `robot.yaml → appearance`。
+  **★ 绝不要改回 `scene.environment`**：它全局（底座蓝板 ×3.3757），且 three 会用
+  `scene.environmentIntensity` **覆盖** `material.envMapIntensity`
+  （`0.186.0 WebGLRenderer.js:2736`，仅当 `material.envMap === null`）⇒ 逐材质关反射**根本不生效**
+  （实测 V5/V6 统计逐位相同）。逐材质方案底座蓝板 **×1.0000 / max|Δ|=0.00**。
+  ⚠️ **渲染层已到上限**：提亮救不回被 8bit 抹掉的暗端信息（推 L≈60 需 +6.2 EV，且摊成三级平台）
+  ⇒ 想更"像"必须改**拍摄端**（对板测光 / 补光）。
 - 回推**只写 `actualJoints`**（回写 command 即无限回环）。
 - 安全门：`mode === 'simulation'` **且**真机链路（websocket + `device === 'serial'`）⇒ 拒发。
   mock / `device=sim` 照常放行（否则打死整条仿真闭环）。

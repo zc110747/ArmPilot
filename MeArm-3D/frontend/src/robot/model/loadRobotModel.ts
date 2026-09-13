@@ -19,8 +19,14 @@ import {
   DEFAULT_SERVO_SIZE,
 } from './Link';
 import type { EulerDeg, JointState, Vec3 } from './Pose';
-import type { ModelIssue, RobotModel, TcpSpec } from './RobotModel';
-import { RobotModelError, assertValidRobotModel, validateRobotModel } from './RobotModel';
+import type { Appearance, ModelIssue, RobotModel, TcpSpec } from './RobotModel';
+import {
+  DEFAULT_APPEARANCE,
+  EXPOSURE_EV_RANGE,
+  RobotModelError,
+  assertValidRobotModel,
+  validateRobotModel,
+} from './RobotModel';
 
 /** 内置的 robot.yaml 原文（编译期内联，运行时无需读磁盘） */
 export const BUNDLED_ROBOT_YAML: string = robotYamlText;
@@ -377,6 +383,53 @@ function parseTcp(value: unknown, joints: Joint[]): TcpSpec {
   };
 }
 
+/**
+ * 解析 `appearance` 段（渲染参数）。
+ *
+ * 整段可选：缺省时返回 `DEFAULT_APPEARANCE`（= 与引入本特性前逐值一致的行为）。
+ * 只有 `exposureEv` 做范围校验 —— 它是唯一一个填错会明显破坏画面的量
+ * （超出 ±EV 区间只会把整机推爆，属于误填而非风格选择）。
+ */
+function parseAppearance(value: unknown): Appearance {
+  if (value === undefined || value === null) return structuredClone(DEFAULT_APPEARANCE);
+
+  const path = 'appearance';
+  const root = asDict(value, path);
+  const platePath = `${path}.texturedPlate`;
+  const plateRaw = root['texturedPlate'];
+  if (plateRaw === undefined || plateRaw === null) {
+    return { texturedPlate: { ...DEFAULT_APPEARANCE.texturedPlate } };
+  }
+
+  const plate = asDict(plateRaw, platePath);
+  const exposureEv = optNumber(
+    plate,
+    'exposureEv',
+    platePath,
+    DEFAULT_APPEARANCE.texturedPlate.exposureEv,
+  );
+  if (exposureEv < EXPOSURE_EV_RANGE.min || exposureEv > EXPOSURE_EV_RANGE.max) {
+    throw new RobotConfigError(
+      `${platePath}.exposureEv=${exposureEv} 超出合法区间 ` +
+        `[${EXPOSURE_EV_RANGE.min}, ${EXPOSURE_EV_RANGE.max}] EV`,
+    );
+  }
+
+  return {
+    texturedPlate: {
+      environmentIntensity: optNumber(
+        plate,
+        'environmentIntensity',
+        platePath,
+        DEFAULT_APPEARANCE.texturedPlate.environmentIntensity,
+      ),
+      exposureEv,
+      roughness: optNumber(plate, 'roughness', platePath, DEFAULT_APPEARANCE.texturedPlate.roughness),
+      metalness: optNumber(plate, 'metalness', platePath, DEFAULT_APPEARANCE.texturedPlate.metalness),
+    },
+  };
+}
+
 // ---------------------------------------------------------------------------
 // 公开 API
 // ---------------------------------------------------------------------------
@@ -423,6 +476,7 @@ export function parseRobotModel(raw: unknown, options: ParseRobotModelOptions = 
     actuators,
     homePose: parseHomePose(robotDict['homePose']),
     tcp: parseTcp(robotDict['tcp'], joints),
+    appearance: parseAppearance(root['appearance']),
   };
 
   if (options.validate !== false) {

@@ -30,6 +30,50 @@ export interface TcpSpec {
   offset: Vec3;
 }
 
+// ---------------------------------------------------------------------------
+// 外观（渲染）参数
+// ---------------------------------------------------------------------------
+
+/**
+ * 照片纹理薄板的渲染参数。
+ *
+ * **不影响任何运动学量**：FK / IK / 标定 / 限位一律不读这里。
+ * 之所以放在 `robot.yaml` 而不是写死在渲染代码里：它与 `links[].geometry.texture`
+ * 同属外观层，而且调参过程本身要是可复核的（改一个数 → 重测同一 ROI → 对比）。
+ */
+export interface TexturedPlateAppearance {
+  /**
+   * 照片纹理件接收的**环境反射强度**（0 = 关闭，行为与引入本特性前逐值一致）。
+   *
+   * ⚠️ 它不是"场景环境光强度"：环境纹理由场景统一提供（`scene.environment`），
+   * 但只有照片纹理件接收 —— 其余材质一律被置 `envMapIntensity = 0`。
+   */
+  environmentIntensity: number;
+  /** 贴图线性曝光补偿，单位 EV（1 EV = 线性亮度 ×2）。用于检验"提亮能否救回暗端板面" */
+  exposureEv: number;
+  /** 光泽度。亚克力是光泽材料，形状可读性来自高光而非漫反射 */
+  roughness: number;
+  /** 金属度。亚克力是非金属；非 0 会与 exposureEv 耦合放大高光 */
+  metalness: number;
+}
+
+/** 外观（渲染）参数。**纯外观**，不参与任何运动学计算 */
+export interface Appearance {
+  texturedPlate: TexturedPlateAppearance;
+}
+
+/** 外观参数缺省值 —— 与引入本特性前的行为逐值一致（无环境反射、无曝光补偿） */
+export const DEFAULT_APPEARANCE: Appearance = {
+  texturedPlate: { environmentIntensity: 0, exposureEv: 0, roughness: 0.85, metalness: 0 },
+};
+
+/**
+ * 曝光补偿的合法区间（EV）。
+ * 超出即视为误填 —— 本项目实测需要 +6.2 EV 才能把板面推到 L≈60，
+ * 所以上限给到 8 足够覆盖全部实验意图，再大就只是把整机推爆。
+ */
+export const EXPOSURE_EV_RANGE = { min: -2, max: 8 } as const;
+
 export interface RobotModel {
   version: number;
   id: string;
@@ -42,6 +86,8 @@ export interface RobotModel {
   homePose: JointState;
   /** TCP 定义 */
   tcp: TcpSpec;
+  /** 外观（渲染）参数 —— 不参与任何运动学计算 */
+  appearance: Appearance;
 }
 
 // ---------------------------------------------------------------------------

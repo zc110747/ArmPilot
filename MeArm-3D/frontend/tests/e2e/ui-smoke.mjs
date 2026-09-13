@@ -99,10 +99,25 @@ const CHROME_FLAGS = [
 ];
 
 const results = [];
+const skips = [];
 function check(name, ok, detail = '') {
   results.push({ name, ok, detail });
   const mark = ok ? 'PASS' : 'FAIL';
   console.log(`[${mark}] ${name}${detail ? `  — ${detail}` : ''}`);
+}
+
+/**
+ * 记一条**前提不成立**的子项（不计入 PASS/FAIL）。
+ *
+ * 为什么需要它：有些子项的断言依赖「链路末端**不是** serial」这一前提，而
+ * `startBackend()` 会**复用** 8090 上的既有实例（可能是手工起的真机后端）。
+ * 前提被环境破坏时，正确行为恰恰是"允许切换" ⇒ 断言必然 FAIL ——
+ * 但这是**环境差异**，不是**代码回归**（D40/D43 的同一类错误）。
+ * 实测踩过：残留一个 `device=serial` 后端，Phase 8 直接多出 2 个假 FAIL。
+ */
+function skip(name, reason) {
+  skips.push({ name, reason });
+  console.log(`[SKIP] ${name}  — 前提不成立：${reason}`);
 }
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -218,6 +233,14 @@ async function startBackend() {
     console.log(
       `[backend] ${BACKEND_HTTP} 已有实例（device=${existing.device}），复用之；跳过断线重连子项`,
     );
+    if (existing.device === 'serial') {
+      console.log(
+        '[backend] ⚠️ 复用的是**真机**后端：依赖「末端非 serial」前提的子项将报 SKIP（不计 FAIL）。',
+      );
+      console.log(
+        `[backend] ⚠️ 这属于**环境差异**而非代码回归。想要完整结果请先停掉 ${BACKEND_HTTP} 上的实例。`,
+      );
+    }
     return { child: null, external: true, health: existing };
   }
   if (!existsSync(BACKEND_EXE)) {
@@ -1597,7 +1620,18 @@ async function main() {
       // ⚠️ 入口/出口状态必须显式设定（跨批次残留，§9.10 第 7 例）：mode 可能被
       //    上一轮的 (c)/(h1) 段留在 real，先归位到 Simulation 再点，否则断言读到的是
       //    "上一轮的结果"，与本次点击无关。
-      {
+      if (isSerialLink) {
+        // ⚠️ 前提不成立 ⇒ 报 SKIP 而不是 FAIL（见 skip() 注释）。
+        //    实测：复用一个残留的 `device=serial` 后端时，这两条会变成假 FAIL。
+        skip(
+          'Phase 8：连着后端（末端非 serial）点 Real Robot → **拒绝切换**，按钮仍在 Simulation',
+          `复用的后端末端是 serial（device=${backend.health.device}）—— 此时"允许切到 Real Robot"才是正确行为`,
+        );
+        skip(
+          'Phase 8：拒绝原因必须点名链路末端（不留静默）',
+          '同上：serial 末端不产生"Real Robot 未启用"日志，该断言在当前环境下不可测',
+        );
+      } else {
         const connNow = await cdp.evaluate(READ_CONNECTION);
         if (connNow === 'Connected') {
           await cdp.evaluate(CLICK_SIMULATION);
@@ -1834,6 +1868,15 @@ async function main() {
   const passedAll = results.filter((r) => r.ok).length;
   const failedAll = results.length - passedAll;
   console.log('');
+  if (skips.length > 0) {
+    console.log(`----- 跳过 ${skips.length} 项（前提不成立，不计入 PASS/FAIL）-----`);
+    for (const s of skips) console.log(`  [SKIP] ${s.name}  — ${s.reason}`);
+    console.log(
+      '  提示：这些子项需要「后端末端非 serial」。若想让它们真正跑起来，' +
+        `请先停掉 ${BACKEND_HTTP} 上的真机后端再重跑。`,
+    );
+    console.log('');
+  }
   console.log(`===== e2e 结果: ${passedAll}/${results.length} PASS, ${failedAll} FAIL =====`);
   process.exit(failedAll === 0 ? 0 : 1);
 }

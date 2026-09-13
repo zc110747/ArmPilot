@@ -95,24 +95,45 @@ def test_arithmetic_legal_region_is_oblique(robot):
 def test_mujoco_accepts_real_machine_impossible_pose(sim):
     """★★ 决定性实测：MuJoCo 会执行一个真机**物理上不可能**的位形。
 
-    命令 `(shoulder = −6.0°, elbow = 53.0°)`：
-      - 真机：elbow 绝对角 53° 远低于下限 108.4415° ⇒ 舵机 S8 结构上转不到
-      - MuJoCo：只看到局部角 53 − (−6) = 59°，落在外接区间 [56.99, 149.95] 内 ⇒ 照常执行
+    真机：`elbow` 绝对角低于下限 ⇒ 舵机 S8 结构上转不到；
+    MuJoCo：它只看到肘的**局部角**（= θe − θs），落在外接区间 [56.99, 149.95] 内
+    ⇒ 照常执行。这不是 MuJoCo 的 bug，而是"单一 hinge range 表达不了斜的合法域"
+    的必然结果。本测试把它固定成**已知事实**，防止后来者误以为 hinge range 就是限位真值。
 
-    这不是 MuJoCo 的 bug，而是"单一 hinge range 表达不了斜的合法域"的必然结果。
-    本测试把它固定成**已知事实**，防止后来者误以为 MuJoCo 的 range 就是限位真值。
+    ⚠️ 反例窗口只有约 **2°**，这是被动腕带来的**副产品**（务必看完再改）：
+    被动腕 `tool` 也是一条 hinge，它的外接区间 [-53.86, −16.44] 由 elbow 的限位派生；
+    与等式约束 `q_shoulder + q_elbow + q_tool = 90°` 联立后，**恰好**把 elbow 的绝对角
+    钳在 ≥ 106.4415°。于是"命令得动、但真机做不到"的区间被压缩成
+
+        [106.4415°, 108.4415°)      ← 下界来自 tool 的 hinge 区间，上界才是真机限位
+
+    也就是说 MuJoCo 现在**部分**挡住了越限位形（拦得住 53° 那种夸张的，拦不住窗口内的）。
+    ⇒ 结论不变、而且更强：限位一致性的唯一把关人**仍然只能是上层**
+      （IK / Go controller / `limits.py`），不能指望物理引擎替我们挡。
     """
+    truth_min = sim.robot.joint("elbow").limit_min
+    lock = sim.robot.joint("tool").limit_min          # 被动腕的锁定绝对角（= 90°）
+    tool_hi = float(np.degrees(
+        sim.model.jnt_range[sim.joint_ids.index("tool")][1]))    # tool hinge 区间上界
+    window_lo = lock - tool_hi                        # q_t 顶到上界时的 elbow 下界
+
+    elbow_cmd = 0.5 * (window_lo + truth_min)         # 取窗口正中
+    assert window_lo < elbow_cmd < truth_min, (
+        f"反例构造失败：{elbow_cmd:.4f}° 不在真机做不到的窗口 "
+        f"[{window_lo:.4f}, {truth_min:.4f}) 内")
+
     sim.reset()
-    sim.set_target_joints({"shoulder": -6.0, "elbow": 53.0})
+    sim.set_target_joints({"shoulder": -6.0, "elbow": elbow_cmd})
     sim.settle(8.0)
     st = sim.state()
-    truth_min = sim.robot.joint("elbow").limit_min
 
-    assert st.joint_angles["elbow"] < truth_min - 40.0, (
-        f"（前提变了）MuJoCo 竟然拦住了 elbow："
-        f"实测 {st.joint_angles['elbow']:.3f}°，真机下限 {truth_min:.3f}°"
-    )
+    assert st.joint_angles["elbow"] < truth_min, (
+        f"（前提变了）MuJoCo 竟然拦住了 elbow：实测 {st.joint_angles['elbow']:.4f}°，"
+        f"真机下限 {truth_min:.4f}° —— 若它真能拦住，本测试与配套的 "
+        f"test_ik.py::test_geometrically_reachable_but_limits_block 都要重新论证")
     # 记录实际位形，便于回归时发现物理行为漂移
+    assert st.joint_angles["elbow"] == pytest.approx(elbow_cmd, abs=1.0), (
+        f"MuJoCo 应基本如实执行（只受 hinge range 约束），实测 {st.joint_angles['elbow']:.4f}°")
     assert st.joint_angles["shoulder"] == pytest.approx(-6.0, abs=3.0)
 
 

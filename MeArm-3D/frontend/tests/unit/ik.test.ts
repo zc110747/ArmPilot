@@ -37,19 +37,30 @@ function withJoint(model: RobotModel, jointId: string, patch: Record<string, unk
 }
 
 describe('Phase 5 · IK 几何求导（全部来自模型）', () => {
-  it('大臂 / 小臂等效长与肩枢轴高度从 links 与 tcp.offset 求导，不写死常数', () => {
-    // 大臂 = upper_arm_link.length；小臂 = forearm_link.length + tool_link.length + tcp.offset.z
+  it('杆长与枢轴从 links 求导：L1 = 大臂，L2 = 肘枢轴→**腕枢轴**（不含腕→TCP）', () => {
+    // 大臂 = upper_arm_link.length；小臂 = forearm_link.length（止于腕枢轴）
     expect(geometry.l1).toBeCloseTo(80, 6);
-    expect(geometry.l2).toBeCloseTo(80 + 40, 6);
+    expect(geometry.l2).toBeCloseTo(80, 6);
     expect(geometry.pivotZ).toBeCloseTo(60, 6);
     expect(geometry.pivotR).toBeCloseTo(0, 9);
+    // TCP 参考关节 = 被动腕；它的坐标系原点就是 2R 子链的末端「腕枢轴」
+    expect(geometry.wristId).toBe('tool');
   });
 
-  it('可达球壳 = [|L1−L2|, L1+L2]', () => {
+  it('腕枢轴→TCP 的**常量**偏移由模型求导：爪锁水平 ⇒ [40, 0]', () => {
+    // 这条与上面分开写，是因为它们来自模型里两个不同的语义层：
+    //   l2 由 links[].length 决定；toolOffset 由「腕被 coupling 锁在 90°」决定。
+    expect(geometry.toolOffset[0]).toBeCloseTo(40, 6);
+    expect(geometry.toolOffset[1]).toBeCloseTo(0, 9);
+  });
+
+  it('可达球壳 = [|L1−L2|, L1+L2]；本机 L1 === L2 ⇒ 内半径 0、无内锥空洞', () => {
     expect(geometry.reach[0]).toBeCloseTo(Math.abs(geometry.l1 - geometry.l2), 9);
     expect(geometry.reach[1]).toBeCloseTo(geometry.l1 + geometry.l2, 9);
-    expect(geometry.reach[0]).toBeCloseTo(40, 6);
-    expect(geometry.reach[1]).toBeCloseTo(200, 6);
+    // 两根 80 的杆 ⇒ 几何上腕能折叠到枢轴，所以「目标太近」这一类越界**不再存在**；
+    // 工作空间的内边界完全由**限位**决定（见错误码用例里的 JOINT_LIMIT 一条）。
+    expect(geometry.reach[0]).toBeCloseTo(0, 6);
+    expect(geometry.reach[1]).toBeCloseTo(160, 6);
   });
 
   it('几何量随模型变化：改 length 后 L1 随之改变（证明确非硬编码）', () => {
@@ -65,6 +76,43 @@ describe('Phase 5 · IK 几何求导（全部来自模型）', () => {
     expect(() => ikGeometry(withJoint(model, 'base', { axis: [0, 1, 0] }))).toThrow(IkModelError);
     const tilted = withJoint(model, 'elbow', { origin: { position: [0, 0, 0], rotation: [10, 0, 0] } });
     expect(() => ikGeometry(tilted)).toThrow(/origin\.rotation/);
+  });
+
+  // -------------------------------------------------------------------------
+  // ★ 被动腕的守卫：把「偏移是常量」这件事变成可被打破的断言
+  // -------------------------------------------------------------------------
+  it('★ 腕若被改回刚性固连（fixed），求导必须报错而不是解出偏差 40mm 的解', () => {
+    // 这是本文件里最贵的一条：`tool` 从 passive 退回 fixed 后，「腕→TCP」会随 θe 转动，
+    // 而 2R 仍会给出一个**看起来完全正常**的解 —— 只是系统性偏掉几十毫米，
+    // 且残差自查同样是偏的（自证），整套测试会一起变绿。所以必须显式拦住。
+    const rigid = withJoint(model, 'tool', { type: 'fixed', coupling: undefined });
+    expect(() => ikGeometry(rigid)).toThrow(/固定关节/);
+  });
+
+  it('★ 腕失去"锁"之后就报错：revolute 且不带 coupling ⇒ 偏移随姿态变化', () => {
+    // ⚠️ 这条用例第一版写错过，值得留个记号：只把 `type` 改成 revolute、**保留 coupling**
+    // 并不会破坏锁 —— 那种模型的爪绝对倾角仍是常量（= limits.min = −90°），
+    // 求导完全正确。真正的失效点是"**锁没了**"：没有 coupling 的折角随小臂一起转，
+    // 三个采样姿态下偏移各不相同 ⇒ 守卫必须命中。
+    const unlocked: RobotModel = {
+      ...model,
+      joints: model.joints.map((j) =>
+        j.id === 'tool'
+          ? { ...j, type: 'revolute' as const, coupling: undefined, limits: { min: -90, max: 90 } }
+          : j,
+      ),
+    };
+    expect(() => ikGeometry(unlocked)).toThrow(/偏移随姿态变化/);
+  });
+
+  it('★ 偏移必须落在矢状面内：tcp.offset 带横向分量 ⇒ 报错', () => {
+    const skewed: RobotModel = { ...model, tcp: { ...model.tcp, offset: [0, 12, 40] } };
+    expect(() => ikGeometry(skewed)).toThrow(/矢状面之外/);
+  });
+
+  it('tcp.joint 不存在时有明确报错（不是 undefined 解引用）', () => {
+    const broken: RobotModel = { ...model, tcp: { ...model.tcp, joint: 'nope' } };
+    expect(() => ikGeometry(broken)).toThrow(/nope/);
   });
 });
 
@@ -117,30 +165,46 @@ describe('Phase 5 · IK 基本反解', () => {
 });
 
 describe('Phase 5 · IK 错误码', () => {
+  /**
+   * 构造「腕枢轴距肩枢轴恰好 d、方位角 0」的目标点。
+   *
+   * ⚠️ 必须**反着**把 `toolOffset` 加回去：爪锁水平 ⇒ TCP 恒比腕枢轴在径向上多 40mm。
+   * 直接写 `[d, 0, pivotZ]` 实际表达的是"腕枢轴距枢轴 d − 40"，越界判据会整整差 40mm。
+   */
+  const targetAtWristDistance = (d: number): Vec3 => [
+    d + geometry.pivotR + geometry.toolOffset[0],
+    0,
+    geometry.pivotZ + geometry.toolOffset[1],
+  ];
+
   it('超出最大伸展 → OUT_OF_WORKSPACE', () => {
-    const result = solveIk(model, [geometry.reach[1] + 0.5, 0, geometry.pivotZ]);
+    const result = solveIk(model, targetAtWristDistance(geometry.reach[1] + 0.5));
     expect(result.success).toBe(false);
     if (result.success) return;
     expect(result.reason).toBe('OUT_OF_WORKSPACE');
     expect(result.message).toMatch(/超出工作空间/);
   });
 
-  it('小于最小伸展（连杆无法折叠到那么近）→ OUT_OF_WORKSPACE', () => {
-    const result = solveIk(model, [geometry.reach[0] - 1, 0, geometry.pivotZ]);
+  it('本机 L1 === L2 ⇒ 不存在"太近"的越界；贴近枢轴的目标由**限位**否决', () => {
+    // 老模型（L2 = 120）有内锥空洞，那时才能构造出 `reach[0]` 以内的越界目标。
+    // 现在两根杆等长（80 / 80），几何上腕能折叠到枢轴 ⇒ 这一类 OUT_OF_WORKSPACE
+    // 根本不存在；同一个点在几何上可达，是被 `elbow` 限位拦下的 —— 拒绝理由本质不同。
+    expect(geometry.reach[0]).toBeCloseTo(0, 9);
+    const result = solveIk(model, [0, 0, geometry.pivotZ]);
     expect(result.success).toBe(false);
     if (result.success) return;
-    expect(result.reason).toBe('OUT_OF_WORKSPACE');
+    expect(result.reason).toBe('JOINT_LIMIT');
   });
 
-  it('恰好落在伸展边界上：不再是 OUT_OF_WORKSPACE，而是关节做不出来 → JOINT_LIMIT', () => {
-    const result = solveIk(model, [geometry.reach[1], 0, geometry.pivotZ]);
+  it('恰好落在伸展边界上（两杆共线）：不再是 OUT_OF_WORKSPACE，而是关节做不出来 → JOINT_LIMIT', () => {
+    const result = solveIk(model, targetAtWristDistance(geometry.reach[1]));
     expect(result.success).toBe(false);
     if (result.success) return;
     expect(result.reason).toBe('JOINT_LIMIT');
   });
 
   it('几何可达但底座方位角超出 ±60° → JOINT_LIMIT 且指名 base', () => {
-    // 方位角 80°，半径 100 ⇒ 枢轴距 D=hypot(100,40)≈107.7，属几何可达范围内
+    // 方位角 80°、半径 100 ⇒ 腕枢轴距枢轴 hypot(100−40, 100−60)=hypot(60,40)≈72.1，几何可达
     const az = (80 * Math.PI) / 180;
     const target: Vec3 = [100 * Math.cos(az), 100 * Math.sin(az), 100];
     const result = solveIk(model, target);
@@ -151,8 +215,10 @@ describe('Phase 5 · IK 错误码', () => {
     expect(result.message).toMatch(/limit/);
   });
 
-  it('几何可达但俯仰角越界（目标在正上方 240mm）→ JOINT_LIMIT，并在信息里给出越界量', () => {
-    const result = solveIk(model, [0, 0, 240]);
+  it('几何可达但俯仰角越界（偏航轴上、高于枢轴 100mm）→ JOINT_LIMIT，并在信息里给出越界量', () => {
+    // ⚠️ 目标点必须落在**腕枢轴**的可达壳内：[0,0,pivotZ+100] ⇒ 腕距 = hypot(40, 100) ≈ 107.7 < 160。
+    // 若直接写"正上方 240mm"，腕距会到 184mm，那就成了 OUT_OF_WORKSPACE —— 测的就不是限位了。
+    const result = solveIk(model, [0, 0, geometry.pivotZ + 100]);
     expect(result.success).toBe(false);
     if (result.success) return;
     expect(result.reason).toBe('JOINT_LIMIT');

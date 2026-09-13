@@ -205,9 +205,21 @@ def test_ok_jr_is_intent_state_is_actual(dev):
 
 
 def test_state_frame_converges_then_stops(dev):
-    """`STATE` 只在位置真的变化时发；收敛后必须停下来（否则永远 30Hz 刷帧）。"""
+    """`STATE` 只在位置真的变化时发；收敛后必须停下来（否则永远 30Hz 刷帧）。
+
+    ⚠️ 这里的 `settle()` 必须比别处**严得多**（1e-4 → 1e-8 rad/s）—— 这不是调参凑绿，
+    而是两个阈值的量纲本来就不同，必须联立检查：
+      * `settle(tolerance_rad=T)` 约束的是**速度** ⇒ 1s 内最多漂 `T` 弧度
+      * `report_if_moved` 比的是**相对上次发射的累计位移**，阈值 1e-5 rad
+    ⇒ 只要 `T × 1s > 1e-5`，一条"仍在缓慢爬行"的臂就**必然**发出状态帧。
+      那是**正确**行为（它确实在动），不是 bug —— 是这条测试的前提没成立。
+
+    被动腕（软等式约束）把收敛尾巴拉长了：旧的 1e-4 退出时残留速度实测 3.7e-5 rad/s，
+    1s 累计 3.7e-5 > 1e-5，于是恰好在第 7 块左右发出唯一一帧。
+    改成 1e-8 之后臂是**真静止**（实测 1s 累计位移 ~1e-14），断言才真的落在"已收敛"上。
+    """
     dev.handle("JR 0 40 130 50")
-    dev.sim.settle(6.0, tolerance_rad=1e-4, hold_s=0.5)
+    dev.sim.settle(20.0, tolerance_rad=1e-8, hold_s=0.5)
     dev.capture.clear()
 
     last = dev.sim.data.qpos.copy()

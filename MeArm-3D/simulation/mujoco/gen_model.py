@@ -157,6 +157,59 @@ def local_range_deg(robot: RobotCfg, joint: JointCfg, padding: float) -> tuple[f
     return lo - padding, hi + padding
 
 
+def _axes_parallel(a: Sequence[float], b: Sequence[float], tol: float = 1e-9) -> tuple[bool, float]:
+    """两根轴是否共线；共线时给出同向系数（+1 同向 / −1 反向）。"""
+    na = math.sqrt(sum(float(x) * float(x) for x in a))
+    nb = math.sqrt(sum(float(x) * float(x) for x in b))
+    if na == 0.0 or nb == 0.0:
+        raise ConfigError("关节 axis 为零向量")
+    ua = [float(x) / na for x in a]
+    ub = [float(x) / nb for x in b]
+    cross = (
+        ua[1] * ub[2] - ua[2] * ub[1],
+        ua[2] * ub[0] - ua[0] * ub[2],
+        ua[0] * ub[1] - ua[1] * ub[0],
+    )
+    if max(abs(c) for c in cross) > tol:
+        return False, 0.0
+    dot = sum(x * y for x, y in zip(ua, ub))
+    return True, (1.0 if dot >= 0.0 else -1.0)
+
+
+def absolute_lock_terms(robot: RobotCfg, joint: JointCfg) -> list[tuple[str, float]]:
+    """求「该被动关节的**绝对角** = 锁定值」对应的 qpos 线性项。
+
+    在串联网里，某关节坐标系的**绝对转角** = 从根到它、且转轴与它**共线**的全部关节的
+    局部角之代数和；而 MuJoCo 的 `qpos` 恰好就是这些局部角。因此约束写成这些 qpos 的
+    加权和恒等于锁定角。详见 `build_xml` 里 `<tendon>` / `<equality>` 那两段的说明。
+
+    返回 `[(关节 id, 系数)]`，系数 = ±1（轴同向 / 反向）。走链到该关节为止。
+    """
+    if not joint.is_passive:
+        raise ConfigError(f"{joint.id} 不是被动关节，无需锁定项")
+    terms: list[tuple[str, float]] = []
+    for _link, j in robot.chain_from_root():
+        if j is None:
+            continue
+        if j.origin_rotation != (0.0, 0.0, 0.0):
+            raise ConfigError(
+                f"被动关节 {joint.id} 的锁定路径上遇到带 origin.rotation 的关节 {j.id} —— "
+                f"此时绝对角不再是 qpos 的线性组合，请改用显式四杆建模"
+            )
+        parallel, sign = _axes_parallel(j.axis, joint.axis)
+        if parallel:
+            terms.append((j.id, sign))
+        if j.id == joint.id:
+            break
+    if not terms or terms[-1][0] != joint.id:
+        raise ConfigError(f"被动关节 {joint.id} 不在根可达的链上，无法生成锁定约束")
+    if terms[-1][1] != 1.0:
+        raise ConfigError(
+            f"被动关节 {joint.id} 与其自身轴的方向判据异常（系数 {terms[-1][1]}）—— 请人工确认"
+        )
+    return terms
+
+
 # ---------------------------------------------------------------------------
 # 惯量
 # ---------------------------------------------------------------------------
@@ -347,7 +400,8 @@ def build_xml(robot: RobotCfg, physics: PhysicsCfg) -> str:
     add("<!--")
     add("  ⚠️ 本文件由 simulation/mujoco/gen_model.py 生成 —— 请勿手工编辑。")
     add(f"     真值来源: config/robot.yaml ({robot.id} / {robot.name}, {len(robot.links)} 连杆 / "
-        f"{len(robot.movable_joints())} 可动关节)")
+        f"{len(robot.movable_joints())} 自由度 + {len(robot.passive_joints())} 被动关节 / "
+        f"{len(robot.qpos_joints())} 个 qpos 坐标)")
     add(f"     物理参数: config/physics.yaml ({physics.source_path.name})")
     add("     重新生成: python simulation/mujoco/gen_model.py")
     add("-->")
@@ -439,7 +493,6 @@ def build_xml(robot: RobotCfg, physics: PhysicsCfg) -> str:
                 f'{inner}<joint name="{joint.id}" class="arm" axis="{_vec(joint.axis)}" '
                 f'range="{_fmt(deg2rad(lo))} {_fmt(deg2rad(hi))}"/>'
             )
-
         for line in collision_geom_xml(link.id, physics, inner):
             add(line)
         for line in visual_geoms_xml(link, inner):
@@ -483,6 +536,41 @@ def build_xml(robot: RobotCfg, physics: PhysicsCfg) -> str:
             )
     add("  </actuator>")
 
+    # ---- 被动关节的锁定约束 ---------------------------------------------------
+    # 被动关节（本机的腕 `tool`）在 MJCF 里**必须**建模成 hinge —— 它是个真实存在的
+    # 转动副，爪就是被它带着保持水平的。但它**没有输入**：它的**绝对角**被连杆锁死。
+    #
+    # ⚠️ 约束的写法是本题最容易错的一处，踩过坑（见 docs/decisions.md D70）：
+    #   在串联网里，某关节坐标系的**绝对转角** = 从根到它、且转轴与它**平行同向**的
+    #   全部关节的**局部角**之和。而 MuJoCo 的 `qpos` **恰好就是这些局部角**
+    #   （见 `units.JointAngleMap.to_qpos`：`局部角 = 关节角 + gain × 被耦合关节角`）。
+    #   所以约束是「这一串 qpos 的**加权和** = 锁定角」，而不是「它自己 = 锁定角 − 某一个关节角」。
+    #
+    #   第一版按 `<equality><joint joint1="tool" joint2="elbow">` 写，表达成
+    #   `q_tool = 90° − q_elbow`。但 `q_elbow` 是**局部角**（= θe − θs），少了一项，
+    #   于是稳态恰好偏在「离锁定值一个 shoulder 角（0.8499°）」的地方 ——
+    #   偏差数值与当时的肩角一模一样，是"漏项"的典型指纹，但看上去完全像"约束太软"。
+    #   实测把 solref 收紧 10 倍，残差**一点没变**（+0.8499°），只多出 20° 的过冲。
+    #
+    #   正解：`<fixed>` 腱把这一串关节的 qpos 线性组合成一个标量，再用
+    #   `<equality><tendon>` 把它钉在锁定角上。
+    passive_joints = robot.passive_joints()
+    if passive_joints:
+        add("  <tendon>")
+        for j in passive_joints:
+            add(f'    <fixed name="{j.id}_lock_tendon">')
+            for jid, coef in absolute_lock_terms(robot, j):
+                add(f'      <joint joint="{jid}" coef="{_fmt(coef)}"/>')
+            add("    </fixed>")
+        add("  </tendon>")
+        add("  <equality>")
+        for j in passive_joints:
+            add(
+                f'    <tendon name="{j.id}_lock" tendon1="{j.id}_lock_tendon" '
+                f'polycoef="{_fmt(deg2rad(j.limit_min), 12)} 0 0 0 0"/>'
+            )
+        add("  </equality>")
+
     add("</mujoco>")
     return "\n".join(L) + "\n"
 
@@ -511,11 +599,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     out.write_text(xml, encoding="utf-8", newline="\n")
     rel = out.relative_to(PROJECT_ROOT) if PROJECT_ROOT in out.resolve().parents else out
     print(f"[gen_model] 已生成 {rel}  ({len(xml)} bytes)")
-    print(f"[gen_model] 连杆 {len(robot.links)} · 可动关节 {len(robot.movable_joints())} · "
+    print(f"[gen_model] 连杆 {len(robot.links)} · 自由度 {len(robot.movable_joints())} · "
+          f"被动关节 {len(robot.passive_joints())} · qpos 坐标 {len(robot.qpos_joints())} · "
           f"执行器 {len(robot.actuators)}")
-    for j in robot.movable_joints():
+    for j in robot.qpos_joints():
         lo, hi = local_range_deg(robot, j, padding)
-        print(f"[gen_model]   {j.id:<9} 绝对限位 {j.limit_min:+9.4f}..{j.limit_max:+9.4f}°"
+        tag = "被动" if j.is_passive else "    "
+        print(f"[gen_model] {tag} {j.id:<9} 绝对限位 {j.limit_min:+9.4f}..{j.limit_max:+9.4f}°"
               f"  →  局部 range {lo:+9.4f}..{hi:+9.4f}°")
     return 0
 

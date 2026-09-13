@@ -68,11 +68,19 @@ def reach_bounds_mm(info: Mapping[str, Any]) -> tuple[float, float]:
 
 
 def sagittal_distance_mm(info: Mapping[str, Any], target: Sequence[float]) -> float:
-    """枢轴到目标的距离（mm）—— 判断"几何可达性"用的就是它。
+    """**腕枢轴**到肩枢轴的距离（mm）—— 判断"几何可达性"用的就是它。
 
-    注意是**矢状面内**的距离：`hypot(hypot(x,y) − pivotR, z − pivotZ)`，
+    ⚠️ 本机的爪被被动腕锁成水平，TCP 比腕枢轴多出一个**常量**矢状面偏移
+    （`geometry.toolOffset` = `[40, 0]`），而 2R 的可达球壳约束的是**腕枢轴**。
+    所以必须先减掉这个偏移：否则每个目标点都会凭空多出 40mm 的径向分量，
+    越界判据与 `ik.ts` 的实现就会各说各话（而且两边看起来都很合理）。
+
+    注意是**矢状面内**的距离：`hypot(hypot(x,y) − pivotR − off_r, z − pivotZ − off_z)`，
     而不是三维距离（`pivotR` 为 0 时两者才相等）。
     """
     g = info["geometry"]
+    off_r, off_z = (float(v) for v in g["toolOffset"])
     r = float(np.hypot(target[0], target[1]))
-    return float(np.hypot(r - float(g["pivotR"]), target[2] - float(g["pivotZ"])))
+    return float(
+        np.hypot(r - float(g["pivotR"]) - off_r, float(target[2]) - float(g["pivotZ"]) - off_z)
+    )

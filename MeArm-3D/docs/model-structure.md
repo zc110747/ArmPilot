@@ -26,7 +26,7 @@ RobotGroup                       root（= 根连杆的近端坐标系）
     │       ├── LinkObject:upper_arm_link
     │       │   └── JointGroup:elbow
     │       │       ├── LinkObject:forearm_link
-    │       │       │   └── JointGroup:tool（固定关节）
+    │       │       │   └── JointGroup:tool（被动关节 · 无独立输入）
     │       │       │       ├── LinkObject:tool_link
     │       │       │       │   ├── JointGroup:gripper
     │       │       │       │   └── gripperPalm（两片爪，绕 X 铰轴对称开合）
@@ -91,7 +91,7 @@ RobotGroup                       root（= 根连杆的近端坐标系）
 | `column_link` | 转盘 + 两片立柱侧板（夹住 S9 舵机体）+ **S7 肩舵机**（顶部，轴 `+Y`） | 随 `base` 绕 Z 旋转 |
 | `upper_arm_link` | 两片大臂侧板 + 肩/肘轴端盖 + 端部横撑 + **S8 肘舵机**（末端，轴 `+Y`） | 随 `shoulder` 摆动 |
 | `forearm_link` | 两片小臂侧板 + 肘轴端盖 + 腕部横撑 | 随 `elbow` 摆动 |
-| `tool_link` | 腕座 + **S6 夹取舵机**（轴 `+X`，与夹爪铰轴同向）+ 爪铰轴 | 固定连杆（无自由度） |
+| `tool_link` | 腕座 + **S6 夹取舵机**（轴 `+X`，与夹爪铰轴同向）+ 爪铰轴 | 挂在**被动关节** `tool` 下：会转，但角度由连杆锁定（绝对倾角恒 90°） |
 | `jaw_link` | `geometry.size = [宽, 厚, 长]` 仅提供**爪片尺寸** | 叶关节，不参与末端定位 |
 
 > ⚠️ **通道号与关节名的对应关系以 `config/robot.yaml` 的 `actuators[]` 为准**：

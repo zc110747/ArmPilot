@@ -56,9 +56,9 @@ class SimState:
 
     time: float
     joint_angles: dict[str, float]          # deg，**绝对语义**（与 UI / 协议一致）
-    qpos_local: np.ndarray                  # rad，**局部语义**（MuJoCo 原生）
-    joint_velocities: np.ndarray            # rad/s，按 joint_ids 顺序
-    joint_torques: np.ndarray               # N·m，按 joint_ids 顺序（actuator 施加的广义力）
+    qpos_local: np.ndarray                  # rad，**局部语义**（MuJoCo 原生，长度 = nq）
+    joint_velocities: np.ndarray            # rad/s，**按 `robot.joint_order()`**（状态帧四元组）
+    joint_torques: np.ndarray               # N·m，同上（actuator 施加的广义力）
     target_angles: dict[str, float]         # deg，控制器当前的速率受限目标
     end_effector: np.ndarray                # m，TCP 世界坐标
     contact_count: int
@@ -340,19 +340,39 @@ class MeArmSim:
 
     def state(self) -> SimState:
         qpos = np.array(self.data.qpos, dtype=float)
-        dofs = [self._dof_adr[j] for j in self.joint_ids]
-        torques = np.array([float(self.data.qfrc_actuator[d]) for d in dofs], dtype=float)
-        vels = np.array([float(self.data.qvel[d]) for d in dofs], dtype=float)
         return SimState(
             time=float(self.data.time),
             joint_angles=self.angle_map.from_qpos(qpos),
             qpos_local=qpos,
-            joint_velocities=vels,
-            joint_torques=torques,
+            # ⚠️ 速度 / 力矩只取**自由度**坐标（4 个），与 `robot.joint_order()` 逐位对齐
+            # —— 状态帧（`SimState.as_dict` / JR 四元组）就是这个位次。
+            # 被动腕 `tool` 有 qpos 但没有自由度，它的坐标**不在**这里；若照搬 nq 长度
+            # 的数组，`as_dict` 的 zip 会把 gripper 读成 tool 的值（静默错位）。
+            joint_velocities=self.dof_vector(self.data.qvel),
+            joint_torques=self.dof_vector(self.data.qfrc_actuator),
             target_angles=self.target_angles_deg(),
             end_effector=np.array(self.data.site_xpos[self._tcp_site], dtype=float),
             contact_count=int(self.data.ncon),
         )
+
+    def dof_vector(self, src: Sequence[float]) -> np.ndarray:
+        """把 `nv` 长度的广义向量（`qvel` / `qfrc_*` / `qacc`）抽成**自由度顺序**（4 个）。
+
+        ⚠️ 不能写成 `src[:4]`：被动腕的坐标夹在 `elbow` 与 `gripper` **中间**
+        （见 `self.joint_ids`），必须按名字查 `dofadr`，否则会把 tool 的坐标
+        当成 gripper 的 —— 而两者量纲相同，错了也不会报错。
+        """
+        return np.array([float(src[self._dof_adr[j]]) for j in self.robot.joint_order()],
+                        dtype=float)
+
+    def ctrl_vector(self) -> np.ndarray:
+        """`data.ctrl` 按**自由度顺序**重排。
+
+        三个顺序互不相同，必须按名字映射：执行器声明顺序（`ctrl` 的位次）、
+        qpos 顺序（`joint_ids`）、状态帧顺序（`robot.joint_order()`）。
+        """
+        return np.array([float(self.data.ctrl[self._actuator_of_joint[j]])
+                         for j in self.robot.joint_order()], dtype=float)
 
     def joint_angles_deg(self) -> dict[str, float]:
         return self.angle_map.from_qpos(np.array(self.data.qpos, dtype=float))
@@ -368,15 +388,24 @@ class MeArmSim:
     # ------------------------------------------------------------------
 
     def gravity_torque(self) -> np.ndarray:
-        """当前位形下，仅重力产生的关节广义力（N·m）。
+        """当前位形下，仅重力 / 科氏力产生的关节广义力（N·m），**按自由度顺序**。
 
         用 `mj_rne`（递归牛顿-欧拉）在 qacc=0 下求逆动力学得到的正是"维持静止所需的力"。
         ⚠️ 这是**测试/分析**用，不是控制路径。
         """
-        dofs = [self._dof_adr[j] for j in self.joint_ids]
         qfrc = np.zeros(self.model.nv)
         mujoco.mj_rne(self.model, self.data, 0, qfrc)
-        return np.array([float(qfrc[d]) for d in dofs], dtype=float)
+        return self.dof_vector(qfrc)
+
+    def constraint_torque(self) -> np.ndarray:
+        """约束（等式 / 限位 / 接触）作用在自由度上的广义力（N·m），**按自由度顺序**。
+
+        被动腕的「绝对角被锁死」是一条**跨 shoulder / elbow / tool 三个坐标**的等式
+        约束，所以它会把力矩**传回被驱动的肩 / 肘**。位置环的稳态平衡必须把它算进去：
+        否则「kp·(ctrl − qpos) = τ_bias」这条力平衡式会差 λ/kp
+        （见 tests/sim/test_gravity.py::test_steady_state_error_is_physical）。
+        """
+        return self.dof_vector(self.data.qfrc_constraint)
 
     def body_names(self) -> list[str]:
         out = []

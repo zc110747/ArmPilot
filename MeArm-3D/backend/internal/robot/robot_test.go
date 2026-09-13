@@ -49,10 +49,17 @@ func TestJointOrder(t *testing.T) {
 			t.Errorf("第 %d 位 = %q, 期望 %q", i, got[i], want[i])
 		}
 	}
-	// tool 是 fixed，必须被跳过
+	// tool 是**被动腕**（passive）：角度由 coupling 从 elbow 派生，没有独立输入，
+	// 必须被跳过。这条同时守住"判据不是 `!= fixed`"——
+	// 若有人把它写成"非 fixed 即入列"，JR 会变成五元组而所有位次一起错位。
+	if j := m.Joint("tool"); j == nil {
+		t.Fatal("robot.yaml 里找不到 tool 关节 —— 机构已不是这个模型")
+	} else if j.Type != "passive" {
+		t.Errorf("tool.Type = %q，期望 passive（爪被平行四连杆锁成水平）", j.Type)
+	}
 	for _, id := range got {
 		if id == "tool" {
-			t.Error("fixed 关节 tool 不应出现在 JointOrder 中")
+			t.Error("被动关节 tool 不应出现在 JointOrder 中")
 		}
 	}
 }

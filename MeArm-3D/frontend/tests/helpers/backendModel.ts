@@ -7,7 +7,12 @@
 import type { BackendModelInfo, RobotModel } from '@robot/index';
 
 export function backendInfoFromLocal(model: RobotModel): BackendModelInfo {
-  const order = model.joints.filter((j) => j.type !== 'fixed').map((j) => j.id);
+  // ⚠️ 判据是 `=== 'revolute'`，**不是** `!== 'fixed'`。
+  // 后端 Go 的 `JointOrder()` 只收 revolute（`joints.tool` 是被动腕，没有独立输入、
+  // 不进 JR 四元组），前端 `movableJoints()` / `isMovableJoint()` 同一条规则。
+  // 若这里放行 passive，`describeModelMismatch` 会报"本地 4 / 后端 5" —— 那是**假警报**，
+  // 但若反过来把被动关节真塞进 JR，才是真正会让位次错位的错。
+  const order = model.joints.filter((j) => j.type === 'revolute').map((j) => j.id);
   return {
     id: model.id,
     name: model.name,

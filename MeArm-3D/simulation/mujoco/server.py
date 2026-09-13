@@ -244,9 +244,16 @@ class MujocoDevice:
         严格相等会让状态帧以 30Hz 无限期地发下去。sim.go 的等价判据是
         "target 与 actual 是否还有 delta"，这里用位置阈值对齐同一语义。
 
-        阈值取 1e-5 rad（≈0.00057°），依据是实测：`settle()` 之后继续推进，
-        单次 50ms 内的最大 qpos 变化约 7.5e-7 rad。取 1e-5 有 13 倍余量，
-        既不会误报"还在动"，也远小于串口协议 0.01° 的量化步长。
+        阈值取 1e-5 rad（≈0.00057°）—— 远小于串口协议 0.01° 的量化步长，
+        因此"真有位移"一定会被报出来，不会漏帧。
+
+        ⚠️ **判据是「相对上次发射的累计位移」，不是「单次调用的增量」**：
+        快照只在**发射**时更新（未发射时原样返回入参），所以一条以 1e-3 rad/s
+        缓慢爬行的臂会每 ~10ms 发一帧，而一条以 1e-7 rad/s 爬行的臂每 ~100s 发一帧。
+        这是有意为之 —— 若改成"单次增量 > 1e-5 才发"，慢速运动就会**彻底静默**。
+        推论（写测试时必须知道）：`settle(tolerance_rad=T)` 管的是**速度**，
+        要求 1s 内不发帧就得 `T × 1s < 1e-5`；见
+        tests/sim/test_server.py::test_state_frame_converges_then_stops。
         """
         q = np.array(self.sim.data.qpos, copy=True)
         if last_qpos is None or float(np.max(np.abs(q - last_qpos))) > 1e-5:

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
   ⚠️ 本文件由 simulation/mujoco/gen_model.py 生成 —— 请勿手工编辑。
-     真值来源: config/robot.yaml (mearm / mARM, 6 连杆 / 4 可动关节)
+     真值来源: config/robot.yaml (mearm / mARM, 6 连杆 / 4 自由度 + 1 被动关节 / 5 个 qpos 坐标)
      物理参数: config/physics.yaml (physics.yaml)
      重新生成: python simulation/mujoco/gen_model.py
 -->
@@ -26,7 +26,7 @@
   </default>
   <worldbody>
     <geom name="floor" class="world" type="plane" size="0.6 0.6 0.01" pos="0 0 0" rgba="0.45 0.47 0.5 1"/>
-    <body name="table" pos="0.17 0 0.015">
+    <body name="table" pos="0.17 0 0.031">
       <geom name="table_top" class="world" type="box" size="0.11 0.11 0.015" rgba="0.62 0.55 0.42 1"/>
     </body>
     <body name="base_link" pos="0 0 0">
@@ -69,6 +69,7 @@
             <geom name="forearm_link_vis5" class="visual" type="box" size="0.009 0.0025 0.006" pos="0 -0.0135 0.074" quat="1 0 0 0" rgba="0.137 0.157 0.188 1"/>
             <body name="tool_link" pos="0 0 0.08">
               <inertial pos="0 0 0.02" mass="0.022" diaginertia="2.93333333e-06 2.93333333e-06 1.46666667e-06"/>
+              <joint name="tool" class="arm" axis="0 1 0" range="-0.940003288 -0.286958051"/>
               <geom name="tool_link_coll" class="collision" type="capsule" size="0.012 0.008" pos="0 0 0.02" rgba="0.15 0.85 0.45 0.35"/>
               <geom name="tool_link_vis" class="visual" type="box" size="0.011 0.013 0.0055" pos="0 0 0.006" quat="1 0 0 0" rgba="0.137 0.157 0.188 1"/>
               <geom name="tool_link_vis0" class="visual" type="box" size="0.0114 0.0061 0.01125" pos="0 0 0.026" quat="0.70710678 0 0.70710678 0" rgba="0.184 0.212 0.267 1"/>
@@ -98,4 +99,14 @@
     <position name="servo_8" class="arm" joint="elbow" ctrlrange="0.994603031 2.61715444"/>
     <position name="servo_6" class="arm" joint="gripper" ctrlrange="-0.034906585 1.60570291"/>
   </actuator>
+  <tendon>
+    <fixed name="tool_lock_tendon">
+      <joint joint="shoulder" coef="1"/>
+      <joint joint="elbow" coef="1"/>
+      <joint joint="tool" coef="1"/>
+    </fixed>
+  </tendon>
+  <equality>
+    <tendon name="tool_lock" tendon1="tool_lock_tendon" polycoef="1.57079632679 0 0 0 0"/>
+  </equality>
 </mujoco>

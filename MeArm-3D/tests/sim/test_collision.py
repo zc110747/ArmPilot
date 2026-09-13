@@ -267,7 +267,14 @@ def test_visual_geoms_never_collide(sim):
 
 
 def test_arm_contacts_table_when_pressed_down(sim, robot, physics):
-    """深前倾下压 ⇒ 臂端与工作台建立接触，且接触点落在台面顶面上。"""
+    """深前倾下压 ⇒ 臂端与工作台建立接触，且接触点落在台面顶面上。
+
+    ⚠️ 台面高度是**随机构一起推导**的量（见 `config/physics.yaml` 的 `table` 段）：
+    爪改成被动腕 + 恒水平之后，tool 那 40mm 不再沿小臂"下扎"，碰撞包络整体抬高
+    （最低 15.8 → **32.71mm**），台面因此由 30mm 抬到 **46mm**。
+    46mm 是"够得到"与"不挡住常规位形"之间的取中：顶面 ≥56mm 会把 `JR(40,130)`
+    这类中段位形也挡住。接触对是 `jaw_link↔table`（jaw 的碰撞胶囊比 tool 的低 3mm）。
+    """
     sim.reset(press_down_pose(robot))
     sim.settle(4.0)
     pairs = contact_pairs(sim)
@@ -303,12 +310,25 @@ def test_table_exerts_real_constraint_force(sim, robot, physics):
         f"肩执行器力矩 {tau_a} 未达到上限 {physics.servo['max_torque_nm']}")
 
 
-def test_table_changes_equilibrium(sim, robot):
+def test_table_changes_equilibrium(sim, robot, physics):
     """★ 对照：同一命令下，禁用台面后平衡位置必须显著更低。
 
-    "有接触"是必要条件不是充分条件 —— 必须证明**台面改变了结果**。
+    "有接触"是必要条件不是充分条件 —— 必须证明**台面改变了结果**，
+    而且改变的量要与几何自洽：**被顶起的高度 = 台面顶 − 包络最低点**。
+
+    ⚠️ 旧版本的阈值是写死的 20mm，那是**旧几何**的量级（旧模型 TCP 最低 15.8mm，
+    桌子能顶起 30mm+）。爪改成被动腕 + 恆水平后包络最低点只有 32.71mm，
+    桌子最多把臂顶起 `台面顶 − 32.71`；而台面**又必须低于 56mm**，
+    否则会挡住 `JR(40,130)` 这类常规位形（实测，见 `config/physics.yaml`）。
+    ⇒ 新机构下的物理上限约 13mm，写死 20 是**不可能达到**的。
+    所以这里改成按**几何推导**的判据（同时仍能拦住"台面其实没起作用"）。
     """
     pose = press_down_pose(robot)
+    table = physics.contact["table"]
+    top_mm = (float(table["pos"][2]) + float(table["size"][2])) * 1000.0
+    # 距台面顶的余量（接触点是软接触，分离距离为正；见本文件开头的判据纪律）
+    CONTACT_GAP_MM = 1.35
+
     sim.reset(pose)
     sim.settle(4.0)
     z_with = float(sim.end_effector_mm()[2])
@@ -317,10 +337,19 @@ def test_table_changes_equilibrium(sim, robot):
     set_table_enabled(sim, False)
     sim.settle(4.0)
     z_without = float(sim.end_effector_mm()[2])
+    # 同一把尺：无台面时的包络最低点（= test_arm_cannot_reach_ground_within_real_limits 量到的量）
+    envelope_floor_mm = 1000.0 * min_geom_distance(
+        sim, ("tool_link_coll", "jaw_link_coll"), ("floor",))
 
-    assert z_with - z_without > 20.0, (
+    lift = z_with - z_without
+    expected = top_mm - envelope_floor_mm + CONTACT_GAP_MM
+    assert lift > 10.0, (
         f"台面几乎没有改变平衡位置（有 {z_with:.2f}mm / 无 {z_without:.2f}mm）—— "
         f"这个对照失效了")
+    assert lift == pytest.approx(expected, abs=1.0), (
+        f"升幅 {lift:.2f}mm 与几何预测 {expected:.2f}mm 不符 ⇒ "
+        f"接触不是「包络贴上台面」（包络最低 {envelope_floor_mm:.2f}mm，"
+        f"台面顶 {top_mm:.1f}mm）。若几何确实变了，请连 physics.yaml 一起重推")
 
 
 def test_no_deep_penetration_under_press(sim, robot):
@@ -356,8 +385,12 @@ def test_ground_collision_channel_works(robot):
 
     ⚠️ 抬高地面必须**重新加载模型**（`variant_sim`）：运行时改 `geom_pos`
     不会被 `mj_forward` 采纳，实测改完地面纹丝不动（见 `variant_sim` 的说明）。
+
+    ⚠️ 抬多高是**实测定的**，不是随手写：被动腕改造后包络最低点在 32.71mm，
+    地面抬到 30mm 时下压位形还是够不着（旧值 0.030 就是这个历史残留）。
+    取 40mm 留出 7mm 余量，接触对稳定为 `jaw_link↔world`。
     """
-    sim = variant_sim(floor={"pos": [0.0, 0.0, 0.030]})
+    sim = variant_sim(floor={"pos": [0.0, 0.0, 0.040]})
     set_table_enabled(sim, False)
     sim.reset(press_down_pose(robot))
     sim.settle(4.0)
@@ -370,7 +403,11 @@ def test_arm_cannot_reach_ground_within_real_limits(sim, robot):
     """★ 能力边界固化：真机限位内，臂的碰撞包络**够不到地面**。
 
     这不是缺陷，是机构自身的几何事实 —— 最深的姿态（肩/肘同时取上界）
-    TCP 也只到 ~15.8mm，而 tool 的碰撞 capsule 半径 12mm ⇒ 最低点约 3.8mm。
+    TCP 只到 47.71mm，而**被动腕把爪锁成水平**，那 40mm 完全落在水平方向、
+    不再帮它往下降，于是包络最低点（jaw 胶囊）停在 **32.71mm**。
+
+    ⚠️ 这两个数是**随被动腕改造重推**的（旧模型 15.8 / 3.8mm）：
+    旧模型里 tool 刚性固连小臂，40mm 会沿小臂方向"下扎"、白送 31mm 的下降量。
     把它写成断言，是为了防止有人"顺手"放宽限位或加大碰撞体来让测试变绿。
     """
     set_table_enabled(sim, False)
@@ -379,7 +416,8 @@ def test_arm_cannot_reach_ground_within_real_limits(sim, robot):
 
     d = min_geom_distance(sim, ("tool_link_coll", "jaw_link_coll"), ("floor",))
     assert d > 0.0, f"臂竟然碰到了地面（{d * 1000:.2f}mm）—— 能力边界已变，请复核"
-    assert d < 0.010, f"离地面 {d * 1000:.2f}mm，比预期远太多（预期几毫米）"
+    assert 0.020 < d < 0.045, (
+        f"离地面 {d * 1000:.2f}mm，超出「几厘米级的近失」预期（实测应为 32.7mm）")
     assert sim.data.ncon == 0, f"无台面时应无接触，实测 {contact_pairs(sim)}"
 
 

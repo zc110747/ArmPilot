@@ -119,10 +119,13 @@ func Load(path string) (*Model, error) {
 		}
 		m.byJoint[a.JointID] = append(m.byJoint[a.JointID], a)
 	}
-	// 校验每个可动关节都有执行器：没有的话 JR 发不出去，属于配置错误
+	// 校验每个可动关节都有执行器：没有的话 JR 发不出去，属于配置错误。
+	// ⚠️ 判据是 `revolute`（= 有独立输入的关节），**不是**"非 fixed"：
+	//    `joints.tool` 是**被动腕** —— 爪被平行四连杆锁成水平，它的角度完全由
+	//    coupling 从 elbow 派生，既没有独立输入、也没有执行器、更不进 JR 四元组。
 	for i := range m.Joints {
 		j := &m.Joints[i]
-		if j.Type == "fixed" {
+		if j.Type != "revolute" {
 			continue
 		}
 		if len(m.byJoint[j.ID]) == 0 {
@@ -132,14 +135,20 @@ func Load(path string) (*Model, error) {
 	return m, nil
 }
 
-// JointOrder 返回参与 JR 四元组的关节顺序（跳过 fixed 关节，如 tool）。
+// JointOrder 返回参与 JR 四元组的关节顺序（只收 `revolute` 关节）。
 //
 // ⚠️ 顺序必须与前端 `movableJoints(model)` 完全一致，否则 JR 的位次会错位。
-// 前端按 robot.yaml 的 joints 数组顺序过滤 fixed，故此处同样按原始顺序过滤。
+// 前端按 robot.yaml 的 joints 数组顺序过滤，故此处同样按原始顺序过滤。
+//
+// ⚠️ 判据是 `== "revolute"`，**不是** `!= "fixed"`（2026-09-13 修正）：
+// `joints.tool` 是被动腕，它没有独立输入（角度由 coupling 从 elbow 派生），
+// 不进 JointState / UI 滑杆 / JR 四元组。若把它算进来，JR 会变成五元组 ——
+// 而固件、`protocol/serial-v1.md`、前端 `wsProtocol` 全部按四元组解析，
+// 结果是**每一条指令的位次都错**，且不会有任何一处报错。
 func (m *Model) JointOrder() []string {
 	out := make([]string, 0, len(m.Joints))
 	for i := range m.Joints {
-		if m.Joints[i].Type == "fixed" {
+		if m.Joints[i].Type != "revolute" {
 			continue
 		}
 		out = append(out, m.Joints[i].ID)

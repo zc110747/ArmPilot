@@ -889,7 +889,9 @@ export function applyJointState(
     const originQuaternion = objects.jointOriginQuaternions.get(jointId);
     if (originQuaternion) group.quaternion.copy(originQuaternion);
 
-    if (joint.type !== 'revolute') continue;
+    // fixed 关节不转（它的朝向已写在上面的 originQuaternion 里）；
+    // revolute 与 **passive**（被动腕）都必须施加旋转，否则 3D 与 FK 会分家。
+    if (joint.type === 'fixed') continue;
 
     // ⚠️ 必须用 effectiveJointAngle（含 coupling），与 fk.ts 保持逐值一致；
     //    直接用 state[jointId] 会在平行四连杆关节上让 3D 与 FK 分家。

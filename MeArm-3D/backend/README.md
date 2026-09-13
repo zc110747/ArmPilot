@@ -56,7 +56,7 @@ curl -s http://127.0.0.1:8090/healthz
 本服务**不存任何限位或标定数值**。启动时读 `../config/robot.yaml`（前端、固件共用同一份），
 派生：
 
-- 关节顺序 `JointOrder()` = `JR` 四元组的位次（`base shoulder elbow gripper`，跳过 fixed 的 `tool`）
+- 关节顺序 `JointOrder()` = `JR` 四元组的位次（`base shoulder elbow gripper`；`tool` 是**被动腕** `passive`，没有独立输入、角度由 coupling 派生，跳过）
 - 限位校验（越界返回 `ERR JOINT <id> <v> (limit <min>..<max>)`，文案与固件一致）
 - 标定换算 `servo = reverse ? (-θ·scale + offset) : (θ·scale + offset)` 及其逆
 

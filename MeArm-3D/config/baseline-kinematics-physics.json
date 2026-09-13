@@ -1,10 +1,10 @@
 {
   "note": "本文件是「运动学 + 物理」真值的冻结基线。判据是 *_core_sha256（语义核心），整文件 sha256 仅作记录。改外观几何（links[].geometry / details）不会触发失败；改 length / 限位 / 耦合 / 标定 / 质量 / 摩擦会。重新冻结：python tools/freeze_baseline.py --update",
-  "frozen_at": "2026-09-13 11:31:43 +0800",
+  "frozen_at": "2026-09-13 20:27:03 +0800",
   "files": {
     "config/robot.yaml": {
-      "sha256": "7b1d84aee027e3bc6dcbe5156a4b95d2e0d96660ca329758c5e3f7b77413514f",
-      "kinematic_core_sha256": "66869e5e7326c790746923a6f068b619924934a4661efa2be5e971e3ca626f02",
+      "sha256": "3c2a4104a389ff17b4503806c00e8d230c373f0cef7e3eeae17cd989ae6629d0",
+      "kinematic_core_sha256": "f64e49ce56a50e90afab7f84394a1a091c57238e095f6b26c1f75d942fe06ee1",
       "frozen_fields": {
         "robot": [
           "id",
@@ -46,8 +46,8 @@
       ]
     },
     "config/physics.yaml": {
-      "sha256": "612ab3a5a889024c2bf8c8930155ff3dbcff0a227a346b1f2077bfc9e663941e",
-      "physics_core_sha256": "57aeb91e1f8368ec1934c06b398b9c33278a0d191dffc8ebe32d9ce7b706d3a8",
+      "sha256": "ea0c01f5a746ee88ad2a597a12900a5c451ede61393b8dca51ac5743f09d6487",
+      "physics_core_sha256": "cd1e167d3a7ace46ce9f46bdef8289f67a9031dec8d8c05a46be8300dcb1b70d",
       "frozen_sections": [
         "timestep",
         "solver",
@@ -208,7 +208,7 @@
       {
         "id": "tool",
         "role": "tool",
-        "type": "fixed",
+        "type": "passive",
         "parentLink": "forearm_link",
         "childLink": "tool_link",
         "axis": [
@@ -229,8 +229,12 @@
           ]
         },
         "limit": {
-          "min": 0,
-          "max": 0
+          "min": 90,
+          "max": 90
+        },
+        "coupling": {
+          "joint": "elbow",
+          "gain": -1
         }
       },
       {
@@ -559,7 +563,7 @@
         "pos": [
           0.17,
           0.0,
-          0.015
+          0.031
         ]
       }
     },

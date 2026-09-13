@@ -308,13 +308,32 @@ export function validateRobotModel(model: RobotModel): ModelIssue[] {
     if (!linkById(model, joint.childLink)) {
       err('JOINT_CHILD_LINK', `关节 ${joint.id} 的 childLink="${joint.childLink}" 不存在`);
     }
-    if (joint.type !== 'revolute' && joint.type !== 'fixed') {
+    if (joint.type !== 'revolute' && joint.type !== 'fixed' && joint.type !== 'passive') {
       err('JOINT_TYPE', `关节 ${joint.id} 类型非法: ${String(joint.type)}`);
     }
-    if (joint.type === 'revolute') {
+    if (joint.type === 'revolute' || joint.type === 'passive') {
       if (length3(joint.axis) < EPS) err('JOINT_AXIS_ZERO', `关节 ${joint.id} 的 axis 为零向量`);
+    }
+    if (joint.type === 'revolute') {
       if (!(joint.limits.max > joint.limits.min)) {
         err('JOINT_LIMIT_RANGE', `关节 ${joint.id} 限位非法: [${joint.limits.min}, ${joint.limits.max}]`);
+      }
+    }
+    if (joint.type === 'passive') {
+      // 被动关节没有独立输入：它的值恒取 limits.min（= 锁定角）。
+      // 若 min !== max，"到底取哪个值"就成了隐式约定 ⇒ 直接判为配置错误。
+      if (Math.abs(joint.limits.max - joint.limits.min) > EPS) {
+        err(
+          'JOINT_PASSIVE_LIMIT',
+          `被动关节 ${joint.id} 的限位必须 min === max（值恒取 min = 锁定角），` +
+            `当前 [${joint.limits.min}, ${joint.limits.max}]`,
+        );
+      }
+      if (!joint.coupling) {
+        err(
+          'JOINT_PASSIVE_NO_COUPLING',
+          `被动关节 ${joint.id} 必须声明 coupling：它没有独立输入，角度只能由别的关节派生`,
+        );
       }
     }
     // origin.position 只是「可选附加偏移」；父连杆 length 已把坐标系推到本关节处。
@@ -442,7 +461,9 @@ export function validateRobotModel(model: RobotModel): ModelIssue[] {
       );
       continue;
     }
-    if (isMovableJoint(joint) && !isMovableJoint(other)) {
+    // 被动关节虽然没有自己的输入，但它的值同样依赖被耦合关节 ⇒ 对方必须是可动的
+    // （耦合到 fixed 关节 = 拿到一个常量，等于这个被动关节压根没有驱动源）。
+    if ((isMovableJoint(joint) || joint.type === 'passive') && !isMovableJoint(other)) {
       err('JOINT_COUPLING_FIXED', `关节 ${joint.id} 耦合到非可动关节 ${other.id}`);
     }
     if (coupling.gain === 0) {

@@ -256,7 +256,9 @@ export function describeModelMismatch(
   local: RobotModel,
   remote: BackendModelInfo,
 ): string | null {
-  const localOrder = local.joints.filter((j) => j.type !== 'fixed').map((j) => j.id);
+  // 与后端 robot.JointOrder() 对齐：参与状态帧的只有**可控关节**（revolute）。
+  // 被动关节（腕）没有舵机、不进 JointState，混进来会让顺序校验直接失败。
+  const localOrder = local.joints.filter((j) => j.type === 'revolute').map((j) => j.id);
   if (localOrder.length !== remote.jointOrder.length) {
     return `关节数量不一致：本地 ${localOrder.length} 个，后端 ${remote.jointOrder.length} 个`;
   }

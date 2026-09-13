@@ -74,14 +74,25 @@ def mujoco_obj(name: str):
 # ---------------------------------------------------------------------------
 
 
-def test_zero_pose_tcp_is_sum_of_lengths(sim, robot):
-    """零位 TCP z = column + upper_arm + forearm + tool 四个 length 之和。"""
+def test_zero_pose_tcp_is_offset_by_the_wrist(sim, robot):
+    """零位：竖直段只有 column + upper_arm + forearm；`tool_link` 那 40mm 是**水平**的。
+
+    ⚠️ 本轮的改动让这条断言**换了形状**：爪被被动腕锁成水平（绝对倾角 90°），
+    所以零位 TCP 不在正上方，而是落在 `(40, 0, 220)`。
+    老模型（爪固连在小臂上、沿小臂延伸）才会得到 `(0, 0, 260)`。
+
+    它仍然是一个**独立于 FK 实现**的几何常量核对：
+      竖直段 = column + upper_arm + forearm 三个 length 之和
+      水平段 = tool_link.length（锁 90° ⇒ 这 40mm 完全落在 +径向）
+    """
     zero = {j.id: 0.0 for j in robot.movable_joints()}
-    want = sum(robot.link(i).length for i in
-               ("column_link", "upper_arm_link", "forearm_link", "tool_link"))
     got = mujoco_tcp_mm(sim, zero)
-    assert got[2] == pytest.approx(want, abs=TOL_MM)
-    assert abs(got[0]) < TOL_MM and abs(got[1]) < TOL_MM
+    want_z = sum(robot.link(i).length for i in
+                 ("column_link", "upper_arm_link", "forearm_link"))
+    want_x = robot.link("tool_link").length
+    assert got[2] == pytest.approx(want_z, abs=TOL_MM), f"竖直段 {got[2]} vs {want_z}"
+    assert got[0] == pytest.approx(want_x, abs=TOL_MM), f"水平段 {got[0]} vs {want_x}"
+    assert abs(got[1]) < TOL_MM
 
 
 def test_home_pose_fk_matches(sim, robot):
@@ -184,9 +195,16 @@ def test_joint_anchors_match_mujoco(sim, robot):
     sim.reset(js)
     ref = fk_joint_origins_mm(robot, js)
     assert set(ref) == {j.id for j in robot.joints}, "参考 FK 的关节集合与 robot.yaml 不一致"
-    assert any(robot.joint(j).is_fixed for j in ref), (
-        "本测试的价值有一半在于覆盖固定关节；robot.yaml 里若没有固定关节，"
-        "这条断言应当随模型一起调整，而不是悄悄退化成一条冗余的重复检查")
+    # 本测试的价值有一半在于覆盖**非 revolute** 的关节：它们没有执行器、不进状态帧，
+    # 最容易在"只有 4 个关节"的心智模型里被整个漏掉。
+    # 本轮 `tool` 由 fixed 改为 passive，这条断言**随模型一起换**，
+    # 而不是悄悄退化成一条与上面重复的冗余检查。
+    passive_ids = [jid for jid in ref if robot.joint(jid).is_passive]
+    assert passive_ids, (
+        "参考 FK 里没有被动关节 —— 若模型确实不再有被动关节，"
+        "这条断言应当随模型一起调整，而不是删掉了事")
+    for jid in passive_ids:
+        assert not robot.joint(jid).is_dof, "被动关节不应有独立自由度"
     for jid, want in ref.items():
         got = joint_origin_mm(sim, robot, jid)
         assert np.allclose(got, want, atol=TOL_MM), (

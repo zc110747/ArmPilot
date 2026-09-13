@@ -19,9 +19,18 @@ from conftest import zero_pose
 def test_model_compiles(sim):
     """spec §36 Acceptance 1：XML 可以正常加载。"""
     m = sim.model
-    assert m.nq == 4, f"应有 4 个自由度（base/shoulder/elbow/gripper），实测 {m.nq}"
-    assert m.nv == 4
-    assert m.nu == 4, f"应有 4 个执行器，实测 {m.nu}"
+    # ⚠️ nq = 5 而 nu = 4（**刻意不等**）：被动腕 `tool` 是真实存在的转动副，
+    # 必须建模成 hinge，否则爪不会随小臂保持水平；但它**没有自由度** ——
+    # 被 `<tendon>` + `<equality>` 锁死在「绝对倾角 = 90°」，也没有执行器。
+    # `nq` 数的是**坐标**，`nu` 数的是**驱动**。见 docs/decisions.md D70。
+    assert m.nq == 5, f"应有 5 个 qpos 坐标（4 自由度 + 1 被动腕），实测 {m.nq}"
+    assert m.nv == 5
+    assert m.njnt == 5
+    assert m.nu == 4, f"应有 4 个执行器（被动腕没有输入），实测 {m.nu}"
+    # 锁定机构必须是"固定腱 + 等式约束"：腱是 qpos 的线性组合，才能表达
+    # 「绝对角 = 常量」这种**跨多个关节**的关系（只写 `joint1/joint2` 会漏项，见 D70）
+    assert m.neq == 1, f"应有 1 条等式约束（被动腕锁定），实测 {m.neq}"
+    assert m.ntendon == 1, f"应有 1 条固定腱，实测 {m.ntendon}"
     # world + 6 个机械臂体 + 场景静态体（工作台）
     assert m.nbody == len(ARM_BODIES) + 2, f"刚体数应为 {len(ARM_BODIES) + 2}，实测 {m.nbody}"
 
@@ -72,30 +81,46 @@ def test_body_tree_matches_robot_chain(sim):
 
 
 def test_joint_axes_and_order(sim):
-    """关节的顺序与轴必须与 robot.yaml 一致（位次错位是最危险的错误）。"""
+    """关节的顺序与轴必须与 robot.yaml 一致（位次错位是最危险的错误）。
+
+    ⚠️ 对照的是 `qpos_joints()`（**含被动腕**），不是 `movable_joints()`：
+    MJCF 里 5 个 hinge 一个都不能少，顺序也必须是 yaml 的声明顺序 ——
+    `model.py` 启动时会拿 `angle_map.joint_ids` 再做一次同样的自检。
+    """
     m = sim.model
-    got_order = []
-    for i in range(m.njnt):
-        got_order.append((joint_name(m, i), tuple(np.round(m.jnt_axis[i], 9))))
+    got_order = [
+        (joint_name(m, i), tuple(np.round(m.jnt_axis[i], 9))) for i in range(m.njnt)
+    ]
     expected_order = [
-        (j.id, tuple(round(float(a), 9) for a in j.axis)) for j in sim.robot.movable_joints()
+        (j.id, tuple(round(float(a), 9) for a in j.axis)) for j in sim.robot.qpos_joints()
     ]
     assert got_order == expected_order
 
+    # 顺带把"qpos 坐标"与"状态帧自由度"这两个**刻意不相等**的集合钉住
+    assert [j.id for j in sim.robot.qpos_joints()] == sim.angle_map.joint_ids
+    assert sim.angle_map.dof_ids == sim.robot.joint_order()
+    assert sim.angle_map.dof_ids == ["base", "shoulder", "elbow", "gripper"]
+    assert len(sim.angle_map.joint_ids) == len(sim.angle_map.dof_ids) + 1
+
 
 def test_tcp_site_at_geometric_sum(sim, robot):
-    """TCP 在零位时的高度 = column + upper_arm + forearm + tool 的长度之和。
+    """零位 TCP 的几何常量核对：**高度** = column + upper_arm + forearm，**前伸** = tool 长度。
 
-    这是一个**独立于 FK 实现**的几何常量核对：
-    tcp.offset 沿 tool 关节坐标系 +Z 伸出 40mm，而各连杆沿各自近端坐标系 +Z 相接，
-    零位下所有轴对齐 ⇒ 高度就是四个长度之和。
+    ⚠️ 不能把 `tool_link.length` 加进高度 —— 那是**旧模型**（爪刚性固连小臂）的算法。
+    `tool` 现在是被动腕关节（爪锁水平），其坐标系原点就是**腕枢轴**，而
+    `tool_link.length = 40` 量的是「腕枢轴 → 爪铰点」的**水平**前伸量：
+    爪锁水平 ⇒ 该段完全落在 +X 上。`tcp.offset [0,0,40]` 沿 tool 关节坐标系 +Z
+    伸出，零位下该 +Z 恰好也指向 +X，两者同向叠加。
+
+    ⇒ 零位 TCP = (40, 0, 60+80+80) = (40, 0, 220)mm。
     """
     sim.reset(zero_pose(robot))
     p = sim.end_effector_mm()
-    expected_z = robot.link("column_link").length + robot.link("upper_arm_link").length \
-        + robot.link("forearm_link").length + robot.link("tool_link").length
-    assert p[2] == pytest.approx(expected_z, abs=1e-9)
-    assert abs(p[0]) < 1e-9 and abs(p[1]) < 1e-9
+    expected_z = (robot.link("column_link").length + robot.link("upper_arm_link").length
+                  + robot.link("forearm_link").length)
+    assert p[2] == pytest.approx(expected_z, abs=1e-9), "零位 TCP 高度"
+    assert p[0] == pytest.approx(robot.link("tool_link").length, abs=1e-9), "零位 TCP 前伸"
+    assert abs(p[1]) < 1e-9
 
 
 def test_tcp_unaffected_by_gripper(sim, robot):

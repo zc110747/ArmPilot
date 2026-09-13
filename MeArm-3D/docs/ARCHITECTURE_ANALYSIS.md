@@ -72,7 +72,7 @@ type Device interface {
 | 1 | `base` | base | revolute | `[0,0,1]` | **−60.0 .. +60.0** | S9 |
 | 2 | `shoulder` | shoulder | revolute | `[0,1,0]` | **−6.0936827341 .. +49.454929245** | S7 |
 | 3 | `elbow` | elbow | revolute | `[0,1,0]` | **108.4414852068 .. 141.8582211436** | S8 |
-| — | `tool` | tool | **fixed** | `[0,1,0]` | 0 .. 0（无自由度） | — |
+| — | `tool` | tool | **passive** | `[0,1,0]` | **90.0 .. 90.0**（锁定值；无独立输入 ⇒ **无自由度**） | — |
 | 4 | `gripper` | gripper | revolute | `[1,0,0]` | **0 .. 90** | S6 |
 
 **结论**：
@@ -80,7 +80,14 @@ type Device interface {
 - **可动关节（DOF）= 4**：`base` / `shoulder` / `elbow` / `gripper`
 - **参与末端定位的 DOF = 3**（IK 只解 `base` / `shoulder` / `elbow`；`gripper` 是叶关节，不进定位链）
 - **舵机数 = 4**，与 DOF 一一对应（无多舵机关节，虽然配置层已支持）
-- `tool` 是**固定关节**，只为标定 TCP 参考点而存在
+- `tool` 是**被动关节**（2026-09-13 由 `fixed` 改，见 ADR **D70**）：**会转，但没有独立输入** ——
+  爪被连杆锁成**水平**（绝对倾角恒 90°，故 `limits.min == max`），角度完全由 `coupling{gain:-1}→elbow` 派生。
+  它只为标定 TCP 参考点而存在，**不计入 DOF**，也不进 `JointState` / UI 滑杆 / JR 协议 / `homePose` / 执行器。
+  ⚠️ 但在 MuJoCo 串联网里它**必须是 hinge**（要有 `qpos`）⇒ **`nq` 会把它算进去（=5），而自由度仍是 4**。
+  这个口径差是本项目最容易静默出错的地方 —— 前端判据是 `type === 'revolute' && max > min`、
+  Go 是 `type == "revolute"`、Python 是 `is_dof = (type == "revolute")` 且 `has_qpos = (type != "fixed")`，
+  三处必须一致；混用会协商出**五元组的 JR**，而固件与串口协议只认四元组。见 ADR **D70** 与
+  `simulation/README.md` §4.1 事实 6 / 6b。
 
 ### 2.2 ⚠️ 五种角度**不可互换**（spec 明确要求区分）
 
@@ -132,10 +139,18 @@ type Device interface {
 
 ```
 pivotZ = column_link.length            = 60 mm
+pivotR = 0 mm                          （肩枢轴落在偏航轴上）
 L1     = upper_arm_link.length         = 80 mm
-L2     = forearm_link.length + tcp.off = 80 + 40 = 120 mm
-reach  = [|L1−L2|, L1+L2]              = [40, 200] mm
+L2     = forearm_link.length           = 80 mm   ← ⚠️ 肘枢轴 → **腕枢轴**，不含腕→TCP
+toolOffset = [40, 0] mm                腕枢轴 → TCP 的**常量**偏移（径向 40 / 竖直 0）
+reach  = [|L1−L2|, L1+L2]              = [0, 160] mm  ← L1 == L2 ⇒ 内半径退化为 0
 ```
+
+> ⚠️ 这四项在 **2026-09-13 被动腕改造**后全部重导（旧值 `L2 = 120`、`reach = [40, 200]`）。
+> 爪被连杆锁成**水平**之后，`elbow → TCP` 不再是定长直线段（随 θe 在 109~120mm 间变），
+> 于是 2R 的作用对象改为「肘枢轴 → 腕枢轴」，而「腕枢轴 → TCP」退化成一个**常量矢量**，
+> 解算前从目标点里减掉即可。`ikGeometry()` 会在 **≥3 个合法姿态**上数值验证这个"常量"前提
+> （容差 1e-6 mm），不成立就抛 `IkModelError` —— 而不是让所有解静默偏 40mm。见 ADR **D70**。
 
 > **铁律**：`geometry` / `details` **只影响外观**。有测试锁死：把整份 geometry/details 换成 `none`，`endEffectorPosition()` **逐位不变**（`tests/unit/linkGeometry.test.ts`）。
 > **对 MuJoCo 的含义**：Visual / Collision / Physics 三种几何可以各自简化，但**必须从同一份 `robot.yaml` 的 length 派生**。
@@ -308,6 +323,11 @@ TCP = T_tool · T(tcp.offset = [0,0,40])
 
 ⇒ MuJoCo 里 TCP 必须放在 **`tool` body** 上（`site pos="0 0 0.040"`），
 **不能**放在 `jaw` body 的原点上（那会被 `gripper` joint 的旋转带走）。
+
+> ⚠️ 2026-09-13 起 `tool` 是**被动 hinge**（不再固定），但这条结论**不变**：
+> TCP 仍挂在 `tool` body 上。区别只是 `T_tool` 现在含一个由 `coupling` 派生的局部角
+> —— 那个角正好表达"爪被连杆锁平"，**不需要**在 TCP 定义里另加任何补偿。
+> 一旦想把爪的锁定当成"TCP 的常量偏移"写死在这里，就会和 `ik.ts` 的求导前提打架。
 
 ### 7.2 `gripper` 的建模取舍（显式声明）
 

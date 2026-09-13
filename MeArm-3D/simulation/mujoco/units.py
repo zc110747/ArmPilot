@@ -88,6 +88,10 @@ class JointAngleMap:
     构造入参 `joints` 是 config/robot.yaml 的 `joints` 列表（原序），
     元素可以是原始 dict，也可以是 `robotcfg.JointCfg`。
     其中 `type == "fixed"` 的关节**不产生 qpos**，自动跳过。
+
+    ⚠️ 因此 `joint_ids`（= qpos 坐标顺序）**不等于** `dof_ids`（= 状态帧自由度）：
+    本机的被动腕 `tool` **有 qpos 但没有自由度**。两者混用会得到五元组的 JR，
+    而固件 / 串口协议 / 前端全部按四元组解析 —— 见 `robotcfg.JointCfg.has_qpos`。
     """
 
     def __init__(self, joints: Sequence[object]) -> None:
@@ -119,15 +123,36 @@ class JointAngleMap:
 
     @property
     def joint_ids(self) -> list[str]:
-        """产生 qpos 的关节顺序（= MJCF 里 joint 的声明顺序）。"""
+        """产生 qpos 的关节顺序（= MJCF 里 joint 的声明顺序）。**含被动腕**。"""
         return list(self._ids)
+
+    @property
+    def dof_ids(self) -> list[str]:
+        """有独立自由度的关节（= 状态帧 / JR 四元组）。被动腕**不在**其中。"""
+        return [jid for jid in self._ids if self._is_dof(jid)]
 
     @property
     def nq(self) -> int:
         return len(self._ids)
 
+    def _is_dof(self, joint_id: str) -> bool:
+        return str(_field(self._by_id[joint_id], "type", "revolute")) == "revolute"
+
     def _coupling_of(self, joint_id: str) -> tuple[str, float] | None:
         return _coupling_pair(_field(self._by_id[joint_id], "coupling"))
+
+    def _value_of(self, joint_id: str, angles: Mapping[str, float]) -> float:
+        """取关节角（绝对语义, deg）。
+
+        ⚠️ 被动关节**不会出现在 `angles` 里** —— 它不是状态变量，值由定义决定
+        （恒取锁定角 `limit_min`，与前端 `jointAngleOf()` 的缺省回退同一条规则）。
+        其余关节缺值仍是调用方的错，直接 KeyError（不静默兜底成 0）。
+        """
+        if joint_id in angles:
+            return float(angles[joint_id])
+        if str(_field(self._by_id[joint_id], "type", "revolute")) == "passive":
+            return float(_field(self._by_id[joint_id], "limit_min", 0.0))
+        raise KeyError(f"关节 {joint_id} 的角度缺失（angles={sorted(angles)}）")
 
     # -- 正向：关节角 → 局部角 --------------------------------------------
 
@@ -137,15 +162,19 @@ class JointAngleMap:
         `实际旋转 = 关节角 + gain × 被耦合关节的关节角`
         （与前端 `effectiveJointAngle()` 逐字同式，见 frontend/src/robot/kinematics/fk.ts）
         """
-        value = float(angles[joint_id])
+        value = self._value_of(joint_id, angles)
         c = self._coupling_of(joint_id)
         if c is None:
             return value
         other, gain = c
-        return value + gain * float(angles[other])
+        return value + gain * self._value_of(other, angles)
 
     def to_qpos(self, angles: Mapping[str, float]) -> list[float]:
-        """关节角 dict（deg）→ qpos 数组（rad），顺序同 `joint_ids`。"""
+        """关节角 dict（deg）→ qpos 数组（rad），顺序同 `joint_ids`。
+
+        入参可以只带**自由度**关节（4 个）—— 被动腕会按锁定角自动补全，
+        于是 `len(结果) == nq == MJCF 的 qpos 维度`。
+        """
         return [deg2rad(self.effective_deg(jid, angles)) for jid in self._ids]
 
     # -- 反向：局部角 → 关节角 --------------------------------------------
@@ -155,6 +184,10 @@ class JointAngleMap:
 
         按链序顺序反解：`关节角 = 局部角 − gain × 被耦合关节的关节角`。
         因为构造时已保证被耦合关节在前，这里一次线性遍历即可。
+
+        ⚠️ 返回值只含**自由度**关节（4 个）：它是"状态帧"，不是"qpos 向量"。
+        前端 `JointState` / Go `JointOrder()` / 串口 JR 都是这 4 个位次。
+        （内部仍会把被动腕一路解出来，因为它可能是别的关节的耦合源。）
         """
         if len(qpos) != self.nq:
             raise ValueError(f"qpos 长度 {len(qpos)} != 关节数 {self.nq}")
@@ -167,7 +200,7 @@ class JointAngleMap:
             else:
                 other, gain = c
                 out[jid] = local_deg - gain * out[other]
-        return out
+        return {jid: out[jid] for jid in self.dof_ids}
 
     def qpos_index(self, joint_id: str) -> int:
         """该关节在 qpos 数组里的位次。"""

@@ -64,6 +64,40 @@ class JointCfg:
     def is_fixed(self) -> bool:
         return self.type == "fixed"
 
+    @property
+    def is_passive(self) -> bool:
+        """被动关节：**会转，但没有独立输入** —— 角度完全由 `coupling` 派生，
+        值恒取 `limit_min`（故校验层强制 `min == max`）。
+
+        本机用它表达**腕**：爪被平行四连杆锁成水平（绝对倾角恒 90°）。
+        """
+        return self.type == "passive"
+
+    @property
+    def is_dof(self) -> bool:
+        """有独立自由度的关节 —— 即参与 JointState / JR 四元组 / 执行器表的那些。
+
+        ⚠️ 判据是 `revolute`，**不是**"非 fixed"。这与前端 `isMovableJoint()`、
+        Go `JointOrder()` 是**同一条规则**，三处必须一致，否则 JR 位次会静默错位。
+        """
+        return self.type == "revolute"
+
+    @property
+    def has_qpos(self) -> bool:
+        """在 MJCF 里是否产生 `qpos` 坐标。
+
+        ⚠️ 它与 `is_dof` **不是一回事** —— 这是本模型最容易搞混的一处：
+
+        | 关节 | 有 qpos？ | 有自由度？ |
+        |------|-----------|-----------|
+        | base/shoulder/elbow/gripper | ✔ | ✔ |
+        | tool（被动腕）| ✔（要建模成 hinge，爪才会被连杆带着转）| ✘（被 equality 约束锁死）|
+
+        把两者混为一谈，就会得到一个**五元组的 JR** —— 而固件、串口协议、
+        前端全部按四元组解析，每一条指令的位次都会错。
+        """
+        return not self.is_fixed
+
 
 @dataclass(frozen=True)
 class ActuatorCfg:
@@ -118,7 +152,23 @@ class RobotCfg:
         raise ConfigError(f"robot.yaml 中没有关节 {joint_id}")
 
     def movable_joints(self) -> list[JointCfg]:
-        return [j for j in self.joints if not j.is_fixed]
+        """**有独立自由度**的关节（= 状态帧 / JR 四元组 / 执行器表）。
+
+        ⚠️ 只收 `revolute` —— 被动腕 `tool` **不在**其中（见 `JointCfg.is_dof`）。
+        """
+        return [j for j in self.joints if j.is_dof]
+
+    def qpos_joints(self) -> list[JointCfg]:
+        """在 MJCF 里产生 `qpos` 的关节（**含被动腕**），顺序 = MJCF 里 joint 的声明顺序。
+
+        必须与 `units.JointAngleMap.joint_ids` 一致，否则 `model.py` 启动时的
+        顺序自检会直接抛 `SimError`。
+        """
+        return [j for j in self.joints if j.has_qpos]
+
+    def passive_joints(self) -> list[JointCfg]:
+        """被动关节：有 qpos、无自由度，角度由 `coupling` 派生。"""
+        return [j for j in self.joints if j.is_passive]
 
     def joint_order(self) -> list[str]:
         """参与状态帧的关节顺序（**与 Go `JointOrder()` / 前端 `movableJoints()` 一致**）。"""
@@ -255,17 +305,34 @@ def load_robot(path: Path | str | None = None) -> RobotCfg:
 
 def _validate_robot(cfg: RobotCfg) -> None:
     """基本一致性检查。宁可在这里炸，也不要在仿真里表现成"行为诡异"。"""
-    # ① 每个可动关节都必须有执行器（否则命令发不出去 —— 与 Go robot.Load 同一约束）
+    # ① 每个**自由度**关节都必须有执行器（否则命令发不出去 —— 与 Go robot.Load 同一约束）
     for j in cfg.movable_joints():
         if not cfg.actuators_for(j.id):
             raise ConfigError(f"关节 {j.id} 没有对应的执行器（标定表不完整）")
+
+    # ①b 被动关节：没有独立输入，角度由 `coupling` 派生 —— 三条约束缺一不可。
+    #     这三条与前端 `validateRobotModel()` 的 JOINT_PASSIVE_LIMIT /
+    #     JOINT_PASSIVE_NO_COUPLING / ACTUATOR_FIXED_JOINT 是同一套判据。
+    for j in cfg.passive_joints():
+        if abs(j.limit_max - j.limit_min) > 1e-9:
+            raise ConfigError(
+                f"被动关节 {j.id} 的限位必须 min == max（值恒取锁定角 = 锁定角度），"
+                f"当前 {j.limit_min}..{j.limit_max} —— 否则「到底取哪个值」就成了隐式约定"
+            )
+        if not j.coupling:
+            raise ConfigError(f"被动关节 {j.id} 必须声明 coupling（它没有独立输入）")
+        if cfg.actuators_for(j.id):
+            raise ConfigError(
+                f"被动关节 {j.id} 不得挂执行器：它没有输入，"
+                f"挂上等于给一个被连杆锁死的关节发命令"
+            )
 
     # ② 执行器 scale 不能为 0
     for a in cfg.actuators:
         if a.scale == 0:
             raise ConfigError(f"执行器 {a.id} 的 scale 为 0（无法换算）")
 
-    # ③ HOME 位必须覆盖全部可动关节且在限位内
+    # ③ HOME 位必须覆盖全部**自由度**关节且在限位内（被动关节不进 homePose）
     for j in cfg.movable_joints():
         if j.id not in cfg.home_pose:
             raise ConfigError(f"HOME 位缺少关节 {j.id}")

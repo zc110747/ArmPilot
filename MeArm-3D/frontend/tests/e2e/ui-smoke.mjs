@@ -364,7 +364,7 @@ class Cdp {
 
 const READ_CHIPS = `Array.from(document.querySelectorAll('.overlay .chip')).map(e => e.textContent.replace(/\\s+/g,' ').trim())`;
 
-/** 解析 "TCP X 111.96 Y 0.0 Z 93.84 mm" */
+/** 解析 "TCP X 115.03 Y 0.0 Z 109.22 mm" */
 const PARSE_TCP = `(() => {
   const chip = Array.from(document.querySelectorAll('.overlay .chip')).find(e => e.textContent.includes('TCP'));
   if (!chip) return null;
@@ -937,16 +937,18 @@ async function main() {
       PARSE_ALIGNMENT,
       (v) => typeof v === 'number' && v < 0.1,
     );
-    // HOME 解析解（2026-09-12 实拍反解）：
-    //   x = 80·sin(0.849894°) + 120·sin(112.618577°) ≈ 111.96
-    //   z = 60 + 80·cos(0.849894°) + 120·cos(112.618577°) ≈ 93.84
+    // HOME 解析解（2026-09-13 实测反解 · 爪锁水平的被动腕）：
+    //   x = 80·sin(0.849894°) + 80·sin(112.618577°) + 40 ≈ 115.03
+    //   z = 60 + 80·cos(0.849894°) + 80·cos(112.618577°)   ≈ 109.22
     // 小臂存**绝对角**（平行四连杆解耦），所以不再叠加肩角。
+    // 腕→TCP 是 **40mm 纯水平常量偏移**（爪的绝对倾角被连杆锁死），
+    // 因此不再是旧式的 120·sin(θe) 直线延伸 —— 那是 `tool` 还是 fixed 时的模型。
     check(
-      '初始 TCP 读数与解析解一致（X 111.96 / Y 0.0 / Z 93.84）',
+      '初始 TCP 读数与解析解一致（X 115.03 / Y 0.0 / Z 109.22）',
       initialTcp !== null &&
-        Math.abs(initialTcp[0] - 111.96) < 0.2 &&
+        Math.abs(initialTcp[0] - 115.03) < 0.2 &&
         Math.abs(initialTcp[1] - 0) < 0.2 &&
-        Math.abs(initialTcp[2] - 93.84) < 0.2,
+        Math.abs(initialTcp[2] - 109.22) < 0.2,
       JSON.stringify(initialTcp),
     );
     check(
@@ -1017,7 +1019,7 @@ async function main() {
     check(
       'HOME 按钮恢复到 HOME 位姿读数',
       tcpAfterHome !== null &&
-        Math.abs(tcpAfterHome[2] - 93.84) < 0.2 &&
+        Math.abs(tcpAfterHome[2] - 109.22) < 0.2 &&
         Math.abs(tcpAfterHome[0] - initialTcp[0]) < 0.2,
       JSON.stringify(tcpAfterHome),
     );
@@ -1026,7 +1028,7 @@ async function main() {
     const probeReady = await cdp.evaluate(`Boolean(window.__armPilot && window.__armPilot.tcpScreen)`);
     check('dev 测试探针可用（供 e2e 精确命中拖动把手）', probeReady === true);
 
-    // (a) XYZ 直输：X 111.96 → 135，Y=0，Z 保持 93.84（该点经机构约束验算可达）
+    // (a) XYZ 直输：X 115.03 → 135，Y=0，Z 保持 109.22（该点经机构约束验算可达）
     await cdp.evaluate(setTargetInput(0, '135'));
     await cdp.evaluate(setTargetInput(1, '0'));
     const clicked = await cdp.evaluate(CLICK_MOVE);

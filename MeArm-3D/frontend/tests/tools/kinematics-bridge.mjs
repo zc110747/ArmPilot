@@ -129,10 +129,17 @@ function describeModel(robotModel, ikGeometry, model) {
       baseId: ikGeometry.baseId,
       shoulderId: ikGeometry.shoulderId,
       elbowId: ikGeometry.elbowId,
+      /** TCP 参考关节（本机 = 被动腕 `tool`）；其坐标系原点 = 2R 子链末端的「腕枢轴」 */
+      wristId: ikGeometry.wristId,
       pivotZ: ikGeometry.pivotZ,
       pivotR: ikGeometry.pivotR,
+      /** 肩枢轴 → 肘枢轴（mm） */
       l1: ikGeometry.l1,
+      /** 肘枢轴 → **腕枢轴**（mm）。⚠️ 不含腕→TCP 那一段，故不是「肘 → TCP」 */
       l2: ikGeometry.l2,
+      /** 腕枢轴 → TCP 的常量矢状面偏移 [径向, 竖直]（mm）。本机 = [40, 0] */
+      toolOffset: [...ikGeometry.toolOffset],
+      /** 2R 子链的可达距离壳（mm）——约束的是**减去 toolOffset 后**的腕目标点 */
       reach: [...ikGeometry.reach],
     },
   };

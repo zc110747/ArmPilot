@@ -24,6 +24,7 @@ import {
   movableJoints,
   solveIk,
   solveIkAll,
+  wristSagittal,
   type JointState,
   type RobotModel,
   type Vec3,
@@ -124,8 +125,10 @@ describe('Phase 5 验收 · FK(IK(XYZ)) 闭环一致性', () => {
     let outside = 0;
     for (let i = 0; i < 500; i += 1) {
       const target = endEffectorPosition(model, randomJointState(model, random));
-      const r = Math.hypot(target[0], target[1]);
-      const d = Math.hypot(r - geometry.pivotR, target[2] - geometry.pivotZ);
+      // ⚠️ 必须经 `wristSagittal` 换算：reach 约束的是**腕枢轴**，不是 TCP（差一个 toolOffset）。
+      // 直接量原始点到枢轴的距离会凭空多出 40mm 的径向分量，判据随之失真。
+      const { dr, dz } = wristSagittal(geometry, target);
+      const d = Math.hypot(dr, dz);
       if (d > geometry.reach[1] + 1e-9 || d < geometry.reach[0] - 1e-9) outside += 1;
     }
     expect(outside).toBe(0);

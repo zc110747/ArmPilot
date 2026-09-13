@@ -104,11 +104,17 @@ def test_bridge_model_matches_robot_yaml(robot, kinematics):
 
 
 def test_ik_geometry_agrees_with_mujoco_link_lengths(robot, kinematics):
-    """IK 内部用的 2R 几何量（l1 / l2 / 枢轴）必须与关节锚点的实际间距一致。
+    """IK 内部用的 2R 几何量（l1 / l2 / 枢轴 / 常量偏移）必须与关节锚点的实际间距一致。
 
     这一条把「IK 的解析前提」和「MuJoCo 里的真实几何」钉在一起：
-    `ik.ts` 是从"全零位形跑一次 FK"推出 l1 / l2 的，如果模型树与 MJCF 不一致，
+    `ik.ts` 是从"全零位形跑一次 FK"推出这些量的，如果模型树与 MJCF 不一致，
     解析式会**静默解错**（不报错，只是答案偏），必须用独立来源核对。
+
+    ⚠️ `l2` 量的是「肘枢轴 → **腕枢轴**」，**不**含那 40mm 的爪：
+    爪被被动腕锁成水平后，「腕枢轴 → TCP」是一段**常量**矢状面偏移
+    （`geometry.toolOffset`，本机 = [40, 0]），IK 会先减掉它再做 2R。
+    把它算进 `l2`（旧写法 `forearm.length + |tcp_offset|`）会让可达球壳变成
+    [40, 200]，而且每个目标点都凭空多出 40mm 的径向分量。
     """
     g = kinematics.model_info()["geometry"]
 
@@ -116,7 +122,7 @@ def test_ik_geometry_agrees_with_mujoco_link_lengths(robot, kinematics):
     from fkref import fk_tcp_mm
 
     l1 = float(robot.link("upper_arm_link").length)
-    l2 = float(robot.link("forearm_link").length) + float(np.linalg.norm(robot.tcp_offset))
+    l2 = float(robot.link("forearm_link").length)
     assert g["l1"] == pytest.approx(l1, abs=1e-9), f"IK l1={g['l1']} vs 模型 {l1}"
     assert g["l2"] == pytest.approx(l2, abs=1e-9), f"IK l2={g['l2']} vs 模型 {l2}"
     assert g["pivotZ"] == pytest.approx(float(robot.link("column_link").length), abs=1e-9)
@@ -125,8 +131,19 @@ def test_ik_geometry_agrees_with_mujoco_link_lengths(robot, kinematics):
 
     # 顺带确认全零位形确实是竖直的（上面那条"枢轴间距 = 杆长"的前提）
     zero_tcp = fk_tcp_mm(robot, {j.id: 0.0 for j in robot.movable_joints()})
-    assert abs(zero_tcp[0]) < MM_TOL and abs(zero_tcp[1]) < MM_TOL
-    assert zero_tcp[2] == pytest.approx(g["pivotZ"] + l1 + l2, abs=1e-9)
+    assert abs(zero_tcp[1]) < MM_TOL
+
+    # ★ 常量工具偏移：用**零位的 MuJoCo FK** 独立核对 IK 自己推出的那一段
+    #   （零位时腕枢轴落在偏航轴上、水平半径 0，所以两个分量可以直接相减得到）
+    wrist_at_zero = np.array([0.0, 0.0, g["pivotZ"] + l1 + l2])
+    assert g["wristId"] == robot.tcp_joint, (
+        f"腕关节应为 {robot.tcp_joint!r}，实得 {g['wristId']!r}")
+    assert g["toolOffset"] == pytest.approx(
+        [zero_tcp[0] - wrist_at_zero[0], zero_tcp[2] - wrist_at_zero[2]], abs=1e-9), (
+        "IK 的常量偏移与零位实测不符 ⇒ 它和 MuJoCo 的几何不是同一回事")
+    assert g["toolOffset"][1] == pytest.approx(0.0, abs=1e-9), (
+        "本机爪恒水平 ⇒ 腕→TCP 的偏移不该有竖直分量；若有，说明锁的不是水平")
+    assert zero_tcp[2] == pytest.approx(g["pivotZ"] + l1 + l2 + g["toolOffset"][1], abs=1e-9)
 
 
 # ---------------------------------------------------------------------------
@@ -310,9 +327,15 @@ def test_out_of_workspace_targets_are_rejected(sim, robot, kinematics):
     """球壳之外的目标：必须报 `OUT_OF_WORKSPACE`，且**不能**悄悄给一个近似解。
 
     三个目标分别打三种越界：
-      * 正上方过远（`d > l1 + l2`）
-      * 正上方过近（`d < |l1 − l2|`）
+      * 正上方过远（`d > l1 + l2`，dz > 0）
+      * 正下方过远（同样超球壳，但 dz < 0 —— 覆盖符号相反的那条路径）
       * 侧向过远（同时验证非零方位角路径）
+
+    ⚠️ 旧版本第二个目标是「正上方过近（`d < |l1 − l2|`）」，**本机已不成立**：
+    `l1 === l2 === 80` ⇒ 内半径 `|l1 − l2| = 0`，球壳没有内锥空洞，
+    再近的目标也是「几何可达」的，会在关节限位那一关被拦下 —— 那会得到
+    `JOINT_LIMIT`，理由分类是**对的**（见 ik.test.ts 的同名用例）。
+    所以这里换掉它，用「正下方过远」把三种越界重新凑齐。
     """
     info = kinematics.model_info()
     reach_min, reach_max = reach_bounds_mm(info)
@@ -320,7 +343,7 @@ def test_out_of_workspace_targets_are_rejected(sim, robot, kinematics):
 
     targets = {
         "上方过远": [0.0, 0.0, pivot_z + reach_max + 50.0],
-        "上方过近": [0.0, 0.0, pivot_z + max(reach_min - 30.0, 1.0)],
+        "下方过远": [0.0, 0.0, pivot_z - reach_max - 50.0],
         "侧向过远": [reach_max + 100.0, 0.0, pivot_z],
     }
     results = kinematics.solve([{"id": i, "target": t}
@@ -353,14 +376,20 @@ def test_geometrically_reachable_but_limits_block(sim, robot, kinematics):
 
     构造：`elbow` 取到绝对限位下限再往下 55°（≈53.4°），`shoulder` 取到下限。
     此时机构在几何上完全能把 TCP 送到那个点（2R 的 `d` 落在可达球壳内），
-    MuJoCo 也**照常执行**（它只看到局部角 ≈59.5°，落在外接区间内 ——
-    见 `test_joint_limits.py::test_mujoco_accepts_real_machine_impossible_pose`），
-    但真机的 S8 舵机结构上转不到那个绝对角。
+    真机的 S8 舵机结构上却转不到那个绝对角。
 
     ⇒ 这条同时钉住三件事：
       1. IK 必须报 `JOINT_LIMIT`（而不是 `OUT_OF_WORKSPACE`）—— 理由分类正确
       2. MuJoCo 的 hinge range **不是**限位真值（否则上面那步就过不了）
       3. 限位一致性的唯一把关人是上层（IK / Go controller / `limits.py`）
+
+    ⚠️ 第 2 条的成立方式在被动腕改造后**变窄了**，务必理解清楚再改本用例：
+    `sim.reset()` 是"设定初始条件"（只写 qpos + `mj_forward`），**从不校验 hinge
+    range**，所以它对这个位形照常接受 —— 这条断言因此仍然成立。
+    但"命令-响应"那条路（`set_target_joints` + `settle`）**会**受 range 约束：
+    被动腕 `tool` 的外接区间由 elbow 限位派生，与等式约束联立后把 elbow 的绝对角
+    钳在 ≥ 106.4415°。于是「命令得动、真机做不到」的窗口只剩约 2°（见
+    test_joint_limits.py::test_mujoco_accepts_real_machine_impossible_pose）。
     """
     elbow = robot.joint("elbow")
     shoulder = robot.joint("shoulder")
@@ -409,14 +438,18 @@ def test_geometrically_reachable_but_limits_block(sim, robot, kinematics):
 def test_yaw_axis_is_outside_the_reachable_workspace(sim, robot, kinematics):
     """★ 真机**够不到自己的中轴线** —— 可达工作空间的内锥是空的。
 
-    直觉上会以为"离底盘越近越容易够到"，实际相反。水平半径
-        `dr(θs, θe) = l1·sin θs + l2·sin θe`
-    在合法域内：
+    直觉上会以为"离底盘越近越容易够到"，实际相反。**TCP** 的水平半径
+        `dr(θs, θe) = l1·sin θs + l2·sin θe + off_r`
+    其中 `off_r` 是「腕枢轴 → TCP」的**常量**径向偏移（本机 40mm —— 爪锁水平，
+    那一段完全落在 +X）。在合法域内：
       * 对 θs 单调**递增**（θs ∈ [−6.09, 49.45]，cos θs > 0）
       * 对 θe 单调**递减**（θe ∈ [108.44, 141.86] ⊂ (90°, 180°)）
-    ⇒ 最小值在角点 `(θs_min, θe_max)`，且实测为 **65.62 mm > 0**。
+      * `off_r` 与两者无关，只整体平移曲线，不改变极值位置
+    ⇒ 最小值在角点 `(θs_min, θe_max)`，实测 **80.92 mm > 0**
+    （旧模型的 65.62mm 漏掉了那 40mm 偏移，凭空少算一截）。
+
     也就是说：`shoulder` 上限只有 49.45°、`elbow` 绝对角下限却有 108.44°，
-    手臂**折不过去**，刀尖永远离中轴线至少 6.5cm。
+    手臂**折不过去**，TCP 永远离中轴线至少 8.1cm。
 
     ## 这条结论对上层的一个直接含义
 
@@ -433,11 +466,13 @@ def test_yaw_axis_is_outside_the_reachable_workspace(sim, robot, kinematics):
     info = kinematics.model_info()
     l1 = float(info["geometry"]["l1"])
     l2 = float(info["geometry"]["l2"])
+    off_r = float(info["geometry"]["toolOffset"][0])      # 腕枢轴 → TCP 的常量径向偏移
     s = robot.joint("shoulder")
     e = robot.joint("elbow")
 
     def dr(ts: float, te: float) -> float:
-        return l1 * math.sin(math.radians(ts)) + l2 * math.sin(math.radians(te))
+        return (off_r + l1 * math.sin(math.radians(ts))
+                + l2 * math.sin(math.radians(te)))
 
     # --- ① 闭式：先确认公式本身对（用 HOME 位复现实测 TCP 的水平半径）----------
     home = dict(robot.home_pose)

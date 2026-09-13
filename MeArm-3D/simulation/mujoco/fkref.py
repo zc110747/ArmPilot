@@ -100,11 +100,26 @@ def axis_angle(axis: Sequence[float], deg: float) -> np.ndarray:
     return t
 
 
+def joint_value_deg(joint: JointCfg, joints: Mapping[str, float]) -> float:
+    """关节角（**绝对语义**, deg）。
+
+    ⚠️ 被动关节（本机的腕 `tool`）**不在 `joints` 里** —— 它根本不是状态变量：
+    值由定义决定，恒取锁定角 `limit_min`（= 绝对倾角 90°，爪水平）。
+    与前端 `jointAngleOf()` 的缺省回退是**同一条规则**
+    （`state[id] ?? limits.min`），三处实现必须逐项一致。
+    """
+    if joint.id in joints:
+        return float(joints[joint.id])
+    if joint.is_fixed:
+        return 0.0
+    return float(joint.limit_min)
+
+
 def effective_angle_deg(joint: JointCfg, joints: Mapping[str, float]) -> float:
     """关节角 + 耦合项（平行四连杆）。固定关节恒为 0。"""
     if joint.is_fixed:
         return 0.0
-    value = float(joints.get(joint.id, 0.0))
+    value = joint_value_deg(joint, joints)
     if joint.coupling:
         other, gain = joint.coupling
         value += float(gain) * float(joints.get(other, 0.0))

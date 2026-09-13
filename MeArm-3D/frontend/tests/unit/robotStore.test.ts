@@ -29,14 +29,16 @@ describe('Phase 4 · 关节控制 → RobotState', () => {
 
   it('滑动单关节立即更新末端位姿（与 FK 一致）', () => {
     // 「大臂竖直 + 小臂最竖直」：小臂是**绝对角**，真机可达下限 108.44°（不是 0°），
-    // 所以最竖直的姿态不是「全臂伸直 260mm」，而是小臂仍前倾 ~18.4° 的姿态。
+    // 所以最竖直的姿态不是「全臂伸直」，而是小臂仍前倾 ~18.4° 的姿态。
+    // ⚠️ 爪锁水平 ⇒ 高度只算到**腕枢轴**（60 + 80·cosθs + 80·cosθe）：
+    //    腕→TCP 那 40mm 是**水平**的，完全不贡献高度。
+    //    老模型把它当作小臂的延长线（120·cosθe），那会凭空多算出 12.6mm 的高度。
     const elbowMin = jointById(model, 'elbow')!.limits.min;
     store().setJoint('shoulder', 0);
     store().setJoint('elbow', elbowMin);
     store().setJoint('base', 0);
-    // z = 立柱 60 + 大臂 80·cos(0) + (小臂 80 + 手部 40)·cos(小臂绝对角)
     const upright =
-      60 + 80 * Math.cos((0 * Math.PI) / 180) + 120 * Math.cos((elbowMin * Math.PI) / 180);
+      60 + 80 * Math.cos((0 * Math.PI) / 180) + 80 * Math.cos((elbowMin * Math.PI) / 180);
     expect(store().endEffector.position[2]).toBeCloseTo(upright, 9);
 
     store().setJoint('shoulder', 40);

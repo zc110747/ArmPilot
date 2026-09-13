@@ -57,24 +57,29 @@ function maxMatrixDelta(a: readonly number[], b: readonly number[]): number {
 describe('Phase 3 · FK 与 Three.js 位姿一致性（< 0.1 mm）', () => {
   const model = loadRobotModel();
 
-  it('零位：末端应在正上方 60+80+80+40 = 260 mm 处', () => {
+  it('零位：爪被锁成水平 ⇒ 末端在 (40, 0, 220)，不再位于正上方', () => {
+    // ⚠️ 这条断言在本轮改动里**必须变**：爪不再是"小臂的延长线"。
+    // `tool` 是被动腕、绝对倾角锁在 90°（水平），零位下整条链是
+    // 「立柱 60 + 大臂 80 + 小臂 80 竖直」+「腕→TCP 40 **水平向前**」，
+    // 所以末端落在 (40, 0, 220)，而不是老模型（爪固连、沿小臂延伸）的 (0, 0, 260)。
     const zero: JointState = { base: 0, shoulder: 0, elbow: 0, gripper: 0 };
     const position = endEffectorPosition(model, zero);
-    expect(position[0]).toBeCloseTo(0, 9);
+    expect(position[0]).toBeCloseTo(40, 9);
     expect(position[1]).toBeCloseTo(0, 9);
-    expect(position[2]).toBeCloseTo(260, 9);
+    expect(position[2]).toBeCloseTo(60 + 80 + 80, 9);
   });
 
   it('HOME 位末端位置与解析解一致', () => {
     // HOME 由 2026-09-12 实拍反解（见 docs/hardware-measurement.md）。
     // 注意小臂存的是**绝对角**（平行四连杆解耦），所以解析式里直接用它，不再叠肩角。
+    // ⚠️ 爪锁水平 ⇒ 末端 = 腕枢轴 + 40mm **水平径向**偏移（不是小臂的延长线）：
+    //     r = 80·sin(肩) + 80·sin(小臂绝对角) + 40
+    //     z = 60 + 80·cos(肩) + 80·cos(小臂绝对角)
     const home = homeJointState(model);
     const [x, y, z] = endEffectorPosition(model, home);
-    // 平面 2R：r = 80·sin(肩) + (80+40)·sin(小臂绝对角)
-    //          z = 60 + 80·cos(肩) + (80+40)·cos(小臂绝对角)
     const rad = (deg: number): number => (deg * Math.PI) / 180;
-    const r = 80 * Math.sin(rad(home.shoulder!)) + 120 * Math.sin(rad(home.elbow!));
-    const zz = 60 + 80 * Math.cos(rad(home.shoulder!)) + 120 * Math.cos(rad(home.elbow!));
+    const r = 80 * Math.sin(rad(home.shoulder!)) + 80 * Math.sin(rad(home.elbow!)) + 40;
+    const zz = 60 + 80 * Math.cos(rad(home.shoulder!)) + 80 * Math.cos(rad(home.elbow!));
     expect(x).toBeCloseTo(r, 6);
     expect(y).toBeCloseTo(0, 9);
     expect(z).toBeCloseTo(zz, 6);

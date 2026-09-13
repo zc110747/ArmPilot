@@ -15,7 +15,7 @@
 
 ![ArmPilot 控制台 · HOME / RESET 位](docs/images/armpilot-console.png)
 
-<sub>上图为 HOME 位（四舵机全 90° = 固件 RESET 位）的虚拟臂渲染，与实拍照片目视一致；J1 0.0° / J2 0.8° / J3 112.6° / Gripper 50.0°，TCP `112.0, 0, 93.8 mm`。</sub>
+<sub>上图为 HOME 位（四舵机全 90° = 固件 RESET 位）的虚拟臂渲染，与实拍照片目视一致；J1 0.0° / J2 0.8° / J3 112.6° / Gripper 50.0°，TCP `115.0, 0, 109.2 mm`。</sub>
 
 ---
 
@@ -114,7 +114,7 @@ MeArm-3D/
 │   ├── README.md                 #   ★ 怎么跑 / 判据纪律 / 验收数据 / Level 声明
 │   └── mujoco/
 │       ├── gen_model.py          #   robot.yaml + physics.yaml → mearm.xml（MJCF 是产物，禁手改）
-│       ├── mearm.xml             #   生成的 MJCF（nq=4 nbody=8 ngeom=33 nu=4）
+│       ├── mearm.xml             #   生成的 MJCF（nq=5 njnt=5 nbody=8 ngeom=34 nu=4 neq=1 ntendon=1）
 │       ├── units.py              #   单位 + **角度语义**（elbow 绝对角 ↔ hinge 局部角）单点换算
 │       ├── model.py              #   MeArmSim：reset / step / settle / state / gravity_torque
 │       ├── limits.py             #   限位校验（与 Go Validate 同语义、同文案）
@@ -128,7 +128,7 @@ MeArm-3D/
 │   ├── model-structure.md        # ★ 显式几何（plate/servo/details）与运动学的边界
 │   ├── hardware-measurement.md   # ★★ 真机实测记录：角色映射 / 绝对角解耦 / 标定 / 不确定度
 │   ├── ARCHITECTURE_ANALYSIS.md  # ★ MuJoCo 轨 Phase 1：自由度清点 / 五种角度对照 / 接入方案
-│   ├── decisions.md              # 设计决策 ADR（D1–D65；D48–D54 = MuJoCo 物理轨 · D55 = 真值冻结 · D56 = 纹理校正 · D57 = 采集判定 · D63 = 按面材质贴图 · D64 = 暗端材质与光照 · D65 = 验收纪律）
+│   ├── decisions.md              # 设计决策 ADR（**D1–D70，最新在前**；D48–D54 = MuJoCo 物理轨 · D55 = 真值冻结 · D56/D57 = 纹理校正与采集判定 · D63–D69 = 照片纹理与外观 · **D70 = 被动腕关节**）
 │   ├── texture-capture-guide.md  # ★ 图像采集指南（拍哪块板 / 大面朝向 / 采集闭环 / 四项硬性要求 / 自查清单）
 │   └── images/                   # 界面截图（armpilot-console.png 由 e2e 自动重出；
 │                                 #   armpilot-phase11-13.png 由 tests/e2e/screenshot.mjs 出）
@@ -177,7 +177,7 @@ MeArm-3D/
 │   ├── internal/device/       # sim.go（假固件）· serial.go（真串口）· mujoco.go（★ Python 子进程）
 │   ├── internal/wsserver/     # 标准库 RFC6455 服务端 · 路由 · 广播 · 两层心跳
 │   └── README.md              # 架构图 · 与 MeArm-RemoteControl 的分工 · 测试矩阵
-└── tests/sim/                 # ★ MuJoCo 轨验收（pytest，106 项）
+└── tests/sim/                 # ★ MuJoCo 轨验收（pytest，147 项 / 12 文件）
     ├── harness.py             #   共用采样/求值工具（FK 与 IK 两条判据不各写一份）
     ├── ikbridge.py            #   前端运动学 CLI 桥的 Python 门面
     └── test_*.py              #   模型 / 重力 / 执行器 / 限位 / 碰撞 / 协议 / FK / IK / 系统级
@@ -225,7 +225,7 @@ cd frontend
 npm install
 npm run dev            # 本机 http://localhost:5273；局域网 http://<本机IP>:5273
 npm run typecheck      # tsc -b，零错误
-npm test               # vitest（单元 + 验收），233 项
+npm test               # vitest（单元 + 验收），318 项 / 24 文件
 npm run test:e2e       # 真浏览器冒烟（需先 npm run dev；见下方参数说明）
 npm run build          # 生产构建
 
@@ -234,7 +234,7 @@ cd ../backend
 go build -o bin/armpilot-backend.exe .
 ./bin/armpilot-backend.exe -c config.yaml     # 监听 0.0.0.0:8090，端点 /ws/joint
 curl http://127.0.0.1:8090/healthz            # {"ok":true,"device":"sim","linked":true,"state":{…}}
-go test ./...                                 # 56 项
+go test ./...                                 # 65 项 / 5 包
 ```
 
 > **局域网访问**：Vite 已设 `server.host: true`、后端已监听 `0.0.0.0:8090`，
@@ -332,8 +332,8 @@ curl http://localhost:8090/healthz              # {"device":"mujoco","linked":tr
 | 3 | FK | ✅ | **FK↔Three.js 最大误差 8.673e-14 mm**（要求 < 0.1） |
 | 4 | Joint Control | ✅ | 单测 7 项 + e2e 滑杆交互 |
 | **4.5** | **真机参数实测（相机反解机构）** | ✅ | 白底分割 + 舵机逐度扫描 + FK 骨架拟合：修正 S7/S8 角色映射、确证**小臂绝对角（平行四连杆，耦合 gain=-1）**、反解标定/限位/零位并写入 `config/robot.yaml`（见 `docs/hardware-measurement.md`、`docs/decisions.md` D15–D17） |
-| 5 | IK（XYZ → J1/J2/J3） | ✅ | **FK(IK(XYZ)) 2000 组随机位姿最大残差 1.401e-13 mm**；错误码 `OUT_OF_WORKSPACE` / `JOINT_LIMIT`；多解 `elbow-up/elbow-down/nearest`（默认就近）；几何量全部从模型求导，改 yaml 即生效（见 `docs/coordinate-system.md` §3.1、D18/D19） |
-| 6 | XYZ / 鼠标拖动末端 | ✅ | XYZ 直输 + **鼠标真实拖拽**（e2e 用 CDP 派发真实鼠标事件命中场景把手，Δ 17.47mm）；三种拖动平面 xy/xz/camera 在 pointerdown **冻结**；**越界不钳位**（关节逐位不变）；400 点轨迹穿越工作空间边界验收（见 `docs/coordinate-system.md` §3.2、D20–D22） |
+| 5 | IK（XYZ → J1/J2/J3） | ✅ | **FK(IK(XYZ)) 2000 组随机位姿最大残差 1.180e-13 mm**；错误码 `OUT_OF_WORKSPACE` / `JOINT_LIMIT`；多解 `elbow-up/elbow-down/nearest`（默认就近）；几何量全部从模型求导（含被动腕的**常量偏移** `toolOffset`，跨 3 姿态逐位验证），改 yaml 即生效（见 `docs/coordinate-system.md` §3.1、D18/D19/D70） |
+| 6 | XYZ / 鼠标拖动末端 | ✅ | XYZ 直输 + **鼠标真实拖拽**（e2e 用 CDP 派发真实鼠标事件命中场景把手，Δ 17.23mm）；三种拖动平面 xy/xz/camera 在 pointerdown **冻结**；**越界不钳位**（关节逐位不变）；400 点轨迹穿越工作空间边界验收（见 `docs/coordinate-system.md` §3.2、D20–D22） |
 | 7 | MockTransport 闭环 | ✅ | 完整双向闭环（命令 → 尾沿节流 → Mock → 回推 → Actual）；Mock **如实模拟舵机有限角速度 / 传输延迟 / 丢帧 / 限位拒绝**（非等值回显）；回推**只写 Actual**（回环打破，400 点轨迹引用从未改变）；Connection 面板可实时调参（见 `docs/coordinate-system.md` §3.3、D23–D26） |
 | 8 | **Go WebSocket** | ✅ | **后端独立 module `backend/`（8090）+ 内置「假固件」sim**：命令走 `JSON → JR 文本 → 舵机角 → 反算关节角 → STATE` 真实往返，非等值回显；`OK JR` **只做标定核对不发布状态**；ACK 门控 + latest-wins；`hello` 带模型真值在线互检；两层心跳；断线指数退避重连**并补发当前命令**。`go test` 56 项 · 前端新增 66 项单测（`wsProtocol` 25 / `WebSocketTransport` 30 / 接线验收 11）· e2e 新增 21 项真实 WS 端到端（见 `docs/coordinate-system.md` §3.4、`protocol/serial-v1.md` §5、D27–D33） |
 | **9** | **Serial（真机）** | ✅ | `internal/device/serial.go` 落地真串口（Windows 非重叠 I/O，**不用 `bufio`**）；Uno DTR 复位静默窗口 `connect_settle_ms=2600` + 暖机包。**真机端到端闭环实测 PASS 18 / FAIL 1**：`hello=serial` · `homePose` 与 `robot.yaml` 逐位一致 · 7 步链路回推 `max\|Δ\| ≤ 0.004°` · 相机反解重复性肩 `0.26°`/肘 `0.01°`。见 `tools/verify_serial_e2e.mjs`、`docs/decisions.md` D34–D36 |
@@ -343,6 +343,7 @@ curl http://localhost:8090/healthz              # {"device":"mujoco","linked":tr
 | 11 | Real Feedback（**链路误差反馈面板**） | ✅ | 逐关节**带符号偏差条** + 误差**趋势 sparkline** + 一句**健康结论**（已到位 / 跟踪中 / 异常）。判据全在 `@robot/linkFeedback`（纯函数，19 项单测）。**关键**：`TransportStats.moving` 是 lag 的同义重写（`moving = lag > eps`），拿它判"是否在追"**永远推不出"卡死"** —— 判据只能从时间序列得出，且趋势用**四分位中位数**（首末值/均值会被单帧尖峰翻面）。纪律：没有正面证据不下"卡死"断言，`unknown`/`shrinking` 一律判 `tracking`（ADR **D44**） |
 | 12 | 虚拟 / 真实同步（**实际臂幽灵**） | ✅ | 场景同时渲染**两条臂**：主臂跟 `commandJoints`（意图）、半透明幽灵跟 `actualJoints`（现状），未被遮挡时露出的就是**滞后量** —— 比读数表更快。幽灵用**半透明**而非醒目色（本项目「无装饰色」，信号是位置分离本身）；`depthWrite=false` 防半透明脏面。e2e **取渲染后 `matrixWorld`** 而非重算 FK —— 挂错父节点/可见性误关/材质全透明都会让画面空掉而断言全绿（ADR **D45**） |
 | **13** | **示教录制 / 回放** | ✅ | `Record / Play / Pause / Stop / Clear / Export / Import`。录的是 **`commandJoints`**（不是 `actual` —— 那会把链路时延焊进轨迹）；回放**复用 `store.setCommandJoints()`**，于是尾沿节流与安全门自动生效，**不另开直发通道**。采样 20Hz + 静止去抖 0.5° + 上限 2000 帧**拒绝新帧**（不丢开头）+ 停录**强制补末帧**（否则轨迹终点 ≠ 臂当前位置）。回放**关节空间线性插值**保证命令连续，但结束时刻**精确取末帧** ⇒ 「回放终点 == 录制终点」是逐值不变量（e2e 以 1e-9 断言，ADR **D46**） |
+| **14** | **被动腕关节（爪被连杆锁平）** | ✅ | 用户报障「爪的角度会随前后移动变化」。**受控实测**（定机位扫 S8、量爪指轴线并画回原图）证明：小臂绝对倾角变 **29.24°** 时爪的画面倾角只变 **7.31°** ⇒ 折角反向补偿 ⇒ **爪近似恒水平**，旧模型 `tool = fixed`（爪固连小臂）被否决。改为 `type: passive` + `coupling{gain:-1}→elbow` + 锁定 `90°`。**连带四处**：① IK 的 2R 作用对象换成「肘枢轴→腕枢轴」，「腕→TCP」退化为**常量偏移 `[40,0]`**（`ikGeometry()` 在 ≥3 姿态上数值验证，不变量被抛错守卫）；② MuJoCo 必须用 `<tendon><fixed>`+`<equality><tendon>` 锁**绝对角**（`<equality><joint>` 少一项 shoulder，残差恰为 `homePose.shoulder`）；③ `nq=5` 但**自由度 = 4**，前端/Go/Python 三处"可动关节"口径统一排除 passive；④ 爪锁平后包络最低点 15.8→32.71mm ⇒ **台面高度重推为 46mm** 并重新冻结基线。六套验收全绿 · IK↔FK 往返 2000 组 max **1.180e-13 mm**（ADR **D70**、`docs/hardware-measurement.md` §5.3） |
 | **A3** | **标定精度闭环（待操作者执行）** | ⏳ | A1（骨架改双杆）/ A2（`coupling.gain` → −0.81）**双双判定为"不改"**：自检 C 显示双杆改善仅 0.3° 量级且**无单调趋势**；实拍矩阵 `rod_gap=4` 局部"修好"、`rod_gap=10` 让 `dir_S7` 崩到 **−46.3%**。`tools/verify_calib_repro.py` 判定跨批极差 **肩 10.8% / 肘 52.9% > 5% 容差 ⇒ 测量本身不可复现**，此时把偏差归因给模型或标定表都不成立。**台面锁变量清单 + 采集 + 判据**见 `docs/hardware-measurement.md` §7（ADR **D47**） |
 
 ### MuJoCo 物理仿真轨（M1–M10，spec §39 的独立编号）
@@ -353,17 +354,17 @@ curl http://localhost:8090/healthz              # {"device":"mujoco","linked":tr
 | Phase | 内容 | 状态 | 验收证据 |
 |-------|------|------|----------|
 | **M1** | 架构勘察 | ✅ | [`docs/ARCHITECTURE_ANALYSIS.md`](docs/ARCHITECTURE_ANALYSIS.md)（14 节，**数字全部实读**）：可动 DOF = 4 / 定位 DOF = 3；五种角度（Servo / Joint / Physical / UI / IK）对照表；FK↔刚体树对应表；三个接入方案对比（推荐 A = 第三 `device.Device`）；7 条风险 R1–R7（含 `docs/model-structure.md` §4 把 S8/S7 写反 —— **已在本轮修正**） |
-| **M2** | MJCF 刚体树 | ✅ | `gen_model.py` 从 `robot.yaml` + `physics.yaml` 生成 `mearm.xml`（8550 B · nq=4 nv=4 nbody=8 ngeom=33 nu=4 nexclude=5 · 总质量 0.2173 kg）。**MJCF 是产物，禁手改**；VISUAL / COLLISION / PHYSICS 几何三类分离，几何优先 primitive |
+| **M2** | MJCF 刚体树 | ✅ | `gen_model.py` 从 `robot.yaml` + `physics.yaml` 生成 `mearm.xml`（**nq=5 · nv=5 · njnt=5 · nu=4** · nbody=8 · ngeom=34 · nexclude=5 · neq=1 · ntendon=1 · 总质量 0.2173 kg）。**MJCF 是产物，禁手改**；VISUAL / COLLISION / PHYSICS 几何三类分离，几何优先 primitive。⚠️ **`nq=5` 而自由度 = 4**：被动腕 `tool` 必须是 hinge（要有 qpos）却没有自由度，见 Phase 14 / D70 |
 | **M3** | 质量 / 惯量 / 重力 | ✅ | 重力对照实验：无驱动 3 s，有重力 Δ 肩 35.96° / 肘 48.10°，**关重力 Δ 全为 0**；稳态误差与「重力矩 ÷ kp」自洽（肩 0.36° = 0.0316 ÷ 5.0） |
 | **M4** | 执行器 / 位置控制 / 限位 | ✅ | 单/多关节控制正确；`elbow` 绝对角语义（局部角 85.311° = 125.977 − 40.666）；阶跃 60° 在 0.1 s 内只转 0.83°（速率限制生效）；**限位四方一致**：MuJoCo hinge range 刻意外扩 padding 2° ⇒ **不是限位真值**，把关人是 Go controller + `limits.py`（ADR **D49**） |
 | **M5** | 碰撞 / 摩擦 / 自碰撞 | ✅ | HOME 位 `ncon=0`（修掉"立柱戳在地上"与"爪伸出 TCP 34 mm"两个伪接触）；下压时 `jaw↔table` 且**无穿透**；5 对相邻连杆**实测重叠**（−20.0 / −1.576 / −7.123 / 0 / −5.0 mm）⇒ exclude 是必要的；摩擦单一组合来自配置；接触下 5 s 漂移 0.0013°。**纪律**：「有接触记录」和 `dist` 都不是证据，必须看 `qfrc_constraint` / 满力矩 / 对照位移（ADR **D51**） |
 | **M6** | Python Backend | ✅ | `server.py`（无头设备服务，协议逐字节正确、实时倍率 1.000）· `run.py`（Viewer，统计行含 FPS / sim time / 关节角 / TCP / 接触数）· `record.py`（JSONL/CSV）· `calibrate.py`（`--show/--template/--apply`） |
 | **M7** | Go 侧接入 | ✅ | `internal/device/mujoco.go` 起 Python 子进程；`exec.LookPath` 失败与 `No module named 'mujoco'` 都给明确修复指引；**启动握手 `PING → OK PING`**（否则"解释器不对 / 未装 mujoco / XML 编译失败"会表现成"设备可用但永远没回执"）。`go build`/`vet`/`test` 全绿；`healthz` = `"device":"mujoco","linked":true`；WebSocket 全链路探针 PASS（62 帧 `joint_state`，shoulder 1.21° → 20.49° **渐进收敛**） |
 | **M8** | `simulation_mode` | ✅ | spec §25「不要重新设计协议」：`ServerMessage` **只加一个可选字符串** `simulation_mode`（`omitempty`），`SimulationModeFor()` 映射 `sim→kinematic` / `mujoco→mujoco` / `serial→real`。**不改消息类型、不改 `joints` 结构 ⇒ 前端零改动**（ADR **D48**） |
-| **M9** | FK / IK 一致性 | ✅ | **FK**：参考实现 `fkref.py`（独立读 `robot.yaml` 原始几何）vs MuJoCo —— 零位 / HOME / 120 随机 + 256 限位角点，`max\|Δ\| = 7.1e-14 mm`。**IK**：**加载真实 `ik.ts`**（Vite SSR 桥，不用 Python 重写）—— 120 随机可达点成功率 **120/120**、`max = 1.137e-13 mm`；顺带把**前端 `fk.ts` 与 MuJoCo** 也对撞（376 点，`max = 1.137e-13 mm`）。两条**机构学结论**被算术+实测双重钉住：`elbow-down` 支恒不可行；**可达工作空间内锥为空**（最小水平半径 65.62 mm ⇒ 真机够不到自己的中轴线）（ADR **D49/D53**） |
+| **M9** | FK / IK 一致性 | ✅ | **FK**：参考实现 `fkref.py`（独立读 `robot.yaml` 原始几何）vs MuJoCo —— 零位 / HOME / 120 随机 + 256 限位角点，`max\|Δ\| = 7.105e-14 mm`。**IK**：**加载真实 `ik.ts`**（Vite SSR 桥，不用 Python 重写）—— 120 随机可达点成功率 **120/120**、`max = 9.948e-14 mm`；顺带把**前端 `fk.ts` 与 MuJoCo** 也对撞（376 点，`max = 8.527e-14 mm`）。两条**机构学结论**被算术+实测双重钉住：`elbow-down` 支恒不可行；**可达工作空间内锥为空**（最小水平半径 65.62 → **80.92** mm ⇒ 真机够不到自己的中轴线；抬高的 15.3mm 正是 40mm 腕偏移投影到径向的那部分）（ADR **D49/D53/D70**） |
 | **M10** | 系统级集成 + 文档 | ✅ | 三层时间步解耦（`step(1)×10 ≡ step(10)` 按位 · `fps=5 vs 240` qpos 按位相同）· 复位可重复 + 热启动不漏 · **跨进程确定性**（`run.py --demo` 跑两遍，12 行数值载荷逐字相同）· 数据记录回读 · Test D 快速运动峰值 4.92 rad/s（限速 10）· **Level 声明机器可检查**（ADR **D52**） |
 
-**MuJoCo 轨实测汇总**：pytest **106 passed**（10 文件）· `go test` 全绿 · vitest **293 passed** · `tsc -b` 0 error ·
+**MuJoCo 轨实测汇总**：pytest **147 passed**（12 文件）· `go test` **65 / 65**（5 包）· vitest **318 passed**（24 文件）· e2e **88 / 88** · `tsc -b` 0 error ·
 `vite build` OK（JS 产物 `__armPilot` 0 命中）。
 
 ### 本阶段明确**不实现**
@@ -387,30 +388,30 @@ AI · 机器学习 · 强化学习（PPO/SAC）· 自训练 · 视觉识别 · �
 **状态 · STATUS** → **链路误差 · LINK ERROR**（Phase 11：Command→Actual 逐关节偏差条 +
 误差趋势 sparkline + 健康结论）→ **模型 · ROBOT MODEL**。</sub>
 
-## 6. 当前验收数据（Phase 1–13 + MuJoCo 轨 M1–M10）
+## 6. 当前验收数据（Phase 1–14 + MuJoCo 轨 M1–M10）
 ```
 类型检查      tsc -b                    0 error
-单元测试      vitest run                293 / 293 PASS（21 文件；含 13 项几何回归 · 19 项 IK · 19 项拖动平面 ·
+单元测试      vitest run                318 / 318 PASS（24 文件；含 13 项几何回归 · 24 项 IK · 19 项拖动平面 ·
                                        13 项目标语义 · 30 项 wsProtocol · 33 项 WebSocketTransport ·
                                        17 项自动连接意图与切换时序 · 12 项 mode↔transport 联动 ·
                                        19 项链路误差语义 · 4 项幽灵臂渲染 · 20 项示教轨迹 · 17 项示教回放）
-后端单测      go test ./...             56 / 56 PASS（5 包：robot · protocol · device · controller · wsserver）
+后端单测      go test ./...             65 / 65 PASS（5 包：robot · protocol · device · controller · wsserver）
                                         + go vet 干净 · gofmt -l 无输出
 浏览器 e2e    node tests/e2e/ui-smoke   88 / 88 PASS（含 25 项 Phase 8 真实 WebSocket 端到端
                                         + 4 项 Phase 10.6 Real Robot 准入拒绝 + 7 项 Phase 11 误差面板
                                         + 6 项 Phase 12 幽灵臂 + 19 项 Phase 13 示教录制/回放）
-生产构建      vite build                1,310.04 kB (gzip 369.33 kB)
+生产构建      vite build                1,332.32 kB (gzip 378.73 kB)
 FK↔Three.js  200 组随机关节状态         末端位置最大误差 8.673e-14 mm
                                        关节矩阵最大元素误差 8.527e-14
-FK(IK(XYZ))  2000 组随机可达位姿         末端位置最大残差 1.401e-13 mm（失败 0 组）
-IK 拖动连续性 300 点就近跟随             最大误差 1.017e-13 mm，支解切换 0 次
+FK(IK(XYZ))  2000 组随机可达位姿         末端位置最大残差 1.180e-13 mm（失败 0 组）
+IK 拖动连续性 300 点就近跟随             最大误差 9.210e-14 mm，支解切换 0 次
 拖动轨迹      400 点穿越工作空间边界      边界定位到一格（1.5mm）内；越界段关节**零变化**
-真实鼠标拖拽  无头 Edge + CDP 真实事件    Δ 17.47 mm；被锁轴 Z **逐位相同**（93.83984236589028）
+真实鼠标拖拽  无头 Edge + CDP 真实事件    Δ 17.23 mm；被锁轴 Z **逐位相同**（109.22362788339143）
 测试探针      生产构建产物                JS bundle 中 `__armPilot` **0 命中**（dev-only 门控生效；`data-testid` 是有意保留的稳定选择器）
 运行态       真实浏览器（swiftshader）   FK↔3D = 3.18e-14 mm @ 初始位姿
 几何↔运动学  抹掉全部 geometry/details   endEffectorPosition 逐位不变
 真机一致性    HOME 位（四舵机全 90°）    虚拟臂渲染姿态与实拍照片目视一致
-真值冻结      运动学+物理语义核心         与基线一致（L2 哈希未变）；改 geometry 放行 · 改 length/gravity 报错
+真值冻结      运动学+物理语义核心         与基线一致（本轮**有意**动过物理 ⇒ 已按 D55 走 `--update` 重新冻结）；改 geometry 放行 · 改 length/gravity 报错
                                        （D55；`tools/freeze_baseline.py` + 11 项辨识力测试）
 纹理校正      合成"模拟照片"往返          四角估计 max|Δ| = 1.00 px；刻度线偏差 1/1/1 px；板色 58≈60
                                        （D56）
@@ -467,6 +468,20 @@ e2e 实测      滑杆跳 30°                  即时 cmd 29.9° / act 0.8°（
 终态精度      回放走完 0.44s 时间轴        命令 **逐值**等于录制末帧（1e-9 判定）；与"回放前挪开的 5°"明显不同
 未绕安全门    回放经既有命令路径          下游日志可见 `joint_command`（尾沿节流与安全门照常生效）
 清空          清空轨迹                   0 帧 / 状态回到「已就绪」；导出按钮重新禁用
+──────────── Phase 14 · 被动腕关节（爪被连杆锁平） ────────────
+旧模型否决    扫 S8 · 量爪指轴线并画回原图   小臂绝对倾角变 **29.24°** 时爪的画面倾角只变 **7.31°**
+                                       ⇒ `tool = fixed`（爪固连小臂）被实测否决，改为 `passive`
+HOME 解析解   新闭式 vs 前端 ik.ts         `x = 80·sin(0.8499°) + 80·sin(112.6186°) + 40 = **115.0335** mm`
+                                       `z = 60 + 80·cos(0.8499°) + 80·cos(112.6186°) = **109.2236** mm`（逐位吻合）
+TCP 常量偏移  腕枢轴 → TCP · ≥3 姿态        `toolOffset = [40, 0] mm` 逐位一致（`PROBE_TOL_MM = 1e-6`）
+                                       跨姿态不变 ⇒ 才允许当常量用（否则 `ik.ts` 抛 `IkModelError`）
+绝对角锁定     MuJoCo tendon 等式          `<tendon><fixed>` 叠 `shoulder+elbow+tool` → `<equality><tendon>` 钉 90°
+                                       写成 `<equality><joint>` 会漏 shoulder，残差恰为 `homePose.shoulder` = 0.8499°
+计数口径       nq=5 而自由度 4             `nu=4 / nq=5 / neq=1 / ntendon=1`；`passive` 不进 JointState / UI 滑杆 /
+                                       homePose / 执行器；协议 `JR` 仍**四元组**（按 `type == "revolute"` 过滤）
+拖动锁轴       HOME 位被锁轴 Z             109.22362788339143 **逐位相同**（真实鼠标拖动 Δ 17.23 mm）
+台面重推       包络最低点 15.8 → 32.71 mm   台面顶面取 **46 mm**（D55 `--update` 重新冻结基线）
+                                       接触力判据见下方 MuJoCo 轨（dist 1.353 mm / Δz −14.62 mm）
 ──────────── A1/A2 判定 · 骨架双杆与 coupling.gain ────────────
 自检 C        合成真值（不依赖实拍）       杆距 4mm 改善仅 +0.26°（肘）；8mm 改善方向不一致 ⇒ **无单调趋势**
 实拍矩阵      rod_gap 0 / 4 / 10          gap=4 局部"修好"（+0.7% / −0.5%）；gap=10 让 dir_S7 崩到 **−46.3%**（拟合退化）
@@ -474,30 +489,33 @@ e2e 实测      滑杆跳 30°                  即时 cmd 29.9° / act 0.8°（
 跨批极差      标定增益可复现性            肩 **[−13.1%, −2.3%] 极差 10.8%** · 肘 **[+0.9%, +53.8%] 极差 52.9%**（容差 5%）
 最终判定      —                          **测量本身不可复现** ⇒ A1/A2 双双不做；A3 上台面重测是唯一入口（见 `hardware-measurement.md` §7）
 ──────────── MuJoCo 轨 · 物理仿真（M1–M10） ────────────
-生成器        gen_model.py              8550 B · nq=4 nv=4 nbody=8 ngeom=33 nu=4 nexclude=5 · 总质量 0.2173 kg
-FK 交叉验证   参考实现 vs MuJoCo        零位 [0,0,260] · HOME [111.9569,0,93.8398] · 120 随机 + 256 角点
-                                       → max|Δ| = 7.1e-14 mm（阈值 1e-6）
+生成器        gen_model.py              9240 B · **nq=5 nv=5 njnt=5** nu=4 nbody=8 ngeom=34 nexclude=5 neq=1 ntendon=1 · 总质量 0.2173 kg
+FK 交叉验证   参考实现 vs MuJoCo        零位 [40,0,220] · HOME **[115.0335,0,109.2236]** · 120 随机 + 256 角点
+                                       → max|Δ| = 7.105e-14 mm（阈值 1e-6）
 IK 交叉验证   真实 ik.ts → MuJoCo 复算   目标由 MuJoCo FK 生成 ⇒ 120/120 成功（100%）
-                                       max = 1.137e-13 mm · mean = 3.76e-14 mm
-前端 fk.ts    与 MuJoCo 逐点对撞          376 点（含 256 限位角点）max = 1.137e-13 mm
-越限诊断      几何可达但限位不允许        IK 报 JOINT_LIMIT（不是 OUT_OF_WORKSPACE），最接近支差 55.0°
-可达内锥      合法域内最小水平半径         65.6208 mm（角点 θs=−6.0937°, θe=141.8582°）⇒ 够不到中轴线
+                                       max = 9.948e-14 mm · mean = 3.426e-14 mm
+前端 fk.ts    与 MuJoCo 逐点对撞          376 点（含 256 限位角点）max = 8.527e-14 mm
+越限诊断      几何可达但限位不允许        IK 报 JOINT_LIMIT（不是 OUT_OF_WORKSPACE），最接近支差 55.000°
+可达内锥      合法域内最小水平半径         80.9164 mm（角点 θs=−6.0937°, θe=141.8582°）⇒ 够不到中轴线
 解支唯一性    θe − θs ≥ 58.9866°        ⇒ elbow-down（α<0）恒不可行；四对限位换算后恰好等价
-重力测试      无驱动 3s（有/无重力对照）  Δ base 3.873° / shoulder 35.962° / elbow 48.104° / gripper 31.691°
-                                       关重力对照：Δ 全部 == 0.0
-稳态误差自洽  qpos == ctrl − τ/kp        肩 0.36° = 0.0316 N·m ÷ 5.0
-接触力判据    dist = +1.439 mm           qfrc_constraint = [0, −0.23325, −0.145184, 0] · 执行器满力矩 0.1765
-                                       禁用台面 ⇒ TCP z 由 44.05 掉到 15.79 mm（Δz = −28.26 mm）
-自碰撞几何距  相邻连杆实测重叠            −20.0 / −1.576 / −7.123 / 0.0 / −5.0 mm ⇒ exclude 是必要的
-接触稳定性    下压 5s                   漂移 0.0013° · 无深穿透（min dist > −2 mm）
+重力测试      无驱动 3s（有/无重力对照）  Δ shoulder 32.095° / elbow 30.990°；**Δ base = Δ gripper = 0.000°**
+                                       　（不是没测：被动腕把爪锁平后 **gripper 铰轴变为世界竖直**，实测与 ±Z 夹角
+                                       　 0.031°；`base` 轴本就是 +Z ⇒ 二者重力矩恒为 0，是模型的又一重佐证）
+                                       关重力对照：max|Δ| = 1.574e-10°（阈值 1e-6）
+稳态误差自洽  qpos == ctrl − τ/kp        肩 err 0.2875°（τ = 重力矩 + 约束矩）· 与预测残差 2.75 mrad < 3 mrad 容差
+接触力判据    dist = +1.353 mm           qfrc_constraint = [0, −0.23589, −0.12266, 0] N·m · 执行器顶到满力矩 0.1765
+                                       禁用台面 ⇒ TCP z 由 62.35 掉到 47.73 mm
+                                       （Δz = −14.62 mm = 台面顶 46 − 包络最低 32.73 + 软接触间隙 1.35）
+自碰撞几何距  相邻连杆实测重叠            0.000 / −0.001 / −10.438 / −0.446 / −5.000 mm ⇒ 实有 4 对重叠，exclude 是必要的
+接触稳定性    下压 5s                   漂移 0.0108° · 无深穿透（min dist > −2 mm）
 时间步分层    1kHz / 100Hz / 33.3ms      step(1)×10 ≡ step(10)（按位）；第 10 步限速目标恰好走 1 格
 渲染解耦      fps=5 vs fps=240           qpos 按位相同（渲染帧率不决定物理步长）
 复位可重复    reset × 2 · 热启动泄漏       qpos/qvel 按位相同；新实例与复用实例亦一致
 跨进程确定性  run.py --demo 跑两遍         12 行数值载荷逐字相同（seed=0）
 记录回读      JSONL / CSV               列与 config 一致 · 数值等于当时状态 · sim_time 严格递增
-快速运动      Test D 峰值角速度           4.9161 rad/s（限速目标 10 rad/s，0.49×）· 无 NaN · 不越 range
+快速运动      Test D 峰值角速度           4.9165 rad/s（限速目标 10 rad/s，0.49×）· 无 NaN · 不越 range
 Level 声明    calibration.calibrated      false + 七项全空（由测试强制，ADR D52）
- ─── pytest 106 passed（10 文件）· go test 56 全绿 · vitest 293 passed · tsc 0 error · vite build OK ───
+ ─── pytest 147 passed（12 文件）· go test 65 全绿 · vitest 318 passed · tsc 0 error · vite build OK ───
 ```
 
 > **Phase 9 最重要的一条结论**：真机固件**没有位置反馈**（`arm_get_angle()` 回的是固件记着的
@@ -583,12 +601,14 @@ JPEG 体积 +2.7%、反解残差 **69.76px**（其余帧 28~42）、肘帧间差
 
 | 关节状态（θ 为**绝对角**，degree） | 末端 TCP（页面读数） | 解析解 |
 |----------|----------|--------|
-| **HOME** (0, 0.849894, 112.618577, 50) | (112.0, 0.0, 93.8) | (111.957, 0, 93.840) |
-| J2 滑杆 → 39.9°（量程 −6.09..49.45 量化） | Z 75.2 | Z 75.222 |
-| J2 39.9° + J3 滑杆 60° → **钳位到限位 min 108.441485** | (165.2, 0, 83.4) | (165.154, 0, 83.413) |
+| **HOME** (0, 0.849894, 112.618577, 50) | (115.0, 0.0, 109.2) | (115.033, 0, 109.224) |
+| J2 滑杆 → 39.9°（量程 −6.09..49.45 量化） | Z 90.6 | Z 90.606 |
+| J2 39.9° + J3 滑杆 60° → **钳位到限位 min 108.441485** | (167.2, 0, 96.1) | (167.208, 0, 96.066) |
 | 夹爪滑杆 90° | TCP 与上行差 < 0.05（夹爪不参与定位） | 同左 |
 
-> `x = 80·sin(θ_肩) + 120·sin(θ_小臂绝对角)`，`z = 60 + 80·cos(θ_肩) + 120·cos(θ_小臂绝对角)`。
+> `x = 80·sin(θ_肩) + 80·sin(θ_小臂绝对角) + 40`，`z = 60 + 80·cos(θ_肩) + 80·cos(θ_小臂绝对角)`。
+> 末尾那个 **+40** 是「腕枢轴 → TCP」的**常量水平偏移**（爪被连杆锁平）。
+> 旧式 `120·sin(θ_小臂绝对角)` 是把爪当成沿小臂伸出的直线段 —— 已被实测否决（ADR **D70**）。
 > 因小臂存**绝对角**（平行四连杆解耦），**不再叠加肩角** —— 这是本次实测修正的核心。
 > 其中 `J3 滑杆 60°` 被 `elbow.limit.min = 108.441485` 钳位，正是「零位不可达 0°」的体现
 > （见 `docs/coordinate-system.md`）。
@@ -628,8 +648,8 @@ solveIk(model, [x, y, z])  // → { success: true, joints, branch, residual, azi
 
 > `moveTo()` 用 `prefer: 'nearest'` + `near: 当前命令角` 求解，并把当前关节状态作 `seed`，
 > 使夹爪等未参与解算的关节原样透传 —— 返回值可直接喂 FK 闭环。
-> 实测确认：从 HOME 向右拖，末端跟随 17.47mm，落点 `target[2]` 与按下瞬间的 TCP Z **逐位相同**
-> （`93.83984236589028`），即"锁 Z"是**定义**而非数值巧合。
+> 实测确认：从 HOME 向右拖，末端跟随 17.23mm，落点 `target[2]` 与按下瞬间的 TCP Z **逐位相同**
+> （`109.22362788339143`），即"锁 Z"是**定义**而非数值巧合。
 
 ### 传输层与后端（Phase 7–8）
 

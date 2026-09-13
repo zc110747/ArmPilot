@@ -80,8 +80,13 @@ describe('Phase 1 · RobotModel 加载与自洽性', () => {
     expect(jointById(model, 'base')!.childLink).toBe('column_link');
     expect(jointById(model, 'gripper')!.parentLink).toBe('tool_link');
 
-    // 固定关节不产生自由度
-    expect(jointById(model, 'tool')!.type).toBe('fixed');
+    // 非 revolute 的关节不产生自由度。`tool` 是**被动腕**：
+    // 爪被平行四连杆锁成水平，它的角度完全由 `coupling` 从 elbow 派生，没有独立输入，
+    // 因此不进 JointState / UI 滑杆 / JR 四元组（`isMovableJoint()` 为 false）。
+    expect(jointById(model, 'tool')!.type).toBe('passive');
+    expect(jointById(model, 'tool')!.coupling).toEqual({ jointId: 'elbow', gain: -1 });
+    const tool = jointById(model, 'tool')!;
+    expect(tool.limits.min).toBe(tool.limits.max);
   });
 
   it('连杆长度是运动学唯一真值：改一个数字即改变机构尺寸', () => {

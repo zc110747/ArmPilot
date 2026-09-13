@@ -153,15 +153,16 @@ describe('几何 ↔ 运动学解耦', () => {
 
     expect(after).toEqual(before);
 
-    // HOME 解析解（小臂存的是**绝对角**，与肩角由平行四连杆解耦）：
-    //   x = 80·sin(肩) + (80 + 40)·sin(小臂绝对角)
-    //   z = 60 + 80·cos(肩) + (80 + 40)·cos(小臂绝对角)
+    // HOME 解析解（小臂存的是**绝对角**，与肩角由平行四连杆解耦；
+    // 且爪被被动腕锁成水平 ⇒ TCP 比腕枢轴多出 40mm **水平**径向偏移，不是小臂的延长线）：
+    //   x = 80·sin(肩) + 80·sin(小臂绝对角) + 40
+    //   z = 60 + 80·cos(肩) + 80·cos(小臂绝对角)
     // 数值来自 2026-09-12 实拍反解，见 docs/hardware-measurement.md
     const rad = (deg: number): number => (deg * Math.PI) / 180;
     expect(before[0]).toBeCloseTo(
-      80 * Math.sin(rad(home.shoulder!)) + 120 * Math.sin(rad(home.elbow!)), 6);
+      80 * Math.sin(rad(home.shoulder!)) + 80 * Math.sin(rad(home.elbow!)) + 40, 6);
     expect(before[2]).toBeCloseTo(
-      60 + 80 * Math.cos(rad(home.shoulder!)) + 120 * Math.cos(rad(home.elbow!)), 6);
+      60 + 80 * Math.cos(rad(home.shoulder!)) + 80 * Math.cos(rad(home.elbow!)), 6);
   });
 
   it('jaw_link.geometry 只提供爪型参数，不改变 TCP', () => {

@@ -323,7 +323,7 @@ function parseGeometry(value: unknown, path: string): LinkGeometry {
 }
 
 const JOINT_ROLES: readonly JointRole[] = ['base', 'shoulder', 'elbow', 'tool', 'gripper'];
-const JOINT_TYPES: readonly JointType[] = ['revolute', 'fixed'];
+const JOINT_TYPES: readonly JointType[] = ['revolute', 'fixed', 'passive'];
 
 function parseLink(value: unknown, index: number): Link {
   const path = `links[${index}]`;
@@ -372,6 +372,15 @@ function parseJoint(value: unknown, index: number): Joint {
     throw new RobotConfigError(`${path}.role 非法: ${role}，可选值: ${JOINT_ROLES.join(' / ')}`);
   }
 
+  // ⚠️ 被动关节**必须显式写出 limit**（它的值恒取 limit.min = 锁定角）。
+  //    若允许缺省，`parseLimits` 的默认 0 会让「锁在 0°」静默成立 ——
+  //    那是"爪指向天顶"这种一眼假的姿态，却在模型层完全合法。宁可在这里炸。
+  if (type === 'passive' && dict['limit'] === undefined && dict['limits'] === undefined) {
+    throw new RobotConfigError(
+      `${path}: 被动关节必须显式给出 limit（min 是它的锁定角，且必须 min === max）`,
+    );
+  }
+
   return {
     id,
     name: optString(dict, 'name', path) ?? id,
@@ -383,7 +392,7 @@ function parseJoint(value: unknown, index: number): Joint {
     origin: parseOrigin(dict['origin'], `${path}.origin`),
     limits: parseLimits(dict['limit'] ?? dict['limits'], `${path}.limit`, {
       min: 0,
-      max: type === 'revolute' ? 0 : 0,
+      max: 0,
     }),
     ...parseCoupling(dict['coupling'], `${path}.coupling`),
   };

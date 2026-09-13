@@ -14,7 +14,21 @@
 import type { EulerDeg, Vec3 } from './Pose';
 import { clamp } from './Pose';
 
-export type JointType = 'revolute' | 'fixed';
+/**
+ * 关节类型。
+ *
+ * - `revolute` 可动关节：有独立输入（舵机），值进 JointState / UI / JR 协议。
+ * - `fixed`    固定关节：完全不转（`origin.rotation` 已表达其固定朝向），
+ *              在 `joints` 里存在只为把链描述完整。
+ * - `passive`  **被动关节**：会转，但**没有独立输入** —— 其角度完全由 `coupling`
+ *              从别的关节派生。它**不进 JointState / UI 滑杆 / JR 协议**，
+ *              也不需要执行器与 homePose；它的值恒取 `limits.min`
+ *              （因此校验层强制要求被动关节 `min === max`，见 `RobotModel.validateRobotModel`）。
+ *
+ * 本机的被动关节是 `tool`（腕）：爪的绝对倾角被平行四连杆锁死，
+ * 于是它在串联网里的局部旋转 = 90 + (−1) × elbow（实测依据见 config/robot.yaml）。
+ */
+export type JointType = 'revolute' | 'fixed' | 'passive';
 
 /**
  * 关节角色。用于 UI 命名（J1/J2/J3/Gripper）与业务逻辑识别，
@@ -77,9 +91,16 @@ export interface Joint {
 }
 
 /**
- * 是否为「可动关节」（有真实自由度的关节）。
- * 固定关节（如腕部 tool）在 `RobotModel.joints` 中存在以便完整描述链，
- * 但不进入 UI 滑杆、不进入 JointState、不参与 IK。
+ * 是否为「可动关节」（有真实**独立**自由度的关节 = 一个舵机一个关节）。
+ *
+ * 这条判据同时决定三件事，所以三处必须同源：
+ *   ① 谁进 `JointState`（= 状态帧 / JR 协议 / UI 滑杆）；
+ *   ② 谁参与 IK 的未知量；
+ *   ③ 谁必须有执行器与 homePose。
+ *
+ * - 固定关节（`fixed`）：完全不转 ⇒ 否；
+ * - 被动关节（`passive`，本机的腕）：会转但**没有输入** ⇒ 否
+ *   （它的角度由 `coupling` 派生，混进状态帧会让 JR 从四元组变五元组）。
  */
 export function isMovableJoint(joint: Joint): boolean {
   return joint.type === 'revolute' && joint.limits.max > joint.limits.min;

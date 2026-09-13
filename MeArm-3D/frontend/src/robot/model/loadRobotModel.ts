@@ -12,8 +12,9 @@ import { parse as parseYaml } from 'yaml';
 import robotYamlText from '@config/robot.yaml?raw';
 import type { Actuator, ActuatorLimits } from './Actuator';
 import type { Joint, JointCoupling, JointLimits, JointOrigin, JointRole, JointType } from './Joint';
-import type { Link, LinkGeometry, PlateGeometry, ServoGeometry } from './Link';
+import type { JawGeometry, Link, LinkGeometry, PlateGeometry, ServoGeometry } from './Link';
 import {
+  DEFAULT_JAW_SPEC,
   DEFAULT_PLATE_CORNER_RADIUS,
   DEFAULT_SERVO_SHAFT_LENGTH,
   DEFAULT_SERVO_SIZE,
@@ -150,7 +151,15 @@ function optKeyVec3(dict: Dict, key: string, path: string): Vec3 | undefined {
   return dict[key] === undefined ? undefined : numberVec(dict[key], `${path}.${key}`, 3);
 }
 
-const GEOMETRY_TYPES = ['none', 'box', 'plate', 'cylinder', 'sphere', 'servo'] as const;
+const GEOMETRY_TYPES = [
+  'none',
+  'box',
+  'plate',
+  'cylinder',
+  'sphere',
+  'servo',
+  'jaw',
+] as const;
 
 function parseGeometry(value: unknown, path: string): LinkGeometry {
   if (value === undefined || value === null) return { type: 'none' };
@@ -245,6 +254,70 @@ function parseGeometry(value: unknown, path: string): LinkGeometry {
         ...(rotation ? { rotation } : {}),
         ...(color ? { color } : {}),
       };
+    }
+    case 'jaw': {
+      // 爪型参数（字段含义见 Link.ts 的 JawGeometry）。除 length 外都可省略，
+      // 缺省在 jawRenderSpec 里统一补齐；解析层只负「写错了要立刻报错」。
+      const length = reqNumber(dict, 'length', path);
+      const thickness = optNumber(dict, 'thickness', path, DEFAULT_JAW_SPEC.thickness);
+      const width = optNumber(dict, 'width', path, DEFAULT_JAW_SPEC.width);
+      const tipWidth = optNumber(dict, 'tipWidth', path, DEFAULT_JAW_SPEC.tipWidth);
+      const gearRadius = optNumber(dict, 'gearRadius', path, DEFAULT_JAW_SPEC.gearRadius);
+      const gearTeeth = optNumber(dict, 'gearTeeth', path, DEFAULT_JAW_SPEC.gearTeeth);
+      const toothDepth = optNumber(dict, 'toothDepth', path, DEFAULT_JAW_SPEC.toothDepth);
+      const serrations = optNumber(dict, 'serrations', path, DEFAULT_JAW_SPEC.serrations);
+      const serrationDepth = optNumber(
+        dict,
+        'serrationDepth',
+        path,
+        DEFAULT_JAW_SPEC.serrationDepth,
+      );
+      const tipSkew = optNumber(dict, 'tipSkew', path, DEFAULT_JAW_SPEC.tipSkew);
+      const neckInset = optNumber(dict, 'neckInset', path, DEFAULT_JAW_SPEC.neckInset);
+      const neckAt = optNumber(dict, 'neckAt', path, DEFAULT_JAW_SPEC.neckAt);
+      const holeRadius = optNumber(dict, 'holeRadius', path, DEFAULT_JAW_SPEC.holeRadius);
+
+      const spanRaw = dict['serrationSpan'];
+      const serrationSpan: [number, number] =
+        spanRaw === undefined
+          ? [DEFAULT_JAW_SPEC.serrationSpan[0], DEFAULT_JAW_SPEC.serrationSpan[1]]
+          : (() => {
+              const value = numberVec(spanRaw, `${path}.serrationSpan`, 2);
+              return [value[0]!, value[1]!];
+            })();
+
+      // 自洽性前置检查：三条派生关系（见 jawRenderSpec）都以「分度圆半径 = gearRadius −
+      // toothDepth/2 不小于爪指半宽」为前提。不满足时爪指中线会落到齿轮外侧，
+      // θ=0 两爪也贴不上 —— 这种配置必须当场拦下，不能渲染出一个畸形的爪。
+      const pitchRadius = gearRadius - toothDepth / 2;
+      if (pitchRadius < width / 2) {
+        throw new RobotConfigError(
+          `${path}: 分度圆半径(= gearRadius − toothDepth/2 = ${pitchRadius}) 必须 ≥ width/2 ` +
+            `(= ${width / 2})，否则爪指中线会落到齿轮外侧且 θ=0 两爪无法贴合`,
+        );
+      }
+
+      const jaw: JawGeometry = {
+        type: 'jaw',
+        length,
+        thickness,
+        width,
+        tipWidth,
+        gearRadius,
+        gearTeeth,
+        toothDepth,
+        serrations,
+        serrationDepth,
+        serrationSpan,
+        tipSkew,
+        neckInset,
+        neckAt,
+        holeRadius,
+        ...(position ? { position } : {}),
+        ...(rotation ? { rotation } : {}),
+        ...(color ? { color } : {}),
+      };
+      return jaw;
     }
   }
 }

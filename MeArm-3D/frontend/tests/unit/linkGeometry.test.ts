@@ -20,6 +20,7 @@ import {
   DEFAULT_SERVO_SIZE,
   endEffectorPosition,
   homeJointState,
+  jawRenderSpec,
   jointByRole,
   linkById,
   linkDetails,
@@ -52,6 +53,7 @@ describe('LinkGeometry · 解析与默认值', () => {
       'cylinder',
       'sphere',
       'servo',
+      'jaw',
     ];
     for (const link of model.links) {
       expect(known, `link ${link.id}`).toContain(link.geometry.type);
@@ -162,11 +164,11 @@ describe('几何 ↔ 运动学解耦', () => {
       60 + 80 * Math.cos(rad(home.shoulder!)) + 120 * Math.cos(rad(home.elbow!)), 6);
   });
 
-  it('jaw_link.geometry 只提供爪片尺寸，不改变 TCP', () => {
+  it('jaw_link.geometry 只提供爪型参数，不改变 TCP', () => {
     const jawLink = linkById(model, jointByRole(model, 'gripper')!.childLink);
     expect(jawLink).toBeDefined();
-    // 爪片尺寸必须来自配置（plate/box 的 size），否则渲染层会回落到 DEFAULT_JAW_SIZE
-    expect(['plate', 'box']).toContain(jawLink!.geometry.type);
+    // 爪型必须来自配置（`type: jaw` 的参数化轮廓），否则渲染层会回落到 DEFAULT_JAW_SPEC
+    expect(jawLink!.geometry.type).toBe('jaw');
   });
 });
 
@@ -196,34 +198,55 @@ describe('对象树 · 舵机与夹爪', () => {
     const jaws = objects.gripperJaws;
     expect(jaws).not.toBeNull();
 
-    // 读数取「爪片网格相对掌心中线坐标系」的位置：与整机姿态无关，只反映开合关系
-    const palm = jaws!.left.parent!;
-    const readJawLocal = (): [THREE.Vector3, THREE.Vector3] => {
-      objects.root.updateMatrixWorld(true);
-      const read = (pivot: THREE.Object3D): THREE.Vector3 => {
-        const part = pivot.children[0] ?? pivot;
-        const world = new THREE.Vector3();
-        part.getWorldPosition(world);
-        return palm.worldToLocal(world);
-      };
-      return [read(jaws!.left), read(jaws!.right)];
+    // 读数取「爪尖相对掌心中线坐标系」的位置：与整机姿态无关，只反映开合关系。
+    // ⚠️ 爪尖直接取**实际几何顶点**（Z 最大处），不在测试里重算「内偏 + 镜像」那套符号
+    //    —— 否则镜像的那一片必然把符号算反（本轮就是这么踩了一次）。
+    const jawTipLocal = (pivot: THREE.Object3D): THREE.Vector3 => {
+      const mesh = pivot.children[0] as THREE.Mesh;
+      const position = mesh.geometry.getAttribute('position');
+      let maxZ = -Infinity;
+      for (let i = 0; i < position.count; i++) maxZ = Math.max(maxZ, position.getZ(i));
+      let sumY = 0;
+      let count = 0;
+      for (let i = 0; i < position.count; i++) {
+        if (position.getZ(i) >= maxZ - 1e-4) {
+          sumY += position.getY(i);
+          count += 1;
+        }
+      }
+      return new THREE.Vector3(0, sumY / count, maxZ);
     };
 
-    const thickness = 4.5; // robot.yaml: jaw_link.geometry.size = [9, 4.5, 34]
+    // 顺带把「三条自洽关系」的前两条钉住：中心距 = 2×分度圆半径、内偏非负
+    const spec = jawRenderSpec(linkById(model, 'jaw_link'));
+    expect(spec.hubOffsetY).toBeCloseTo(spec.pitchRadius, 9);
+    expect(spec.fingerInset).toBeGreaterThanOrEqual(0);
+
+    const palm = jaws!.left.parent!;
+    const readTip = (pivot: THREE.Object3D): THREE.Vector3 => {
+      const world = jawTipLocal(pivot);
+      pivot.localToWorld(world);
+      return palm.worldToLocal(world);
+    };
+    const readJawTips = (): [THREE.Vector3, THREE.Vector3] => {
+      objects.root.updateMatrixWorld(true);
+      return [readTip(jaws!.left), readTip(jaws!.right)];
+    };
 
     applyJointState(objects, model, { ...homeJointState(model), gripper: 0 });
-    const [closedLeft, closedRight] = readJawLocal();
-    // 闭合：两爪分居铰轴两侧，各自偏移 = 爪厚/2，正好贴合
-    expect(closedLeft.y).toBeCloseTo(-thickness / 2, 6);
-    expect(closedRight.y).toBeCloseTo(thickness / 2, 6);
+    const [closedLeft, closedRight] = readJawTips();
+    // 闭合：两爪尖**都落在掌心中线附近**（内侧缘贴合），谁也不越过中线。
+    // 容差 0.5mm 留给板边 0.3mm 的倒角 —— 爪尖处的实际顶点本就该偏离理想零点几毫米，
+    // 那是几何事实而非开合逻辑错误；真正要精确的是下面那条**镜像对称**。
+    expect(Math.abs(closedLeft.y)).toBeLessThan(0.5);
+    expect(Math.abs(closedRight.y)).toBeLessThan(0.5);
+    expect(closedLeft.y).toBeCloseTo(-closedRight.y, 9);
 
     applyJointState(objects, model, { ...homeJointState(model), gripper: 90 });
-    const [openLeft, openRight] = readJawLocal();
-    // 张开：仍分居各自一侧（说明是"向外张开"而不是"越过中线互穿"），且张开幅度显著变大
-    expect(openLeft.y).toBeLessThan(0);
-    expect(openRight.y).toBeGreaterThan(0);
-    expect(openLeft.y).toBeLessThan(closedLeft.y - 1);
-    expect(openRight.y).toBeGreaterThan(closedRight.y + 1);
+    const [openLeft, openRight] = readJawTips();
+    // 张开：各自向**外**移（左爪更负、右爪更正）—— 是"向外张开"而不是"越过中线互穿"
+    expect(openLeft.y).toBeLessThan(-1);
+    expect(openRight.y).toBeGreaterThan(1);
   });
 
   it('夹爪开合不改变 TCP 世界坐标', () => {

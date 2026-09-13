@@ -213,17 +213,36 @@ links:
       # 爪铰轴（沿 X）
       - { type: cylinder, radius: 3.2, height: 32, rotation: [0, 0, 90], position: [0, 0, 40], color: "#2b3446" }
 
-  # ---- 夹爪：仅提供两片爪的尺寸 [宽, 厚, 长] --------------------------------
-  #   本体由渲染层特例化为「两片爪绕 X 铰轴对称开合」，不产生独立几何。
+  # ---- 夹爪：单片爪的**平面轮廓**（外形读自实拍近景，ADR D66）----------------
+  #   本体由渲染层特例化为「两片爪绕**各自齿轮轴**对称开合」，不产生独立几何。
+  #   字段含义见 frontend/src/robot/model/Link.ts 的 JawGeometry。
+  #   ⚠️ 三条自洽关系**由渲染层推导**（jawRenderSpec），不在这里配平：
+  #      ① 两齿轮中心距 = 2 × 分度圆半径(= toothDepth 中线) ⇒ 标准啮合；
+  #      ② 爪指中线相对齿轮中心内偏 = 分度圆半径 − width/2；
+  #      ③ 由 ①② 得 θ=0 时两爪内侧缘正好贴合。
+  #   ⚠️ `length` 量的是「齿轮中心 → 爪尖」，与 plate 的 size 语义不同；
+  #      `jaw_link.length`（运动学量）恒为 0，不受影响。
   - id: jaw_link
     name: Jaw
     parent: tool_link
     length: 0
     geometry:
-      type: plate
-      size: [9, 4.5, 34]
-      cornerRadius: 1
-      color: "#d29922"
+      type: jaw
+      length: 34            # 齿轮中心 → 爪尖
+      thickness: 4.5
+      width: 9              # 爪指根部全宽（= 2 × 分度圆半径）
+      tipWidth: 3
+      gearRadius: 12        # 齿顶圆半径
+      gearTeeth: 16
+      toothDepth: 3         # 齿高（齿顶圆 − 齿根圆）
+      serrations: 9         # 内侧缘锯齿数（实拍近景约 9 个**浅**齿）
+      serrationDepth: 0.75
+      serrationSpan: [0.35, 0.92]
+      tipSkew: 2.6          # 尖端斜切量
+      neckInset: 1.6        # 外侧缘「脖子」内缩量（实拍爪指出盘后先收窄）
+      neckAt: 0.32          # 脖子位置（占 length 比例）
+      holeRadius: 3.4       # 齿轮盘中心装饰镂空
+      color: "#2b323c"
 
 # -----------------------------------------------------------------------------
 # 关节（Joint）：运动学量

@@ -24,10 +24,11 @@ import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import type { Link, LinkGeometry, PlateGeometry, PlateTextureSpec, ServoGeometry } from '@robot/model/Link';
 import {
+  type JawRenderSpec,
   geometryColor,
   geometryPosition,
   geometryRotation,
-  jawPlateSize,
+  jawRenderSpec,
   linkDetails,
   plateCornerRadius,
   plateTexture,
@@ -351,6 +352,9 @@ function createGeometryObject(
 ): THREE.Object3D | null {
   switch (geometry.type) {
     case 'none':
+    case 'jaw':
+      // 夹爪由「两片爪绕各自齿轮轴对称开合」特例渲染（见 createGripperJaws），
+      // 其 geometry 只描述爪型参数，本身不出独立几何
       return null;
 
     case 'plate': {
@@ -485,34 +489,188 @@ function createTcpMarker(disposables: Disposables): THREE.Object3D {
 }
 
 /**
- * 夹爪两片爪的显示体（开合角由 gripper 关节角驱动）。
+ * 单片爪的平面轮廓（**Shape 坐标：x = 爪宽，y = 爪长，原点 = 齿轮盘中心**）。
  *
- * 爪片尺寸来自 `jaw_link.geometry`（plate/box 的 size = [宽, 厚, 长]），因此改 yaml 即改爪型。
- * 绕 X 铰轴对称开合：左爪（y<0）+θ/2、右爪（y>0）−θ/2 —— 符号使两爪**向外张开**；
+ * 轮廓是一条**连续闭合折线**，逆时针：
+ * ```
+ *   齿轮盘长弧（带齿） → 爪指外侧缘 → 斜切尖端 → 内侧缘（带锯齿） → 回到弧起点
+ * ```
+ * 为什么必须是一条路径：`ExtrudeGeometry` 不做布尔并集 ——「齿轮盘」与「爪指」若各建一个
+ * mesh，重叠区会 z-fighting；分成两条 Shape 又会留下接缝。
+ *
+ * 三类形状特征都读自 **2026-09-13 五张实拍近景**（ADR D66）：黑件在照片里近纯黑、
+ * **没有任何可提取的贴图信息**，所以只能读轮廓 —— 根部整圈方齿的齿轮盘、
+ * 内侧缘一排锯齿、末端斜切收尖。
+ */
+function buildJawOutline(spec: JawRenderSpec): Array<[number, number]> {
+  const halfWidth = spec.width / 2;
+  // 爪指中线相对齿轮中心**向外**偏 halfWidth ⇒ 齿轮中心恰好落在**内侧缘**上。
+  // 再配合 pivot 落在掌心中线两侧 ±pitchRadius（见 createGripperJaws），
+  // θ=0 时两片爪的内侧缘正好在中线贴合 —— 这就是 jawRenderSpec 的第 ③ 条关系。
+  const centerX = spec.fingerInset;
+  const xInner = centerX + halfWidth; // 内侧缘（朝向另一片爪）
+  const xOuter = centerX - halfWidth; // 外侧缘
+  const { gearRadius: rTip, gearRootRadius: rRoot, length } = spec;
+
+  // 爪指两条侧边与齿顶圆的交点（爪指沿 +y 伸出，取 y > 0 那一组解）
+  const yAt = (x: number): number => Math.sqrt(Math.max(rTip * rTip - x * x, 0.01));
+  const yInner = yAt(xInner);
+  const yOuter = yAt(xOuter);
+
+  const points: Array<[number, number]> = [];
+  const polar = (radius: number, angle: number): void => {
+    points.push([radius * Math.cos(angle), radius * Math.sin(angle)]);
+  };
+
+  // ---- 1) 齿轮盘：从**外侧**交点起，逆时针走长弧到**内侧**交点 ----
+  // 被爪指占据的那段短弧由爪指的侧边取代，因此这里只画剩下的 span。
+  const angleInner = Math.atan2(yInner, xInner);
+  const angleOuter = Math.atan2(yOuter, xOuter);
+  const span = Math.PI * 2 - (angleOuter - angleInner);
+  // 齿数按弧长比例取整，使首尾恰好落在**齿根**上 —— 与爪指侧边相接处才不留毛刺
+  const teeth = Math.max(3, Math.round((spec.gearTeeth * span) / (Math.PI * 2)));
+  const step = span / teeth;
+  const ARC_SEGMENTS = 3;
+
+  polar(rRoot, angleOuter);
+  for (let i = 0; i < teeth; i++) {
+    const start = angleOuter + i * step;
+    const valleyEnd = start + 0.16 * step;
+    const flankTop = start + 0.32 * step;
+    const tipEnd = start + 0.68 * step;
+    const flankBottom = start + 0.84 * step;
+    for (let k = 1; k <= ARC_SEGMENTS; k++) {
+      polar(rRoot, start + (valleyEnd - start) * (k / ARC_SEGMENTS));
+    }
+    polar(rTip, flankTop); // 齿侧：直线上到齿顶
+    for (let k = 1; k <= ARC_SEGMENTS; k++) {
+      polar(rTip, flankTop + (tipEnd - flankTop) * (k / ARC_SEGMENTS));
+    }
+    polar(rRoot, flankBottom); // 齿侧：直线下回齿根
+    for (let k = 1; k <= ARC_SEGMENTS; k++) {
+      polar(rRoot, flankBottom + (start + step - flankBottom) * (k / ARC_SEGMENTS));
+    }
+  }
+
+  // ---- 2) 内侧缘：从内侧交点直上，中段带锯齿，末端到内尖角 ----
+  const serrationBottom = length * spec.serrationSpan[0];
+  const serrationTop = length * spec.serrationSpan[1];
+  const pitch = (serrationTop - serrationBottom) / spec.serrations;
+
+  points.push([xInner, yInner]);
+  for (let i = 0; i < spec.serrations; i++) {
+    const bottom = serrationBottom + i * pitch;
+    points.push([xInner, bottom]);
+    points.push([xInner + spec.serrationDepth, bottom + pitch / 2]); // 齿尖：向**内**突出
+  }
+  points.push([xInner, serrationTop]);
+  points.push([xInner, length]); // 内尖角
+
+  // ---- 3) 尖端斜切（实拍爪尖是斜口而非平口）----
+  points.push([xInner - spec.tipWidth, length - spec.tipSkew]);
+
+  // ---- 4) 外侧缘：先经过「脖子」（实拍爪指出齿轮盘后明显收窄一次），
+  //         再一路斜回外侧交点（closePath 会接回起点）----
+  points.push([xOuter + spec.neckInset, length * spec.neckAt]);
+  points.push([xOuter, yOuter]);
+
+  return points;
+}
+
+/**
+ * Shape 平面 → 机构坐标系的唯一映射：**Shape 的 x → 世界 Y，y → 世界 Z，挤出方向 → 世界 X**。
+ *
+ * 为什么不是"Shape 平面 = XY"的默认约定：爪片的**大平面**由「爪长 Z × 爪宽 Y」张成，
+ * 而**厚度沿铰轴 X** —— 实拍里看到的那张完整轮廓图（齿轮盘 + 锯齿）正是沿 X 看过去。
+ * 该矩阵是循环置换 (x→y, y→z, z→x)，行列式 = +1，**不翻转手性**，法线无需修正。
+ */
+const JAW_PLANE_MATRIX = new THREE.Matrix4().set(
+  0, 0, 1, 0, //
+  1, 0, 0, 0, //
+  0, 1, 0, 0, //
+  0, 0, 0, 1,
+);
+
+/**
+ * 由轮廓点集挤出单片爪。`mirrored` 产出 x 取反的另一片 —— 两片爪共用同一套参数，
+ * 只是镜面对称；**镜像后必须反转点序**，否则绕向变成顺时针、挤出体的法线会朝里。
+ */
+function createJawGeometry(spec: JawRenderSpec, mirrored: boolean): THREE.BufferGeometry {
+  const outline = buildJawOutline(spec);
+  const points = mirrored
+    ? outline.map(([x, y]) => [-x, y] as [number, number]).reverse()
+    : outline;
+
+  const shape = new THREE.Shape();
+  shape.moveTo(points[0]![0], points[0]![1]);
+  for (let i = 1; i < points.length; i++) shape.lineTo(points[i]![0], points[i]![1]);
+  shape.closePath();
+
+  if (spec.holeRadius > 0) {
+    // 齿轮盘中心的装饰镂空（实拍可见）。孔必须与外轮廓**反向**（这里取顺时针）
+    const hole = new THREE.Path();
+    const SEGMENTS = 24;
+    for (let i = 0; i <= SEGMENTS; i++) {
+      const angle = -(i / SEGMENTS) * Math.PI * 2;
+      const x = spec.holeRadius * Math.cos(angle);
+      const y = spec.holeRadius * Math.sin(angle);
+      if (i === 0) hole.moveTo(x, y);
+      else hole.lineTo(x, y);
+    }
+    shape.holes.push(hole);
+  }
+
+  const geometry = new THREE.ExtrudeGeometry(shape, {
+    depth: spec.thickness,
+    bevelEnabled: true,
+    bevelThickness: 0.3,
+    bevelSize: 0.3,
+    bevelSegments: 1,
+    curveSegments: 6,
+  });
+  geometry.translate(0, 0, -spec.thickness / 2); // 厚度居中
+  geometry.applyMatrix4(JAW_PLANE_MATRIX);
+  return geometry;
+}
+
+/**
+ * 夹爪两片爪（开合角由 gripper 关节角驱动）。
+ *
+ * 形状全部来自 `jaw_link.geometry`（`type: jaw` 的参数化轮廓），**改 yaml 即改爪型** ——
+ * 渲染层不含任何机构尺寸常量。两片爪的**齿轮中心**分别落在掌心中线两侧
+ * `±hubOffsetY`（= 分度圆半径，标准啮合），爪指各自内偏 `fingerInset`，
+ * 于是 θ=0 时两爪内侧缘正好贴合 —— 这三条关系在 `jawRenderSpec` 里推导，不在这里配平。
+ *
+ * 绕 X 铰轴对称开合：左爪（y<0）+θ/2、右爪（y>0）−θ/2 —— 符号使两爪**向外张开**，
  * 反过来写会让两爪互穿（见 applyJointState 注释）。
  */
 function createGripperJaws(
-  size: Vec3,
+  spec: JawRenderSpec,
   color: string,
   disposables: Disposables,
 ): { left: THREE.Object3D; right: THREE.Object3D } {
-  // size = [宽, 厚, 长]；宽由 createRoundedBox(size) 直接消费，此处只需厚与长
-  const [, thickness, length] = size;
-  const geometry = createRoundedBox(size, 1.1);
-  const material = createMaterial(color, 0.35, 0.5);
-  disposables.push(geometry, material);
+  // 实拍爪是**黑色亚克力**：漫反射几乎为零，形状完全靠**边缘的镜面反射**读出来
+  // （激光切割的切口是光滑面，反光强，照片里正是那一圈亮边勾出了轮廓）。
+  // 所以 metalness 略高、roughness 偏低，让 0.3mm 的板边倒角抓出一条亮边 ——
+  // 否则就是纯黑一片，看不出这是个什么形状（同 ADR D64 的结论：黑件靠镜面项）。
+  const material = createMaterial(color, 0.4, 0.4);
+  disposables.push(material);
 
-  const make = (sign: 1 | -1) => {
+  const make = (mirrored: boolean) => {
+    const geometry = createJawGeometry(spec, mirrored);
     const mesh = new THREE.Mesh(geometry, material);
     mesh.castShadow = true;
-    // 爪片沿 +Z 伸出、沿 ±Y 向两侧让开，铰点位于连杆中线上
-    mesh.position.set(0, sign * (thickness / 2), length / 2);
+    mesh.receiveShadow = true;
+
+    // pivot 的原点 = 齿轮中心：开合旋转因此是「齿轮绕自己的轴转」，与实拍一致
     const pivot = new THREE.Group();
-    pivot.name = sign > 0 ? 'jaw:right' : 'jaw:left';
+    pivot.name = mirrored ? 'jaw:right' : 'jaw:left';
+    pivot.position.set(0, mirrored ? spec.hubOffsetY : -spec.hubOffsetY, 0);
     pivot.add(mesh);
+    disposables.push(geometry);
     return pivot;
   };
-  return { left: make(-1), right: make(1) };
+  return { left: make(false), right: make(true) };
 }
 
 /** 照片纹理材质的 name —— `applyPlateAppearance()` 靠它识别要调整哪一类材质 */
@@ -670,7 +828,7 @@ export function buildRobotObject3D(
     if (gripperJoint && gripperJoint.parentLink === link.id) {
       const jawLink = linkById(model, gripperJoint.childLink);
       const jawColor = jawLink ? geometryColor(jawLink.geometry) : '#d29922';
-      const jaws = createGripperJaws(jawPlateSize(jawLink), jawColor, disposables);
+      const jaws = createGripperJaws(jawRenderSpec(jawLink), jawColor, disposables);
       const pivot = new THREE.Group();
       pivot.name = 'gripperPalm';
       pivot.position.set(0, 0, link.length);

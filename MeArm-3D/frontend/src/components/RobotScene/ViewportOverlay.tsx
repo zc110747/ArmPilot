@@ -12,6 +12,7 @@ export function ViewportOverlay() {
   const showJointOrigins = useRobotStore((s) => s.showJointOrigins);
   const showWorldAxes = useRobotStore((s) => s.showWorldAxes);
   const showRobotAxes = useRobotStore((s) => s.showRobotAxes);
+  const showActualGhost = useRobotStore((s) => s.showActualGhost);
   const showTcp = useRobotStore((s) => s.showTcp);
   const setToggle = useRobotStore((s) => s.setToggle);
   const resetCamera = useRobotStore((s) => s.resetCamera);
@@ -63,6 +64,14 @@ export function ViewportOverlay() {
             onChange={(e) => setToggle('showRobotAxes', e.target.checked)}
           />
           Robot Axis
+        </label>
+        <label className="axis">
+          <input
+            type="checkbox"
+            checked={showActualGhost}
+            onChange={(e) => setToggle('showActualGhost', e.target.checked)}
+          />
+          Actual Arm
         </label>
         <label className="axis">
           <input

@@ -99,7 +99,10 @@ from fit_pose import (  # noqa: E402
     distance_transform,
     make_cost,
     read_yaml_numbers,
+    set_skeleton_rod_gap_mm,
     skeleton,
+    skeleton_polylines,
+    skeleton_rod_gap_mm,
 )
 from segment_arm import dilate  # noqa: E402
 
@@ -564,14 +567,23 @@ def build_base_mask(name: str, roi, thresh, inflate: int = 6, bottom_only: bool 
 # 自检（无需硬件）：合成掩膜 -> 反解 -> 断言
 # ----------------------------------------------------------------------------
 
-def synth_mask(s, ox, oy, ths, the, geom, size=(720, 1280), width=22) -> np.ndarray:
-    """按已知角度渲染一张「黑臂白底」合成图，当作相机的完美观测。"""
+def synth_mask(s, ox, oy, ths, the, geom, size=(720, 1280), width=22,
+               rod_gap=None) -> np.ndarray:
+    """按已知角度渲染一张「黑臂白底」合成图，当作相机的完美观测。
+
+    `rod_gap` 控制小臂是否画成**平行杆对**（默认取模块级设定；0 = 原单折线模型）。
+    只有让「真值渲染」与「拟合模型」能各自独立设置，才可能测出"模型表达不了真值"
+    到底造成多大偏置 —— 两者绑定的话自检必然全绿（见 fit_pose._SKELETON 注释）。
+    """
     l1, l2, l3 = geom
+    gap = skeleton_rod_gap_mm() if rod_gap is None else float(rod_gap)
     img = Image.new("L", (size[1], size[0]), 255)
     dr = ImageDraw.Draw(img)
-    pts, _ = skeleton(ths, the, l1, l2, l3, n=400)
-    # joint=None（直角拼接）更接近实物：大小臂是**两块独立薄板**，关节处不是圆的
-    dr.line([(ox + p[0] * s, oy + p[1] * s) for p in pts], fill=0, width=width)
+    lines, _ = skeleton_polylines(ths, the, l1, l2, l3, n=400, rod_gap=gap)
+    # ⚠️ 每段必须**独立**画线：拼成一条折线再交给 ImageDraw.line，
+    #    画到断点处会拉出一条本不存在的连线，等于凭空多出一根杆。
+    for line in lines:
+        dr.line([(ox + p[0] * s, oy + p[1] * s) for p in line], fill=0, width=width)
     return np.asarray(img, dtype=np.uint8) < 128
 
 
@@ -635,6 +647,32 @@ def selftest(nums: dict, cycles: int) -> int:
         print(f"{w:>7}{w / ws0:>7.1f}{x[0] - ws0:>+9.3f}{x[1] - wx0:>+8.1f}"
               f"{x[2] - wy0:>+8.1f}{x[3] - wth0:>+9.2f}{x[4] - wth2:>+9.2f}")
     print("⇒ 偏置随轮廓厚度单调变差：这就是必须做「帧间差」判定(--dtol) 的原因。")
+
+    # ---- 自检 C：模型表达力（单折线 vs 小臂平行杆对）单独贡献了多少角度偏置 ----
+    # 这是 ADR D38 假设的**可判定形式**：真值按「双杆」渲染，模型分别用单折线与双杆
+    # 去拟合。差值就是"模型表达不了平行四连杆"这一项**单独**造成的角度误差 ——
+    # 它不依赖任何实拍照片，因此不受台面/曝光/底座掩膜那些未锁定的量干扰。
+    print("\n# 自检 C：小臂「平行杆对」真值 -> 单折线模型 vs 双杆模型 的角偏置（判定 ADR D38）")
+    cs, cox, coy, cths, cthe, cw = 2.40, 570.0, 470.0, 25.0, 115.0, 60
+    print(f"# 真值 s={cs} ox={cox} oy={coy} ths={cths:+.2f} the={cthe:+.2f} 轮廓厚={cw}px"
+          f"（真值一律按双杆渲染，只改杆距）")
+    print(f"{'杆距mm':>8}{'≈px':>7}{'单杆Δths':>11}{'单杆Δthe':>11}"
+          f"{'双杆Δths':>11}{'双杆Δthe':>11}{'改善ths':>10}{'改善the':>10}")
+    for g in (0.0, 4.0, 8.0, 12.0, 16.0, 20.0):
+        mask = synth_mask(cs, cox, coy, cths, cthe, geom, width=cw, rod_gap=g)
+        dt = distance_transform(mask)
+        seed = [cs * 0.92, cox - 40.0, coy + 35.0, cths + 15.0, cthe - 20.0]
+        set_skeleton_rod_gap_mm(0.0)
+        x1, _f1 = fit_anchor(dt, mask, None, geom, (0, 0), seed, cycles=cycles)
+        set_skeleton_rod_gap_mm(g)
+        x2, _f2 = fit_anchor(dt, mask, None, geom, (0, 0), seed, cycles=cycles)
+        set_skeleton_rod_gap_mm(0.0)          # 复位，避免影响后续自检
+        e1s, e1e = abs(x1[3] - cths), abs(x1[4] - cthe)
+        e2s, e2e = abs(x2[3] - cths), abs(x2[4] - cthe)
+        print(f"{g:>8.1f}{g * cs:>7.1f}{e1s:>11.2f}{e1e:>11.2f}"
+              f"{e2s:>11.2f}{e2e:>11.2f}{e1s - e2s:>+10.2f}{e1e - e2e:>+10.2f}")
+    print("⇒ 「改善」列在**实物杆距量级**（数 mm）上若很小（<0.3°），说明模型表达力")
+    print("   不是标定增益偏差的主因，改骨架模型换不来精度；反之才值得改。")
     return 0 if npass == len(cases) else 1
 
 
@@ -693,11 +731,16 @@ def main() -> int:
                     help="额外起点（默认只用 锚点角 + homePose，避免被期望值牵引）")
     ap.add_argument("--iters", type=int, default=60,
                     help="搜索的收缩周期数（每个启动各跑一份），默认 60；越大越慢越准")
+    ap.add_argument("--rod-gap", type=float, default=0.0, metavar="MM",
+                    help="小臂「平行杆对」的杆轴线间距（mm）：>0 时骨架把小臂画成两条"
+                         "平行杆以表达平行四连杆；0（默认）= 原单折线模型（逐值不变）。"
+                         "用于检验 ADR D38 的「模型表达力」假设。见 --selftest 自检 C。")
     ap.add_argument("--overlay", default=None, help="叠加图输出：目录 或（单帧时）文件")
     ap.add_argument("--json", default=None, help="把逐帧结果写成 JSON")
     a = ap.parse_args()
 
     nums = read_yaml_numbers()
+    set_skeleton_rod_gap_mm(a.rod_gap)
     acts = read_actuators()
     geom = (nums.get("L1", 80.0), nums.get("L2", 80.0), nums.get("L3", 40.0))
     home = nums.get("home", {}) or {}

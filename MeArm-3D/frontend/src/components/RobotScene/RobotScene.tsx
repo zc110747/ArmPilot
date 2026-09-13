@@ -11,6 +11,7 @@ import { Canvas, useThree } from '@react-three/fiber';
 import { Grid, OrbitControls } from '@react-three/drei';
 import { useRobotStore } from '@/store/robotStore';
 import { DragHandle } from './DragHandle';
+import { ActualGhostArm } from './ActualGhostArm';
 import { RobotArm } from './RobotArm';
 import { TestProbe } from './TestProbe';
 
@@ -96,6 +97,8 @@ export function RobotScene() {
       <WorldAxes />
       <RobotAxes />
       <RobotArm />
+      {/* 实际臂幽灵（Phase 12）：跟随 actualJoints，露出部分即滞后量 */}
+      <ActualGhostArm />
       <DragHandle />
 
       <OrbitControls

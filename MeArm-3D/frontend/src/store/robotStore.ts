@@ -28,6 +28,8 @@
  */
 import { create } from 'zustand';
 import {
+  appendFrame,
+  emptyTrack,
   endEffectorPose,
   homeJointState,
   jointByRole,
@@ -36,6 +38,7 @@ import {
   movableJoints,
   solveIk,
   zeroJointState,
+  type AppendFrameOptions,
   type DragPlaneMode,
   type IkBranch,
   type IkPreference,
@@ -43,6 +46,7 @@ import {
   type IkResult,
   type JointState,
   type RobotModel,
+  type TeachTrack,
   type Transform,
   type TransportStats,
   type Vec3,
@@ -82,6 +86,7 @@ export type ToggleKey =
   | 'showJointOrigins'
   | 'showWorldAxes'
   | 'showRobotAxes'
+  | 'showActualGhost'
   | 'showTcp';
 
 interface RobotStore {
@@ -122,12 +127,32 @@ interface RobotStore {
   showJointOrigins: boolean;
   showWorldAxes: boolean;
   showRobotAxes: boolean;
+  /**
+   * 是否显示「实际臂」幽灵（Phase 12）。
+   *
+   * 主臂跟随 `commandJoints`（意图），幽灵跟随 `actualJoints`（现状）。
+   * 未被遮挡时露出的部分就是**滞后量** —— 这是"虚拟臂到底跟没跟上真机"最直接的
+   * 视觉证据，比读数表更快。收敛时两者重合、幽灵被主臂挡住，等于自动"消失"。
+   */
+  showActualGhost: boolean;
   showTcp: boolean;
 
   cameraResetToken: number;
   /** 运行期 FK ↔ Three.js 一致性误差（mm），由场景实时回写（Phase 3 验收的运行态证据） */
   alignmentErrorMm: number | null;
   log: LogEntry[];
+
+  /**
+   * 示教轨迹（Phase 13）。
+   *
+   * 放 store 而不是组件局部状态，理由与 `commandJoints` 相同（本文件头部 §十七）：
+   * 它是**机器人相关的状态**，且 e2e 探针要能读到末帧真值来做"回放终点 == 录制终点"
+   * 的判定。若留在 `TeachPanel` 内部，探针就只能靠读 DOM 里的 1 位小数文本 —— 
+   * 那点精度做不了逐值断言。
+   */
+  teachTrack: TeachTrack;
+  /** 是否正在录制（录 `commandJoints` 的变化） */
+  teachRecording: boolean;
 
   setJoint(jointId: string, angleDeg: number): void;
   setCommandJoints(next: JointState): void;
@@ -157,6 +182,12 @@ interface RobotStore {
   setAlignmentError(value: number): void;
   pushLog(kind: LogEntry['kind'], text: string): void;
   clearLog(): void;
+
+  /** 追加一帧到示教轨迹（`nowMs` 缺省取 `Date.now()`，测试可注入以保持确定性） */
+  appendTeachFrame(joints: JointState, nowMs?: number, options?: AppendFrameOptions): void;
+  setTeachTrack(track: TeachTrack): void;
+  setTeachRecording(value: boolean): void;
+  clearTeachTrack(): void;
 }
 
 const model = loadRobotModel();
@@ -169,8 +200,14 @@ function makeLogEntry(kind: LogEntry['kind'], text: string): LogEntry {
   return { id: logSeq, time, kind, text };
 }
 
-function clipJointState(partial: Partial<JointState>): JointState {
-  const out: JointState = {};
+/** 示教轨迹默认名（带时间戳，导出文件名才有意义） */
+function defaultTeachName(): string {
+  const d = new Date();
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `teach-${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
+}
+
+function clipJointState(partial: Partial<JointState>): JointState {  const out: JointState = {};
   for (const id of jointIds(model)) {
     const joint = model.joints.find((j) => j.id === id);
     const fallback = joint ? joint.limits.min : 0;
@@ -239,6 +276,7 @@ export const useRobotStore = create<RobotStore>((set, get) => {
     showJointOrigins: false,
     showWorldAxes: true,
     showRobotAxes: false,
+    showActualGhost: true,
     showTcp: true,
     cameraResetToken: 0,
     alignmentErrorMm: null,
@@ -248,6 +286,10 @@ export const useRobotStore = create<RobotStore>((set, get) => {
         `RobotModel 载入：${model.name}（${model.links.length} 连杆 / ${model.joints.length} 关节 / ${model.actuators.length} 舵机）`,
       ),
     ],
+
+    // 空示教轨迹（Phase 13）。名字带时间戳，导出文件才有意义
+    teachTrack: emptyTrack(defaultTeachName()),
+    teachRecording: false,
 
     setJoint(jointId, angleDeg) {
       const next = clipJointState({ ...get().commandJoints, [jointId]: angleDeg });
@@ -464,6 +506,28 @@ export const useRobotStore = create<RobotStore>((set, get) => {
 
     clearLog() {
       set({ log: [] });
+    },
+
+    appendTeachFrame(joints, nowMs, options) {
+      // 复用纯函数做节流 / 去抖 / 上限判定；这里只负责把它接进 store。
+      // 跳过时 `appendFrame` 返回**同一个引用** ⇒ set 之后 React 直接 bail out，
+      // 不会因为"每帧都新对象"而让订阅者重渲染。
+      set((state) => ({ teachTrack: appendFrame(state.teachTrack, joints, nowMs ?? Date.now(), options) }));
+    },
+
+    setTeachTrack(track) {
+      set({ teachTrack: track });
+    },
+
+    setTeachRecording(value) {
+      set({ teachRecording: value });
+    },
+
+    clearTeachTrack() {
+      set((state) => ({
+        teachTrack: emptyTrack(state.teachTrack.name),
+        teachRecording: false,
+      }));
     },
   };
 });

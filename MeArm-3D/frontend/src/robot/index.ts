@@ -15,6 +15,7 @@ export * from './model/RobotModel';
 export * from './model/RobotState';
 export * from './model/RobotCommand';
 export * from './model/loadRobotModel';
+export * from './model/linkFeedback';
 
 export * from './kinematics/transform';
 export * from './kinematics/coordinate';
@@ -31,3 +32,6 @@ export * from './transport/socket';
 export * from './transport/wsProtocol';
 export * from './transport/MockTransport';
 export * from './transport/WebSocketTransport';
+
+export * from './teach/teachTrack';
+export * from './teach/TeachPlayer';

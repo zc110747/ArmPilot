@@ -50,7 +50,12 @@
 舵机 → AVR → Serial → Go → WebSocket → RobotState → Virtual Robot
 ```
 
-**传输层分层（Phase 7–8 已落地，Phase 9 才接真串口）**
+> Phase 11 把这条反向链的**时延**显式化（链路误差面板：趋势 + 健康结论），
+> Phase 12 把它**画出来**（实际臂幽灵 = 画面里第二条半透明臂，露出的部分就是滞后量）。
+> ⚠️ 但 `actual` 在无位置回读的固件下**等于目标值**（下位机没有回读能力）——
+> 它证明**链路走通了**，**不**证明物理到位（唯一的地面真值是相机，见 D34）。
+
+**传输层分层（Phase 7–8 已落地，Phase 9 接真串口，Phase 13 可录制回放）**
 
 ```
 store.commandJoints
@@ -90,7 +95,7 @@ MeArm-3D/
 │   ├── coordinate-system.md      # ★ 坐标系、单位、运动学链规则、标定表（权威文档）
 │   ├── model-structure.md        # ★ 显式几何（plate/servo/details）与运动学的边界
 │   ├── hardware-measurement.md   # ★★ 真机实测记录：角色映射 / 绝对角解耦 / 标定 / 不确定度
-│   ├── decisions.md              # 设计决策 ADR（D1–D33；D15–D17 实测修正，D27–D33 Phase 8）
+│   ├── decisions.md              # 设计决策 ADR（D1–D47；D15–D17 实测修正，D27–D33 Phase 8，D44–D47 Phase 11–13 + A1/A2 判定）
 │   └── images/                   # 界面截图（armpilot-console.png 由 e2e 自动重出）
 ├── protocol/serial-v1.md         # ★ 串口 / WS 协议基线（§4 固件侧待 Phase 9；§5 上位机侧 Phase 8 已实现）
 ├── tools/                        # ★ 真机实测工具链（Python 3 + numpy，独立于前端）
@@ -98,18 +103,27 @@ MeArm-3D/
 │   ├── analyze_sweep.py          # 逐度扫描图 → 白底暗件分割 → 面积/重心/最高点/红绿差分
 │   ├── segment_arm.py            # 公共静止区自动分段：底座 / 大臂 / 小臂 + PCA 定方向
 │   ├── fit_pivot.py              # 圆拟合枢轴（Kasa）+ 爪尖极角转角 + 不动区质心互证
-│   └── fit_pose.py               # ★★ FK 骨架 ↔ 实拍照片拟合（对称 Chamfer + Hooke-Jeeves）
+│   ├── fit_pose.py               # ★★ FK 骨架 ↔ 实拍照片拟合（对称 Chamfer + Hooke-Jeeves）
+│   │                             #    `--rod-gap MM` 可切换小臂单折线 / 平行双杆骨架（默认 0，向后兼容）
+│   ├── verify_pose.py            # ★ 相机反解关节角 + 与期望值比对；`--selftest` 含自检 C（双杆模型表达力）
+│   ├── verify_calib_repro.py     # ★A1 判定：跨批 × 底座掩膜 × 骨架杆距的增益散布矩阵 + 极差 ≤5% 判据
+│   ├── verify_serial_e2e.mjs     # Phase 9 真机端到端（opt-in）
+│   ├── cam_stability.py          # 相机/台面稳定性抽检
+│   └── ws_probe.mjs · lan_e2e_probe.mjs   # WS / 局域网链路探针
 ├── frontend/
 │   ├── src/robot/
 │   │   ├── model/             # RobotModel · Link · Joint · Actuator · Pose · RobotState · RobotCommand
+│   │   │                      # linkFeedback（Phase 11 误差语义：趋势 / 健康判定）· teachTrack（Phase 13 轨迹）
 │   │   ├── kinematics/        # coordinate（转换层）· transform（矩阵）· fk · ik（逆解）
 │   │   ├── interaction/       # dragPlane：拖动平面 + 射线求交（纯数学、零依赖）
 │   │   ├── calibration/       # 关节角 ↔ 舵机角 标定
+│   │   ├── teach/             # TeachPlayer（Phase 13 回放器，可注入时钟；复用 TimerLike 约定）
 │   │   └── transport/         # RobotTransport 抽象 · MockTransport（有限角速度/延迟/丢帧/限位拒绝）
 │   │                          # WebSocketTransport（Phase 8）· wsProtocol（纯函数编解码 + 链路精度）
 │   │                          # socket（SocketLike 可注入）· timer（可注入时钟）
-│   ├── src/components/        # RobotScene（buildRobotObject3D 参数化拼装 · DragHandle 拖动把手 · TestProbe dev探针）
-│   │                          # RobotControl（JointControl 滑杆 · TargetControl 末端目标 · ConnectionControl 连接面板）
+│   ├── src/components/        # RobotScene（buildRobotObject3D · DragHandle · ActualGhostArm · TestProbe dev探针）
+│   │                          # RobotControl（JointControl · TargetControl · TeachPanel · ConnectionControl）
+│   │                          # StatusPanel（StatusPanel · ErrorPanel Phase 11 · LogPanel）
 │   ├── src/store/             # Zustand 唯一状态仓库 · transportBridge（尾沿节流 / 回推落地 / 回环打破 / 重连补发）
 │   └── tests/                 # unit / acceptance / e2e
 ├── backend/                   # ★ Phase 8：关节级 WebSocket 服务（自包含 Go module）
@@ -258,8 +272,10 @@ cd frontend && npm run dev
 | 10 | Real Robot | ✅ | 机构角色 / 标定 / 限位 / 零位**已实测就绪**（Phase 4.5 + `config/robot.yaml`）；Serial 已落地 ⇒ 浏览器拖动能**真实驱动物理机械臂**。**2026-09-12 修复 mode↔transport 联动缺口**：`Real Robot` 按钮原先只改 UI 样式、命令照样走当前 transport（"点了真机不动 / 切回仿真仍在动真机"），现补准入校验 + 安全门 + 去向提示（ADR **D41**）。⚠️ 相机验收已测出**肩标定增益偏差 −13.1%**（肘 +1.4% 已证实），需按锁死曝光重布台面后重测 |
 | **10.5** | **一键启动 `start.bat`** | ✅ | 根目录 `start.bat`：前置检查（backend exe / robot.yaml / node）、端口探测+确认清理（8090/5273）、按模式起前后端、打印本机+局域网地址。**关键**：注入 `VITE_AUTO_CONNECT=ws`（+ `--real` 时 `VITE_AUTO_REAL=1`）让页面**自动连后端并切 Real Robot** —— 原先页面默认停在 MockTransport 且不会自动连接，"脚本起好了但只动仿真臂"（ADR **D42**）。`npm run dev` 不注入，手动调试行为不变 |
 | **10.6** | **Real Robot 准入改为"拒绝"** | ✅ | 用户报障「前端显示 Real 模式但后端末端是 sim」。根因：`setMode('real')` 把 `set({ mode })` 写在准入校验**之前**，校验只 pushLog、状态照改（D41 只修了一半，且旧测试还把该行为固化成契约）。现改为**校验全通过才切换**，否则保持 Simulation 并说明原因；`device` 未知（hello 未到）也拒绝，`useAutoConnect` 相应改为等 device 到达再切（ADR **D43**） |
-| 11 | Real Feedback | ⏳ | 误差链路与「Actual 由实际舵机角反算」的机制已在 Phase 8 的 sim 上验证过 |
-| 12 | 虚拟 / 真实同步 | ⏳ | — |
+| 11 | Real Feedback（**链路误差反馈面板**） | ✅ | 逐关节**带符号偏差条** + 误差**趋势 sparkline** + 一句**健康结论**（已到位 / 跟踪中 / 异常）。判据全在 `@robot/linkFeedback`（纯函数，19 项单测）。**关键**：`TransportStats.moving` 是 lag 的同义重写（`moving = lag > eps`），拿它判"是否在追"**永远推不出"卡死"** —— 判据只能从时间序列得出，且趋势用**四分位中位数**（首末值/均值会被单帧尖峰翻面）。纪律：没有正面证据不下"卡死"断言，`unknown`/`shrinking` 一律判 `tracking`（ADR **D44**） |
+| 12 | 虚拟 / 真实同步（**实际臂幽灵**） | ✅ | 场景同时渲染**两条臂**：主臂跟 `commandJoints`（意图）、半透明幽灵跟 `actualJoints`（现状），未被遮挡时露出的就是**滞后量** —— 比读数表更快。幽灵用**半透明**而非醒目色（本项目「无装饰色」，信号是位置分离本身）；`depthWrite=false` 防半透明脏面。e2e **取渲染后 `matrixWorld`** 而非重算 FK —— 挂错父节点/可见性误关/材质全透明都会让画面空掉而断言全绿（ADR **D45**） |
+| **13** | **示教录制 / 回放** | ✅ | `Record / Play / Pause / Stop / Clear / Export / Import`。录的是 **`commandJoints`**（不是 `actual` —— 那会把链路时延焊进轨迹）；回放**复用 `store.setCommandJoints()`**，于是尾沿节流与安全门自动生效，**不另开直发通道**。采样 20Hz + 静止去抖 0.5° + 上限 2000 帧**拒绝新帧**（不丢开头）+ 停录**强制补末帧**（否则轨迹终点 ≠ 臂当前位置）。回放**关节空间线性插值**保证命令连续，但结束时刻**精确取末帧** ⇒ 「回放终点 == 录制终点」是逐值不变量（e2e 以 1e-9 断言，ADR **D46**） |
+| **A3** | **标定精度闭环（待操作者执行）** | ⏳ | A1（骨架改双杆）/ A2（`coupling.gain` → −0.81）**双双判定为"不改"**：自检 C 显示双杆改善仅 0.3° 量级且**无单调趋势**；实拍矩阵 `rod_gap=4` 局部"修好"、`rod_gap=10` 让 `dir_S7` 崩到 **−46.3%**。`tools/verify_calib_repro.py` 判定跨批极差 **肩 10.8% / 肘 52.9% > 5% 容差 ⇒ 测量本身不可复现**，此时把偏差归因给模型或标定表都不成立。**台面锁变量清单 + 采集 + 判据**见 `docs/hardware-measurement.md` §7（ADR **D47**） |
 
 ### 本阶段明确**不实现**
 
@@ -268,25 +284,27 @@ ONNX · 语音控制 · 动作学习 · MuJoCo 训练 · Sim2Real。
 架构已按 spec §三十八 预留 `RobotCommand` / `RobotState` / `RobotModel` / `RobotTransport`
 四个扩展边界，未来能力（视觉 / AI / 语音 / MuJoCo）只需归一到 `RobotCommand` 即可接入。
 
-## 6. 当前验收数据（Phase 1–9）
+## 6. 当前验收数据（Phase 1–13）
 
 ```
 类型检查      tsc -b                    0 error
-单元测试      vitest run                233 / 233 PASS（17 文件；含 13 项几何回归 · 19 项 IK · 19 项拖动平面 ·
+单元测试      vitest run                293 / 293 PASS（21 文件；含 13 项几何回归 · 19 项 IK · 19 项拖动平面 ·
                                        13 项目标语义 · 30 项 wsProtocol · 33 项 WebSocketTransport ·
-                                       17 项自动连接意图与切换时序 · 12 项 mode↔transport 联动）
+                                       17 项自动连接意图与切换时序 · 12 项 mode↔transport 联动 ·
+                                       19 项链路误差语义 · 4 项幽灵臂渲染 · 20 项示教轨迹 · 17 项示教回放）
 后端单测      go test ./...             56 / 56 PASS（5 包：robot · protocol · device · controller · wsserver）
                                         + go vet 干净 · gofmt -l 无输出
-浏览器 e2e    node tests/e2e/ui-smoke   52 / 52 PASS（含 25 项 Phase 8 真实 WebSocket 端到端
-                                        + 4 项 Phase 10.6 Real Robot 准入拒绝；连跑三轮稳定）
-生产构建      vite build                1,294.98 kB (gzip 364.40 kB)
+浏览器 e2e    node tests/e2e/ui-smoke   88 / 88 PASS（含 25 项 Phase 8 真实 WebSocket 端到端
+                                        + 4 项 Phase 10.6 Real Robot 准入拒绝 + 7 项 Phase 11 误差面板
+                                        + 6 项 Phase 12 幽灵臂 + 19 项 Phase 13 示教录制/回放）
+生产构建      vite build                1,310.04 kB (gzip 369.33 kB)
 FK↔Three.js  200 组随机关节状态         末端位置最大误差 8.673e-14 mm
                                        关节矩阵最大元素误差 8.527e-14
 FK(IK(XYZ))  2000 组随机可达位姿         末端位置最大残差 1.401e-13 mm（失败 0 组）
 IK 拖动连续性 300 点就近跟随             最大误差 1.017e-13 mm，支解切换 0 次
 拖动轨迹      400 点穿越工作空间边界      边界定位到一格（1.5mm）内；越界段关节**零变化**
 真实鼠标拖拽  无头 Edge + CDP 真实事件    Δ 17.47 mm；被锁轴 Z **逐位相同**（93.83984236589028）
-测试探针      生产构建产物                不含 __armPilot（dev-only 门控生效）
+测试探针      生产构建产物                不含 __armPilot（dev-only 门控生效；`data-testid` 是有意保留的稳定选择器）
 运行态       真实浏览器（swiftshader）   FK↔3D = 3.18e-14 mm @ 初始位姿
 几何↔运动学  抹掉全部 geometry/details   endEffectorPosition 逐位不变
 真机一致性    HOME 位（四舵机全 90°）    虚拟臂渲染姿态与实拍照片目视一致
@@ -322,6 +340,28 @@ e2e 实测      滑杆跳 30°                  即时 cmd 29.9° / act 0.8°（
                                         肩 +0.6033 vs +0.6944 ⇒ **−13.1%，肩标定需重测**
 曝光漂移      ⚠️ 同台面相隔 2 分钟两批   锚点绝对角偏置 +2.69° → +7.75°（漂 5°），Otsu 两批均 164
                                         ⇒ **自动曝光是绝对角主导误差源，高精度验收前必须锁死曝光**
+──────────── Phase 11 · 链路误差反馈面板 ────────────
+滞后判定      命令跳 34° 瞬间             结论「跟踪中（滞后 34.26°，命令到位前属正常）」——**不说"已到位"**
+收敛判定      松手后收敛                 结论变为「已到位（最大偏差 0.00°）」；TCP 位置误差 ≤0.05 mm；超差条 0 条
+断开判定      断开连接                   结论回到「未接入传输 · Actual ≡ Command，误差恒为 0」（不留假链接状态）
+纪律验证      没有正面证据不下断言        命令静止 < 700ms / 样本 < 4 / 趋势仍下降 ⇒ 一律 `tracking`，不误报卡死
+──────────── Phase 12 · 实际臂幽灵 ────────────
+分离量        滞后瞬间                   幽灵 ↔ 主臂分离 **47.1 mm**（= 滞后量 34.26°），滞后一消失即重合
+跟随正确性    时间无关不变量             幽灵 ↔ store 的 `actualEndEffector` 距离 **0**（渲染矩阵 vs 纯数学 FK，两条独立路径互证）
+开关接管      关 → 开                    关闭后探针返回 `null`（对象树确实停止渲染）；重开后恢复
+──────────── Phase 13 · 示教录制 / 回放 ────────────
+录制          连摆三个姿态（间隔 130ms）   **4 帧 / 436 ms**（首帧 + 3 次变化；面板读数与 store 一致）
+末帧捕获      退出录制                   末帧姿态 = 臂当时所在位置（停录时 `force` 补帧）
+不自录        回放期间                   帧数 **4 vs 4** —— 回放不产生新帧（录制与回放共用命令通道）
+终态精度      回放走完 0.44s 时间轴        命令 **逐值**等于录制末帧（1e-9 判定）；与"回放前挪开的 5°"明显不同
+未绕安全门    回放经既有命令路径          下游日志可见 `joint_command`（尾沿节流与安全门照常生效）
+清空          清空轨迹                   0 帧 / 状态回到「已就绪」；导出按钮重新禁用
+──────────── A1/A2 判定 · 骨架双杆与 coupling.gain ────────────
+自检 C        合成真值（不依赖实拍）       杆距 4mm 改善仅 +0.26°（肘）；8mm 改善方向不一致 ⇒ **无单调趋势**
+实拍矩阵      rod_gap 0 / 4 / 10          gap=4 局部"修好"（+0.7% / −0.5%）；gap=10 让 dir_S7 崩到 **−46.3%**（拟合退化）
+向后兼容      rod_gap=0                  w2_S7 仍报 `+0.6033 / −13.1%`（逐值复现）⇒ 默认关闭不影响既有结论
+跨批极差      标定增益可复现性            肩 **[−13.1%, −2.3%] 极差 10.8%** · 肘 **[+0.9%, +53.8%] 极差 52.9%**（容差 5%）
+最终判定      —                          **测量本身不可复现** ⇒ A1/A2 双双不做；A3 上台面重测是唯一入口（见 `hardware-measurement.md` §7）
 ```
 
 > **Phase 9 最重要的一条结论**：真机固件**没有位置反馈**（`arm_get_angle()` 回的是固件记着的

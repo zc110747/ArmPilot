@@ -432,6 +432,77 @@ const PROBE_STATE = `(() => {
 /** dev 探针：末端 TCP 的屏幕像素坐标（= 拖动把手中心） */
 const PROBE_TCP_SCREEN = `(() => { const p = window.__armPilot; return p ? p.tcpScreen() : null; })()`;
 
+// ---------------------------------------------------------------------------
+// Phase 12：实际臂幽灵（ADR D45）
+// ---------------------------------------------------------------------------
+
+/**
+ * 幽灵**渲染后**的 TCP 世界坐标。
+ *
+ * 刻意取矩阵而不是再算一遍 FK：本功能的全部意义是"实际臂真的被画出来了"。
+ * 若 e2e 用 FK(actualJoints) 当证据，那只是把数学又算了一遍 ——
+ * 渲染树挂错、可见性被误关、材质全透明都会让画面空掉而断言依然全绿。
+ */
+const PROBE_GHOST = `(() => {
+  const g = window.__armPilotGhost;
+  return g && Array.isArray(g.tcp) ? { tcp: g.tcp, visible: g.visible } : null;
+})()`;
+
+/**
+ * 幽灵 TCP 与「store 里 actualEndEffector（= FK of actualJoints）」的距离（mm）。
+ *
+ * 这是**时间无关**的不变量：无论链路是在滞后还是已收敛，幽灵都必须站在 actual 上。
+ * 两条计算路径互相独立（three.js 对象图世界矩阵 vs 纯数学 FK），故不构成自证。
+ * 若把幽灵接成 command，滞后期间这个值会等于滞后量（几十 mm），一眼可辨。
+ */
+const GHOST_GAP_TO_ACTUAL_MM = `(() => {
+  const g = window.__armPilotGhost;
+  const p = window.__armPilot;
+  if (!g || !p || !Array.isArray(g.tcp)) return null;
+  const a = p.state().actualTcp;
+  return Math.hypot(g.tcp[0] - a[0], g.tcp[1] - a[1], g.tcp[2] - a[2]);
+})()`;
+
+/** 视口显示开关里是否存在「Actual Arm」勾选框 */
+const HAS_ACTUAL_ARM_TOGGLE = `(() => {
+  const labels = Array.from(document.querySelectorAll('.overlay .axis-row label.axis'));
+  return labels.some(l => l.textContent.includes('Actual Arm'));
+})()`;
+
+/** 点一下「Actual Arm」勾选框（无条件下切换） */
+const TOGGLE_ACTUAL_ARM = `(() => {
+  const label = Array.from(document.querySelectorAll('.overlay .axis-row label.axis'))
+    .find(l => l.textContent.includes('Actual Arm'));
+  const input = label ? label.querySelector('input[type=checkbox]') : null;
+  if (!input) return false;
+  input.click();
+  return true;
+})()`;
+
+/**
+ * 同一次求值里同时取「J2 关节滞后」与「幽灵 ↔ 主臂分离量」。
+ *
+ * 为什么必须合并成一次求值：Mock 的 34° 跳变在约 150ms 内就收敛完了，
+ * 分两次 CDP 往返（每次十几毫秒 + 中间还有别的 evaluate）会让第二次读到时
+ * 误差已经归零 —— 那样断言会变成**间歇性**失败，而不是稳定复现。
+ */
+const READ_LAG_WITH_GHOST = `(() => {
+  const rows = document.querySelectorAll('[data-testid="err-rows"] .err-row');
+  const row = rows[1];
+  const errEl = row ? row.querySelector('.err-val') : null;
+  const p = window.__armPilot;
+  const g = window.__armPilotGhost;
+  let ghostGap = null;
+  if (p && g && Array.isArray(g.tcp)) {
+    const c = p.state().tcp;
+    ghostGap = Math.hypot(g.tcp[0] - c[0], g.tcp[1] - c[1], g.tcp[2] - c[2]);
+  }
+  return {
+    errDeg: errEl ? parseFloat(errEl.textContent.replace(/[+°]/g, '')) : null,
+    ghostGap,
+  };
+})()`;
+
 /** 主视口 canvas 的屏幕矩形 */
 const CANVAS_RECT = `(() => {
   const c = document.querySelector('.viewport canvas');
@@ -552,6 +623,96 @@ const readStatRow = (label) => `(() => {
 })()`;
 
 const READ_DEVICE = readStatRow('链路末端');
+
+// ---------------------------------------------------------------------------
+// Phase 11：链路误差反馈面板（ADR D44）
+// ---------------------------------------------------------------------------
+
+/**
+ * 健康结论文本。判据是"面板说的是不是与链路事实一致"：
+ * 滞后期间不得说"已到位"，收敛后必须说"已到位"，断开后必须说"未接入传输"。
+ * 这三态互斥，任何一态错位都说明判定逻辑与真实链路脱钩了。
+ */
+const READ_LINK_HEALTH = `(() => {
+  const el = document.querySelector('[data-testid="link-health"]');
+  return el ? el.textContent.replace(/\\s+/g, ' ').trim() : null;
+})()`;
+
+/** TCP 位置误差（mm，数值） */
+const READ_TCP_ERROR = `(() => {
+  const el = document.querySelector('[data-testid="tcp-error"]');
+  return el ? parseFloat(el.textContent) : null;
+})()`;
+
+/** 逐关节误差（带符号，deg）。all-zero 即 Actual ≡ Command */
+const READ_ERR_VALUES = `(() => {
+  const rows = document.querySelectorAll('[data-testid="err-rows"] .err-row .err-val');
+  if (!rows.length) return null;
+  return Array.from(rows).map(r => parseFloat(r.textContent.replace(/[+°]/g, '')));
+})()`;
+
+/** 偏差条里"超差"（> ERROR_TOL_DEG）的条数 —— 用 DOM class 而非重算，确保 UI 真的在标红 */
+const COUNT_OVER_BARS = `document.querySelectorAll('[data-testid="err-rows"] .errbar .fill.over').length`;
+
+// ---------------------------------------------------------------------------
+// Phase 13：示教录制 / 回放
+// ---------------------------------------------------------------------------
+
+/** 示教面板是否齐备（面板 + 全部按钮 + 帧数读数） */
+const HAS_TEACH_PANEL = `(() => {
+  const card = ${cardByTitle('示教 · Teach')};
+  if (!card) return false;
+  const ids = ['teach-record','teach-play','teach-pause','teach-stop','teach-clear','teach-export','teach-import','teach-frames','teach-status','teach-frames-list'];
+  return ids.every(id => card.querySelector('[data-testid="' + id + '"]') !== null);
+})()`;
+
+/** 点某个示教按钮（返回 false = 按钮不存在；按钮被禁用时 click 无副作用） */
+const clickTeach = (id) => `(() => {
+  const el = document.querySelector('[data-testid="${id}"]');
+  if (!el) return false;
+  el.click();
+  return true;
+})()`;
+
+/** 导出按钮的禁用状态（空轨迹时必须禁用，否则是个能点但没用的死操作） */
+const TEACH_EXPORT_DISABLED = `(() => {
+  const b = document.querySelector('[data-testid="teach-export"]');
+  return b ? b.disabled : null;
+})()`;
+
+/**
+ * 示教快照。`lastJoints` 来自 dev 探针（store 里的原始数值），
+ * 而不是面板里 1 位小数的文本 —— "回放终点逐值等于录制末帧"这条断言
+ * 必须是 1e-9 级判定，四舍五入过的文本做不了。
+ */
+const READ_TEACH = `(() => {
+  const p = window.__armPilot;
+  if (!p) return null;
+  return p.state().teach;
+})()`;
+
+/** 同一次求值里取「当前命令」「轨迹末帧」「播放状态文本」—— 三者在时间上必须同帧 */
+const READ_TEACH_TERMINAL = `(() => {
+  const p = window.__armPilot;
+  if (!p) return null;
+  const s = p.state();
+  const status = document.querySelector('[data-testid="teach-status"]');
+  return {
+    cmd: s.commandJoints,
+    last: s.teach.lastJoints,
+    frames: s.teach.frames,
+    durationMs: s.teach.durationMs,
+    recording: s.teach.recording,
+    statusText: status ? status.textContent.replace(/\\s+/g,' ').trim() : null,
+  };
+})()`;
+
+/** 帧数读数（DOM 层，确认面板真的在刷新而不只是 store 变了） */
+const READ_TEACH_FRAME_COUNT = `(() => {
+  const el = document.querySelector('[data-testid="teach-frames"]');
+  return el ? parseInt(el.textContent, 10) : null;
+})()`;
+
 
 // ---------------------------------------------------------------------------
 // mode ↔ transport 联动（Phase 9 修正 · ADR D41）
@@ -919,12 +1080,223 @@ async function main() {
       immediate ? `cmd ${immediate.command}° / act ${immediate.actual}° / 差 ${immediate.gap.toFixed(1)}°` : 'null',
     );
 
+    // (b1) Phase 12：滞后瞬间，实际臂幽灵必须已渲染**且与主臂分离** —— 分离量就是滞后量。
+    //      与 (b) 的滞后读数取在同一次求值里：Mock 的 34° 跳合约 150ms 就收敛完，
+    //      分两次往返会让第二次读到归零值，断言就变成间歇性失败而非稳定复现。
+    const lagGhost = await cdp.evaluate(READ_LAG_WITH_GHOST);
+    check(
+      'Phase 12：滞后瞬间实际臂幽灵已渲染并与主臂分离（分离量=滞后量）',
+      lagGhost !== null && lagGhost.ghostGap !== null && lagGhost.ghostGap > 0.5,
+      lagGhost && lagGhost.ghostGap !== null
+        ? `分离 ${Number(lagGhost.ghostGap).toFixed(1)} mm / 误差 ${lagGhost.errDeg}°`
+        : 'null',
+    );
+
+    // (b2) Phase 11：滞后期间误差面板必须与链路事实一致 —— 不得说"已到位"
+    const errsLag = await cdp.evaluate(READ_ERR_VALUES);
+    check(
+      'Phase 11：误差面板逐关节列出偏差（可动关节数一致）',
+      Array.isArray(errsLag) && errsLag.length === 4 && errsLag.every((v) => Number.isFinite(v)),
+      Array.isArray(errsLag) ? `${errsLag.length} 行` : 'null',
+    );
+    const healthLag = await cdp.evaluate(READ_LINK_HEALTH);
+    check(
+      'Phase 11：滞后期间健康结论**不是**"已到位"（滞后与到位必须分开）',
+      typeof healthLag === 'string' && !healthLag.includes('已到位'),
+      String(healthLag),
+    );
+
     // (c) 松手后按有限角速度收敛到命令值
     const converged = await poll(cdp, readJointGap(1), (v) => v !== null && v.gap <= 0.05, 10000);
     check(
       '松手后 Actual 收敛到 Command（误差归零）',
       converged !== null && converged.gap <= 0.05,
       converged ? `cmd ${converged.command}° / act ${converged.actual}°` : 'null',
+    );
+
+    // (c2) Phase 11：收敛后必须说"已到位"，TCP 误差归零，且偏差条不再标红
+    const healthSettled = await poll(
+      cdp,
+      READ_LINK_HEALTH,
+      (v) => typeof v === 'string' && v.includes('已到位'),
+      4000,
+    );
+    check(
+      'Phase 11：收敛后健康结论变为"已到位"',
+      typeof healthSettled === 'string' && healthSettled.includes('已到位'),
+      String(healthSettled),
+    );
+    const tcpSettled = await cdp.evaluate(READ_TCP_ERROR);
+    check(
+      'Phase 11：TCP 位置误差归零（Actual ≡ Command ⇒ ≈0 mm）',
+      typeof tcpSettled === 'number' && tcpSettled <= 0.05,
+      String(tcpSettled),
+    );
+    const overBars = await cdp.evaluate(COUNT_OVER_BARS);
+    check('Phase 11：收敛后无超差偏差条（DOM 层确认真在标红）', overBars === 0, String(overBars));
+
+    // (c3) Phase 12：幽灵必须**始终**站在 actual 上 —— 这是时间无关的不变量，
+    //      收敛与否都成立；若幽灵被接成 command，滞后期间该值会等于滞后量。
+    const ghostVsActual = await cdp.evaluate(GHOST_GAP_TO_ACTUAL_MM);
+    check(
+      'Phase 12：幽灵逐值跟随 actualEndEffector（非 command）—— 渲染路径与纯数学 FK 互证',
+      typeof ghostVsActual === 'number' && ghostVsActual <= 0.01,
+      String(ghostVsActual),
+    );
+    const ghostShown = await cdp.evaluate(PROBE_GHOST);
+    check(
+      'Phase 12：幽灵确已渲染且可见',
+      ghostShown !== null && ghostShown.visible === true,
+      ghostShown ? 'visible' : 'null',
+    );
+    const hasGhostToggle = await cdp.evaluate(HAS_ACTUAL_ARM_TOGGLE);
+    check('Phase 12：视口提供 Actual Arm 显示开关', hasGhostToggle === true, String(hasGhostToggle));
+
+    // 开关必须真的接管渲染，而不是只改了一个布尔值（关掉后对象树仍在画就白搭）
+    const clickedOff = await cdp.evaluate(TOGGLE_ACTUAL_ARM);
+    const ghostGone = await poll(cdp, PROBE_GHOST, (v) => v === null, 2000);
+    check(
+      'Phase 12：关闭 Actual Arm 后幽灵确实停止渲染',
+      clickedOff === true && ghostGone === null,
+      String(ghostGone),
+    );
+    await cdp.evaluate(TOGGLE_ACTUAL_ARM);
+    const ghostBack = await poll(cdp, PROBE_GHOST, (v) => v !== null, 2000);
+    check('Phase 12：重新打开后幽灵恢复渲染', ghostBack !== null, ghostBack ? 'visible' : 'null');
+
+    // ---- Phase 13：示教录制 / 回放 ----
+    //
+    // 这一段刻意放在「连着 Mock 链路」的语境里：回放命令要真的经过节流下发
+    // （下面的日志断言会验证这一点）。若为回放另开直发通道，这条链就断了。
+    check(
+      'Phase 13：示教面板齐备（录制 / 回放 / 清空 / 导入导出）',
+      (await cdp.evaluate(HAS_TEACH_PANEL)) === true,
+    );
+    check(
+      'Phase 13：空轨迹时导出按钮禁用（不留"能点但没用"的死操作）',
+      (await cdp.evaluate(TEACH_EXPORT_DISABLED)) === true,
+    );
+
+    // (a) 录制：先进入录制态，再连摆三个姿态（间隔 > 50ms 采样节流）
+    check('Phase 13：可进入录制态', (await cdp.evaluate(clickTeach('teach-record'))) === true);
+    await sleep(120);
+    const recOn = await cdp.evaluate(READ_TEACH);
+    check(
+      'Phase 13：录制态已置位（读探针，不只看按钮高亮）',
+      recOn !== null && recOn.recording === true,
+      recOn === null ? 'null' : `recording=${recOn.recording}`,
+    );
+
+    for (const v of [8, 28, 46]) {
+      await cdp.evaluate(setJointSlider(1, v));
+      await sleep(130);
+    }
+
+    check('Phase 13：可退出录制态', (await cdp.evaluate(clickTeach('teach-record'))) === true);
+    await sleep(150);
+    const rec = await cdp.evaluate(READ_TEACH_TERMINAL);
+    check(
+      'Phase 13：轨迹记录了多帧且时长 > 0',
+      rec !== null && rec.frames >= 3 && rec.durationMs > 0,
+      rec === null ? 'null' : `${rec.frames} 帧 / ${rec.durationMs} ms`,
+    );
+    check(
+      'Phase 13：退出录制后录制态复位',
+      rec !== null && rec.recording === false,
+      rec === null ? 'null' : String(rec.recording),
+    );
+    check(
+      'Phase 13：末帧姿态已捕获（回放终点判定的基准）',
+      rec !== null && rec.last !== null && Number.isFinite(rec.last.shoulder),
+      rec === null || rec.last === null ? 'null' : `shoulder ${rec.last.shoulder}°`,
+    );
+    // 面板读数必须与 store 一致 —— 否则"UI 显示录上了"仍是幻觉
+    check(
+      'Phase 13：面板帧数读数与轨迹一致',
+      (await cdp.evaluate(READ_TEACH_FRAME_COUNT)) === rec?.frames,
+      `dom=${await cdp.evaluate(READ_TEACH_FRAME_COUNT)} / store=${rec?.frames}`,
+    );
+
+    // (b) 回放：先把臂挪到别处，否则"回放到位"是恒真的假断言
+    await cdp.evaluate(setJointSlider(1, 5));
+    await sleep(250);
+    const away = await cdp.evaluate(READ_TEACH_TERMINAL);
+    check(
+      'Phase 13：回放前把臂挪开（脱离录制终点）',
+      away !== null && Math.abs((away.cmd.shoulder ?? 0) - 5) < 1.5,
+      away === null ? 'null' : `shoulder ${away.cmd.shoulder}°`,
+    );
+
+    const recTerminal = rec === null || rec.last === null ? null : rec.last.shoulder;
+    check('Phase 13：可开始回放', (await cdp.evaluate(clickTeach('teach-play'))) === true);
+
+    // 回放期间不得产新帧：录制与回放共用 commandJoints 通道，自录自放会让轨迹无限生长
+    await sleep(130);
+    const during = await cdp.evaluate(READ_TEACH_TERMINAL);
+    check(
+      'Phase 13：回放期间不产生新帧（回放不录自己）',
+      during !== null && rec !== null && during.frames === rec.frames,
+      during === null || rec === null ? 'null' : `${during.frames} vs ${rec.frames}`,
+    );
+
+    const ended = await poll(
+      cdp,
+      READ_TEACH_TERMINAL,
+      (v) => v !== null && typeof v.statusText === 'string' && v.statusText.startsWith('回放完成'),
+      Math.max(4000, (rec === null ? 0 : rec.durationMs) + 2500),
+    );
+    check(
+      'Phase 13：回放走完时间轴并进入「回放完成」',
+      ended !== null &&
+        typeof ended.statusText === 'string' &&
+        ended.statusText.startsWith('回放完成'),
+      ended === null ? 'null' : String(ended.statusText),
+    );
+
+    const terminalMatches =
+      ended !== null &&
+      ended.last !== null &&
+      rec !== null &&
+      rec.last !== null &&
+      Object.keys(rec.last).every(
+        (k) => Math.abs((ended.cmd[k] ?? 0) - (rec.last[k] ?? 0)) < 1e-9,
+      );
+    check(
+      'Phase 13：回放终点**逐值**等于录制末帧（不留插值残差）',
+      terminalMatches,
+      ended === null || ended.last === null
+        ? 'null'
+        : `cmd ${JSON.stringify(ended.cmd)} / rec ${JSON.stringify(ended.last)}`,
+    );
+    check(
+      'Phase 13：终点确实回到录制姿态（且与"挪开处 5°"明显不同，证明回放真的驱动了关节）',
+      ended !== null &&
+        typeof recTerminal === 'number' &&
+        Math.abs((ended.cmd.shoulder ?? 0) - recTerminal) < 1e-9 &&
+        Math.abs(recTerminal - 5) > 5,
+      ended === null ? 'null' : `终点 ${ended.cmd.shoulder}° / 挪开处 5°`,
+    );
+
+    // 回放同样走既有命令路径 ⇒ 节流下游必须看得到下发日志（这就是"没绕过安全门"的证据）
+    const teachLog = await cdp.evaluate(READ_LOG);
+    check(
+      'Phase 13：回放经既有命令路径下发（日志可见 joint_command，未绕过节流与安全门）',
+      typeof teachLog === 'string' && teachLog.includes('joint_command'),
+      typeof teachLog === 'string' ? teachLog.slice(-80) : 'null',
+    );
+
+    // (c) 清空 → 帧数归零、导出重新禁用
+    check('Phase 13：可清空轨迹', (await cdp.evaluate(clickTeach('teach-clear'))) === true);
+    await sleep(150);
+    const cleared = await cdp.evaluate(READ_TEACH_TERMINAL);
+    check(
+      'Phase 13：清空后帧数归零且回到 idle',
+      cleared !== null && cleared.frames === 0 && cleared.statusText === '已就绪',
+      cleared === null ? 'null' : `${cleared.frames} 帧 / ${cleared.statusText}`,
+    );
+    check(
+      'Phase 13：清空后导出按钮重新禁用',
+      (await cdp.evaluate(TEACH_EXPORT_DISABLED)) === true,
     );
 
     // (d) 日志同时出现下发与回推 —— 闭环真的走通了
@@ -947,6 +1319,26 @@ async function main() {
       '断开后 Actual 拉回 Command（回到仿真立即跟随）',
       afterDisconnect !== null && afterDisconnect.gap <= 0.05,
       afterDisconnect ? `差 ${afterDisconnect.gap.toFixed(2)}°` : 'null',
+    );
+
+    // (e2) Phase 11：断开后必须回到"未接入传输"，且各关节误差归零 ——
+    //      否则会出现"链路已断但面板还挂着最后那个滞后值"的假状态。
+    const healthIdle = await poll(
+      cdp,
+      READ_LINK_HEALTH,
+      (v) => typeof v === 'string' && v.includes('未接入传输'),
+      4000,
+    );
+    check(
+      'Phase 11：断开后健康结论回到"未接入传输"（不留假链接状态）',
+      typeof healthIdle === 'string' && healthIdle.includes('未接入传输'),
+      String(healthIdle),
+    );
+    const errsIdle = await cdp.evaluate(READ_ERR_VALUES);
+    check(
+      'Phase 11：断开后各关节误差归零',
+      Array.isArray(errsIdle) && errsIdle.every((v) => Math.abs(v) <= 0.05),
+      JSON.stringify(errsIdle),
     );
 
     // 复位，保证截图与文档基线一致

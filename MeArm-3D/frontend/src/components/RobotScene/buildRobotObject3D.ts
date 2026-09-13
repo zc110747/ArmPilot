@@ -80,6 +80,37 @@ function createMaterial(color: string, metalness = 0.35, roughness = 0.55): THRE
   });
 }
 
+/** "实际臂"（ghost）半透明度：够淡以不挡主臂，够实以看清它落在哪 */
+const GHOST_OPACITY = 0.28;
+
+/**
+ * 把整棵对象树改成"幽灵"外观：半透明 + 不写深度。
+ *
+ * 为什么用**透明度**而不是换个醒目颜色来区分「实际臂」：
+ * 本项目的 UI 约定是"无装饰色"（见 `styles.css` 头部），而且颜色不属于数据。
+ * 这里的信号是**位置分离**本身 —— 主臂在命令位、幽灵在实际位，
+ * 两者分开多少就是滞后多少；收敛时两者重合（此时几乎看不见幽灵，正是想要的结论）。
+ *
+ * `depthWrite = false` 是必需的：否则半透明面之间会互相遮挡出"脏面"，
+ * 从某些角度看整条臂会变成硬边色块。
+ */
+function makeGhost(root: THREE.Object3D): void {
+  const patched = new Set<THREE.Material>();
+  root.traverse((object) => {
+    const mesh = object as THREE.Mesh;
+    if (!mesh.isMesh) return;
+    const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+    for (const material of materials) {
+      if (patched.has(material)) continue;
+      patched.add(material);
+      material.transparent = true;
+      material.opacity = GHOST_OPACITY;
+      material.depthWrite = false;
+    }
+  });
+  root.renderOrder = 1;
+}
+
 /** 把几何体摆到它在「近端关节坐标系」中的位置 / 姿态 */
 function applyPlacement(
   object: THREE.Object3D,
@@ -342,7 +373,18 @@ function createGripperJaws(
  * 由 RobotModel 构建完整 Three.js 对象树。
  * 只构建一次；之后每次关节变化调用 `applyJointState()`。
  */
-export function buildRobotObject3D(model: RobotModel): RobotObjects {
+export interface BuildRobotObject3DOptions {
+  /**
+   * 构建「实际臂幽灵」而非主臂：整体半透明、不写深度，且**不带调试元素**
+   * （关节轴 / 关节原点小球）—— 幽灵只负责表达位姿，画上调试球只会让人看花眼。
+   */
+  ghost?: boolean;
+}
+
+export function buildRobotObject3D(
+  model: RobotModel,
+  options: BuildRobotObject3DOptions = {},
+): RobotObjects {
   const disposables: Disposables = [];
   const jointGroups = new Map<string, THREE.Group>();
   const jointOriginQuaternions = new Map<string, THREE.Quaternion>();
@@ -444,6 +486,12 @@ export function buildRobotObject3D(model: RobotModel): RobotObjects {
   const tcpMarker = createTcpMarker(disposables);
   tcpMarker.position.copy(toVector3(model.tcp.offset));
   tcpParent.add(tcpMarker);
+
+  if (options.ghost) {
+    makeGhost(root);
+    for (const helper of jointAxisHelpers) helper.visible = false;
+    for (const helper of jointOriginHelpers) helper.visible = false;
+  }
 
   return {
     root,

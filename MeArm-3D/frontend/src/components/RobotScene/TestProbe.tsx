@@ -45,10 +45,29 @@ export function TestProbe() {
         return {
           target: s.target,
           tcp: s.endEffector.position,
+          /**
+           * 实际末端位姿（FK of actualJoints）。
+           *
+           * Phase 12 起 e2e 用它当**独立参照**校验「实际臂幽灵跟的是 actual 而不是 command」：
+           * 一边是 store 里的纯数学 FK，一边是 three.js 对象图算出的世界矩阵，
+           * 两条代码路径互不依赖 —— 因此这不是自证。
+           */
+          actualTcp: s.actualEndEffector.position,
           ikStatus: s.ikStatus,
           dragging: s.dragging,
           dragPlane: s.dragPlane,
           commandJoints: s.commandJoints,
+          /**
+           * 示教轨迹（Phase 13）。e2e 要靠 `lastJoints` 做「回放终点 == 录制终点」
+           * 的**逐值**判定 —— 若只读面板里 1 位小数的文本，就分不清
+           * "精确落在末帧" 与 "插值差一点点"，而那正是本功能最容易出错的地方。
+           */
+          teach: {
+            recording: s.teachRecording,
+            frames: s.teachTrack.frames.length,
+            durationMs: s.teachTrack.frames[s.teachTrack.frames.length - 1]?.t ?? 0,
+            lastJoints: s.teachTrack.frames[s.teachTrack.frames.length - 1]?.joints ?? null,
+          },
         };
       },
       moveTo(xyz) {

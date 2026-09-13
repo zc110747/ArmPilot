@@ -30,3 +30,11 @@ __pycache__/
 # 注意：/.workbuddy/memory/ 是要入库的（与 MeArm-Device / MeArm-RemoteControl 约定一致）
 /.workbuddy/analysis/
 /.workbuddy/captures/
+
+# ---- 探针产物归档（analysis/ 清理时打的 tarball，体积大且可重算，绝不入库） ----
+# 实测此目录若非显式忽略，`git add -A` 会把数百 MB 的 tarball 吞进仓库。
+/.workbuddy/_archive/
+
+# ---- 无头浏览器 profile（e2e / CDP 探针产生，纯缓存垃圾） ----
+**/_edge_profile/
+**/_edge[0-9]*/

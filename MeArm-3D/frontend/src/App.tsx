@@ -1,10 +1,12 @@
 import { ConnectionControl } from '@/components/RobotControl/ConnectionControl';
 import { JointControl } from '@/components/RobotControl/JointControl';
 import { TargetControl } from '@/components/RobotControl/TargetControl';
+import { TeachPanel } from '@/components/RobotControl/TeachPanel';
 import { RobotModelPanel } from '@/components/RobotConfig/RobotModelPanel';
 import { RobotScene } from '@/components/RobotScene';
 import { ViewportOverlay } from '@/components/RobotScene/ViewportOverlay';
 import { LogPanel } from '@/components/StatusPanel/LogPanel';
+import { ErrorPanel } from '@/components/StatusPanel/ErrorPanel';
 import { StatusPanel } from '@/components/StatusPanel/StatusPanel';
 import { useAutoConnect } from '@/hooks/useAutoConnect';
 
@@ -34,8 +36,10 @@ export default function App() {
       <aside className="sidebar">
         <JointControl />
         <TargetControl />
+        <TeachPanel />
         <ConnectionControl />
         <StatusPanel />
+        <ErrorPanel />
         <RobotModelPanel />
         <LogPanel />
       </aside>

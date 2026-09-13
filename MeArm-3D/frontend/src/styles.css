@@ -405,3 +405,160 @@ select {
   color: var(--danger);
   border-color: #43262a;
 }
+
+/* ---- Phase 11：链路误差反馈面板 ---- */
+
+.error-panel .err-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.err-row {
+  display: grid;
+  grid-template-columns: 58px 92px 1fr 50px;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.err-row .name {
+  color: var(--text-strong);
+}
+
+.err-row .vals {
+  color: var(--text-dim);
+}
+
+.err-row .err-val {
+  text-align: right;
+  color: var(--text);
+}
+
+/*
+ * 超差才上色：正常范围内保持统一浅色（与整体无装饰色风格一致），
+ * 只有 |误差| > ERROR_TOL_DEG 时用 warn 色 —— 颜色在这里是**功能**，不是装饰。
+ */
+.err-row .err-val.over {
+  color: var(--warn);
+}
+
+.errbar {
+  height: 6px;
+  border-radius: 3px;
+  background: #14181e;
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.errbar .fill {
+  display: block;
+  height: 100%;
+  background: var(--text-dim);
+}
+
+.errbar .fill.over {
+  background: var(--warn);
+}
+
+.spark {
+  display: block;
+  width: 100%;
+  height: 34px;
+  margin-top: 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: #14181e;
+  color: var(--text-dim);
+}
+
+.spark polyline {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+/* ---- Phase 13：示教录制 / 回放 ---- */
+
+.teach-panel .kv {
+  align-items: center;
+}
+
+/*
+ * 轨迹名输入框。与 select 用同一套配色（#14181e + --border）——
+ * 本项目「无装饰色」：控件只靠边框与底色区分，不靠主题色。
+ */
+.teach-panel input[type='text'] {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--text);
+  background: #14181e;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px 6px;
+  width: 150px;
+}
+
+.teach-panel .btn-row {
+  margin: 6px 0 4px;
+}
+
+.teach-progress {
+  height: 6px;
+  margin: 4px 0 6px;
+  border-radius: 3px;
+  background: #14181e;
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.teach-progress i {
+  display: block;
+  height: 100%;
+  background: var(--text-dim);
+}
+
+.teach-list {
+  margin-top: 6px;
+  max-height: 132px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: #14181e;
+  padding: 4px 6px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  line-height: 1.6;
+}
+
+.teach-row {
+  display: grid;
+  grid-template-columns: 46px 42px 1fr;
+  gap: 6px;
+}
+
+.teach-row .idx {
+  color: var(--text-dim);
+}
+
+.teach-row .t {
+  color: var(--text-dim);
+  text-align: right;
+}
+
+.teach-row .vals {
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.teach-notice {
+  margin-top: 6px;
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+

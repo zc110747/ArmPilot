@@ -85,25 +85,71 @@ def distance_transform(mask: np.ndarray) -> np.ndarray:
     return d
 
 
-def skeleton(ths, the, l1, l2, l3, n=110):
-    """矢状面骨架采样点（mm，相对**肩枢轴**；屏幕坐标 x 前 = +x, y 下 = +y）。
+# ---------------------------------------------------------------------------
+# 骨架模型参数
+# ---------------------------------------------------------------------------
+# ⚠️ 用**模块级单一来源**而不是层层传参：骨架模型是整条反解链路的**模型假设**，
+#    从代价函数到合成真值（verify_pose.synth_mask）必须共用同一份。漏传一处就会
+#    变成"用 A 模型去拟合 B 模型生成的图"—— 那种自检必然全绿，却什么也没验证。
+#
+# rod_gap = 小臂「平行杆对」两根杆轴线的**间距（mm）**。
+#   0  == 原始的单折线模型（逐值不差，向后兼容）。
+#   >0 == 把 elbow→wrist 画成 ±rod_gap/2 的两条平行杆，以表达 meArm 的平行四连杆
+#         （见 docs/decisions.md D38 与 docs/hardware-measurement.md §2）。
+_SKELETON: dict[str, float] = {"rod_gap": 0.0}
 
-    不含底座立柱：立柱在任何关节动作下都静止，它对「求关节角」没有信息量，
-    反而会把覆盖项 B 拉向底座大团，所以先把立柱区域从覆盖点里剔掉。
+
+def set_skeleton_rod_gap_mm(value: float) -> None:
+    """设定小臂平行杆对的轴线间距（mm）。0 = 退回单折线模型。"""
+    _SKELETON["rod_gap"] = float(value)
+
+
+def skeleton_rod_gap_mm() -> float:
+    return _SKELETON["rod_gap"]
+
+
+def skeleton_polylines(ths, the, l1, l2, l3, n=110, rod_gap=0.0):
+    """矢状面骨架的**折线段列表**（mm，相对肩枢轴；屏幕坐标 x 前 = +x, y 下 = +y）。
+
+    返回 `[(k,2) ndarray, ...]` —— 分开返回是为了让渲染端能把每一段**独立**画出来。
+    若拼成一条折线再交给 `ImageDraw.line`，画到断点处会拉出一条本不存在的连线。
     """
     tr, te = np.radians(ths), np.radians(the)
     p_sh = np.zeros(2)
     u1 = np.array([np.sin(tr), -np.cos(tr)])             # 大臂方向（相对肩角的绝对角 = ths）
     u2 = np.array([np.sin(te), -np.cos(te)])             # 小臂/手部方向（**绝对角**）
+    n2 = np.array([u2[1], -u2[0]])                       # u2 的单位法向（杆间距方向）
     p_el = p_sh + l1 * u1
     p_wr = p_el + l2 * u2
     p_tcp = p_wr + l3 * u2
-    pts = []
-    for a, b, seg in ((p_sh, p_el, l1), (p_el, p_wr, l2), (p_wr, p_tcp, l3)):
-        k = max(3, int(round(n * seg / (l1 + l2 + l3))))
-        for t in np.linspace(0, 1, k):
-            pts.append(a + (b - a) * t)
-    return np.array(pts), np.array([p_sh, p_el, p_wr, p_tcp])
+    total = l1 + l2 + l3
+    out = []
+
+    def emit(a, b, seg):
+        k = max(3, int(round(n * seg / total)))
+        t = np.linspace(0, 1, k)[:, None]
+        out.append(a + (b - a) * t)
+
+    emit(p_sh, p_el, l1)
+    if rod_gap > 0.0:
+        # 平行杆对：两条与 u2 平行、法向偏移 ±rod_gap/2 的等长杆
+        for sign in (-1.0, 1.0):
+            off = n2 * (sign * rod_gap / 2.0)
+            emit(p_el + off, p_wr + off, l2)
+    else:
+        emit(p_el, p_wr, l2)
+    emit(p_wr, p_tcp, l3)
+    return out, np.array([p_sh, p_el, p_wr, p_tcp])
+
+
+def skeleton(ths, the, l1, l2, l3, n=110, rod_gap=None):
+    """矢状面骨架采样点（拼接后的单一阵列；与 `skeleton_polylines` 等价）。
+
+    `rod_gap=None` 时取模块级设定（`skeleton_rod_gap_mm()`）。
+    """
+    gap = skeleton_rod_gap_mm() if rod_gap is None else float(rod_gap)
+    lines, joints = skeleton_polylines(ths, the, l1, l2, l3, n=n, rod_gap=gap)
+    return np.vstack(lines), joints
 
 
 def make_cost(dt, mask_pts, geom, roi_lt):

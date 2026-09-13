@@ -245,6 +245,17 @@ def _geom_spec_to_xml(
     gtype = str(spec.get("type", "none"))
     if gtype == "none":
         return []
+    if gtype == "jaw":
+        # 夹爪在**渲染层是特例**：两片爪各绕自己的齿轮轴啮合开合，本体由轮廓挤出生成；
+        # 而 MuJoCo 刚体树里只有一个 `jaw_link` body（`gripper` 是单铰链）—— 结构上
+        # **无法一对一映射**，所以这里不生成 visual geom。两条理由：
+        #   ① 它的物理占位由 `physics.yaml` 的 `contact.shapes[jaw_link]`（胶囊）承担，
+        #      MuJoCo 会照常渲染该碰撞体 ⇒ viewer 里不会"凭空少一个件"，物理也不变；
+        #   ② 若在这条通用通道里"猜一个盒子"，等于让生成器**发明几何** ——
+        #      而生成器的职责只是翻译 yaml，几何真值必须来自配置文件。
+        # 前端对应实现：`buildRobotObject3D.createGeometryObject` 的
+        # `case 'none': case 'jaw': return null;`（爪另有 createGripperJaws）。
+        return []
 
     pos = spec.get("position") or default_pos_mm
     rot = spec.get("rotation") or (0, 0, 0)

@@ -62,6 +62,7 @@ func run(cfgPath string) error {
 
 	// ---- 链路末端 ----------------------------------------------------------
 	var dev device.Device
+	var mujocoScript string
 	switch c.Device.Mode {
 	case "sim":
 		dev, err = device.NewSim(model, device.SimTuning{
@@ -84,17 +85,44 @@ func run(cfgPath string) error {
 			ConnectSettleMs: c.Device.Serial.ConnectSettleMs,
 			Warmup:          warm,
 		}, model)
+	case "mujoco":
+		// 第三个 device 实现：链路末端是一台跑 MuJoCo 的 Python 子进程。
+		// 协议与固件逐字节一致 ⇒ 上层（controller / WS / 前端）零改动。
+		script, rerr := cfg.ResolveMujocoScript(c.Device.Mujoco.Script)
+		if rerr != nil {
+			return rerr
+		}
+		mujocoScript = script
+		dev, err = device.NewMujoco(model, device.MujocoConfig{
+			Python:         c.Device.Mujoco.Python,
+			Script:         mujocoScript,
+			ReportHz:       c.Device.Mujoco.ReportHz,
+			PhysHz:         c.Device.Mujoco.PhysHz,
+			BatchMs:        c.Device.Mujoco.BatchMs,
+			NoRealtime:     c.Device.Mujoco.NoRealtime,
+			StartTimeoutMs: c.Device.Mujoco.StartTimeoutMs,
+		})
 	default:
-		log.Fatalf("[fatal] 未知 device.mode=%q（应为 sim 或 serial）", c.Device.Mode)
+		log.Fatalf("[fatal] 未知 device.mode=%q（应为 sim / serial / mujoco）", c.Device.Mode)
 	}
 	if err != nil {
 		return err
 	}
 	defer dev.Close()
-	if c.Device.Mode == "sim" {
+
+	switch c.Device.Mode {
+	case "sim":
 		log.Printf("链路末端: %s (舵机 %.0f°/s · 延迟 %dms · tick %dms · 限位校验 %v)",
 			dev.Kind(), c.Device.Sim.MaxServoSpeed, c.Device.Sim.LatencyMs, c.Device.Sim.TickMs, c.Device.Sim.EnforceLimits)
-	} else {
+	case "mujoco":
+		log.Printf("链路末端: %s (脚本 %s · 物理 %.0fHz · 上报 %.0fHz · 实时 %v)",
+			dev.Kind(), mujocoScript,
+			floatOr(c.Device.Mujoco.PhysHz, 1000), floatOr(c.Device.Mujoco.ReportHz, 30),
+			!c.Device.Mujoco.NoRealtime)
+		log.Printf("⚠️ 这是**参数化物理仿真**（Level 3），不是真机标定模型：" +
+			"质量/惯量/摩擦为公开值或估算值（config/physics.yaml），" +
+			"限位与标定仍沿用 config/robot.yaml。跑 calibrate.py 可见哪些项还是猜的。")
+	default:
 		log.Printf("链路末端: %s (%s @ %d %d%s%d · 静默窗口 %dms · 暖机 %v · 单条固件指令超时 %dms)",
 			dev.Kind(), c.Device.Serial.Port, c.Device.Serial.Baud,
 			c.Device.Serial.DataBits, c.Device.Serial.Parity, c.Device.Serial.StopBits,
@@ -153,4 +181,13 @@ func absOrSelf(p string) string {
 		return abs + string(os.PathSeparator) + p
 	}
 	return p
+}
+
+// floatOr 取配置值，为 0 时回落到默认（仅用于**日志展示**，
+// 真正的默认值由 server.py 自己持有，不在这里重复定义）。
+func floatOr(v, def float64) float64 {
+	if v == 0 {
+		return def
+	}
+	return v
 }

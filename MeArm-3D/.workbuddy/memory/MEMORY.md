@@ -7,6 +7,11 @@
 - **模型 / 标定 / 限位 / 零位的真值只有一份**：`config/robot.yaml`。前端与 Go 后端**都读它**
   （`hello` 带限位/标定做在线互检）。**禁止在代码里硬编码尺寸 / 角度 / 限位。**
 - `backend/config.yaml` **只放运行参数**（端口 / 设备模式 / 模拟器参数），**禁写限位与标定**。
+- **第二份真值（MuJoCo 轨）**：`config/physics.yaml` **只放物理量、全 SI**；
+  运动学量（长度 / 轴 / 限位 / TCP / HOME）**一律从 `robot.yaml` 读**，有测试盯着
+  （`test_config_truth_is_not_duplicated`）。改 `robot.yaml` 后**必须重跑
+  `python simulation/mujoco/gen_model.py`** —— `mearm.xml` 是**派生产物**，
+  有 `test_generated_mjcf_is_in_sync_with_config` 盯同步（会打印 diff）。
 - **`mode`（simulation/real）不是 UI 开关**，它决定"要不要发给真实机械臂"。取值必须**校验通过才改**，
   失败要 pushLog 说明**为什么**和**怎么修**（拒绝不是目的，让用户知道在驱动谁才是）。见 D41 / D43。
 - **机器人相关状态一律进 store**，组件不持局部副本（含 `teachTrack`）。理由之一很实际：
@@ -26,7 +31,13 @@ node tests/e2e/ui-smoke.mjs
 - `npx <tool>` 会触发 WSL 黑名单 ⇒ **一律 `./node_modules/.bin/<tool>` 直调**。
 - 跑 e2e 前**必须清掉带 `VITE_AUTO_CONNECT` 的残留 dev server**，否则"环境差异"被读成"代码回归"（D40/D43）。
 - Python：系统 `python3` 无 numpy。用 `~/.workbuddy/binaries/python/envs/default/Scripts/python.exe`
-  （numpy / PIL），并设 `PYTHONIOENCODING=utf-8`（否则中文乱码）。
+  （numpy / PIL / **mujoco / pyyaml / pytest**），并设 `PYTHONIOENCODING=utf-8`（否则中文乱码）。
+- **物理仿真轨另加**：`<python> -m pytest tests/sim -q`（106 项）。
+- **e2e 必须在隔离端口跑**（8090/5273 常被用户**正在驱动真机**的实例占着，不能杀）：
+  自起干净 dev server（如 5276，**不注入 `VITE_AUTO_CONNECT`**）+ 独立后端
+  （由 `backend/config.yaml` 派生 `.workbuddy/e2e-sim.yaml`，端口 8091），
+  再用 `BACKEND_HTTP` / `BACKEND_WS` 环境变量把 `ui-smoke.mjs` 指过去
+  （它会识别为"复用实例"并跳过断线重连子项）。
 
 ## 三、测试与探针纪律（血泪换来的）
 

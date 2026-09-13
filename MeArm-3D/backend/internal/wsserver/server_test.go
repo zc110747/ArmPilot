@@ -248,6 +248,22 @@ func homeCommand(t *testing.T, m *robot.Model) map[string]float64 {
 
 // ---------------------------------------------------------------------------
 
+// spec §25 的仿真模式映射：三个 device 实现 → 前端可读的三态字符串。
+// 单独测一遍，是因为这条映射决定了前端会不会提示"物理仿真 ≠ 真机标定模型"。
+func TestSimulationModeFor(t *testing.T) {
+	cases := map[string]string{
+		"sim":    protocol.SimulationKinematic,
+		"mujoco": protocol.SimulationMujoco,
+		"serial": protocol.SimulationReal,
+		"":       protocol.SimulationKinematic, // 未知一律当运动学，不假装是物理
+	}
+	for kind, want := range cases {
+		if got := protocol.SimulationModeFor(kind); got != want {
+			t.Errorf("SimulationModeFor(%q) = %q，期望 %q", kind, got, want)
+		}
+	}
+}
+
 // 接入必须立刻拿到 hello（模型真值）与当前状态，否则新页面会停在"未知"。
 func TestHelloCarriesModelTruth(t *testing.T) {
 	f := newFixture(t, device.DefaultSimTuning())
@@ -259,6 +275,12 @@ func TestHelloCarriesModelTruth(t *testing.T) {
 	}
 	if hello.Model.ID != "mearm" {
 		t.Errorf("model.id = %q", hello.Model.ID)
+	}
+	// spec §25：hello 必须声明仿真模式，前端据此提示"当前是哪种仿真"。
+	// 这个 fixture 用的是 SimDevice（纯运动学）⇒ 应为 kinematic。
+	if hello.SimulationMode != protocol.SimulationKinematic {
+		t.Errorf("simulation_mode = %q，期望 %q",
+			hello.SimulationMode, protocol.SimulationKinematic)
 	}
 	want := []string{"base", "shoulder", "elbow", "gripper"}
 	if len(hello.Model.JointOrder) != len(want) {

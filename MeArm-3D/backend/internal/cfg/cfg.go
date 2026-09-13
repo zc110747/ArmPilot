@@ -46,10 +46,35 @@ type RobotConfig struct {
 
 // DeviceConfig 链路末端。
 type DeviceConfig struct {
-	// Mode: sim（Phase 8，内置假固件）| serial（Phase 9）
+	// Mode: sim（内置假固件）| serial（真串口）| mujoco（MuJoCo 物理仿真）
 	Mode   string       `yaml:"mode"`
 	Sim    SimConfig    `yaml:"sim"`
 	Serial SerialConfig `yaml:"serial"`
+	Mujoco MujocoConfig `yaml:"mujoco"`
+}
+
+// MujocoConfig MuJoCo 物理后端（`device.Device` 的第三个实现）。
+//
+// ⚠️ 与 SimConfig 一样，这里**只放运行参数**（解释器 / 脚本路径 / 时间尺度）。
+//    质量、惯量、摩擦、增益、关节限位一律来自 config/physics.yaml 与
+//    config/robot.yaml —— 在这里再抄一份，就是第二份真值。
+type MujocoConfig struct {
+	// Python 解释器命令。留空 = PATH 里的 "python"。
+	// ⚠️ 必须指向装了 mujoco 包的解释器（本机是隔离环境里的那一个）。
+	Python string `yaml:"python"`
+	// Script server.py 路径；留空按 ResolveMujocoScript 的候选列表回退。
+	Script string `yaml:"script"`
+	// ReportHz STATE 上报频率（Hz）；0 = 用 server.py 默认 30
+	ReportHz float64 `yaml:"report_hz"`
+	// PhysHz 物理步频率（Hz）；0 = 用默认 1000
+	PhysHz float64 `yaml:"phys_hz"`
+	// BatchMs 每次实时对齐前连续推进的物理时长（ms）；0 = 用默认 10
+	// （Windows 的 sleep 粒度约 1~2ms，逐步 sleep 会让仿真慢一个数量级）
+	BatchMs float64 `yaml:"batch_ms"`
+	// NoRealtime 关闭实时对齐（离线回归 / 压测用）
+	NoRealtime bool `yaml:"no_realtime"`
+	// StartTimeoutMs 启动握手超时（ms）；0 = 20000（首次 import mujoco 较慢）
+	StartTimeoutMs int `yaml:"start_timeout_ms"`
 }
 
 // SimConfig 模拟固件参数。
@@ -188,6 +213,37 @@ func ResolveRobotConfig(configured string) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("找不到 robot.yaml（模型真值），已尝试:\n  %s", joinLines(tried))
+}
+
+// ResolveMujocoScript 解析 MuJoCo 服务脚本 server.py 的路径。
+//
+// 与 ResolveRobotConfig 同风格：支持相对路径 + 候选回退，让 `backend/` 与
+// `MeArm-3D/` 两种工作目录都能找到同一份脚本，也避免写死本机绝对路径
+// （换机器即失效的写法在本项目一律禁止）。
+func ResolveMujocoScript(configured string) (string, error) {
+	candidates := []string{
+		configured,
+		"../simulation/mujoco/server.py",
+		"simulation/mujoco/server.py",
+		"../MeArm-3D/simulation/mujoco/server.py",
+	}
+	seen := map[string]bool{}
+	tried := make([]string, 0, len(candidates))
+	for _, c := range candidates {
+		if c == "" || seen[c] {
+			continue
+		}
+		seen[c] = true
+		abs, err := filepath.Abs(c)
+		if err != nil {
+			continue
+		}
+		tried = append(tried, abs)
+		if st, err := os.Stat(abs); err == nil && !st.IsDir() {
+			return abs, nil
+		}
+	}
+	return "", fmt.Errorf("找不到 MuJoCo 服务脚本 server.py，已尝试:\n  %s", joinLines(tried))
 }
 
 func joinLines(items []string) string {

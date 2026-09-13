@@ -78,6 +78,7 @@ func New(cfg Config, ctl *controller.Controller) *Server {
 		msg := protocol.ServerMessage{
 			Version: protocol.Version, Type: protocol.TypeDeviceStatus,
 			Timestamp: nowMs(), Device: ctl.DeviceKind(), Connected: &t,
+			SimulationMode: protocol.SimulationModeFor(ctl.DeviceKind()),
 		}
 		if !connected {
 			msg.Connected = &f
@@ -373,6 +374,8 @@ func (s *Server) helloJSON() string {
 		Timestamp: nowMs(),
 		Model:     protocol.BuildModelInfo(s.ctl.Model()),
 		Device:    s.ctl.DeviceKind(),
+		// sim / mujoco / serial 三态（spec §25）。前端不认识也照常工作。
+		SimulationMode: protocol.SimulationModeFor(s.ctl.DeviceKind()),
 	})
 }
 

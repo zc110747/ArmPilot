@@ -65,10 +65,10 @@ RobotTransport ──┬─ MockTransport        （Phase 7：纯虚拟闭环，
                  └─ WebSocketTransport    （Phase 8：JSON ↔ 真实 Go 后端）
                           │
                           ▼
-     Go: wsserver → controller → device（sim | serial）
+     Go: wsserver → controller → device（sim | serial | mujoco）
                           │  JR / OK JR / STATE（文本行）
                           ▼
-              内置 sim「假固件」（Phase 8）  |  AVR（Phase 9）
+              内置 sim「假固件」（Phase 8）  |  AVR（Phase 9）  |  MuJoCo 物理仿真（MuJoCo 轨 ✅）
 ```
 
 | 环节 | Phase 7 | Phase 8 | Phase 9 |
@@ -77,6 +77,22 @@ RobotTransport ──┬─ MockTransport        （Phase 7：纯虚拟闭环，
 | 传输 ↔ 机械臂 | —（同进程） | **内置 sim 假固件，走真实字节流** | 串口 115200 + ACK 门控 |
 | 标定 / 限位来源 | `robot.yaml` | **同一份文件**（后端也读它，`hello` 在线互检） | 同 |
 
+### MuJoCo 物理仿真轨（末端第三实现）
+
+在 `device.Device` 上再挂一个实现：**MuJoCo 刚体动力学**。因为 `device.Device`
+只有 7 个方法，所以新增它**没有改动 WebSocket 层 / controller / 协议 / 前端任何一行**。
+
+```
+Go: device.MujocoDevice ──stdio(同一套 JR/OK JR/STATE 文本协议)──▶ python simulation/mujoco/server.py
+                                                                          │
+                                                              MuJoCo 1kHz 物理 + 100Hz 控制环
+```
+
+> ⚠️ **诚实声明（spec §37）**：当前是 **Level 3→4 参数化物理仿真**，
+> `config/physics.yaml` 里的值全部是**公开值 / 估算值**，**不是**对本台 meArm 的标定模型。
+> `calibration.calibrated` 恒为 `false`，且由测试强制（见 `docs/decisions.md` D52）。
+> 详见 [`simulation/README.md`](simulation/README.md) §0。
+
 ## 2. 技术栈
 
 | 层 | 选型 |
@@ -84,18 +100,34 @@ RobotTransport ──┬─ MockTransport        （Phase 7：纯虚拟闭环，
 | 前端 | React 19 · TypeScript · Vite · Three.js · React Three Fiber · @react-three/drei · Zustand |
 | 后端 | **Go 1.21+（自包含 module `armpilot/backend`）· 标准库 RFC6455 WebSocket · HTTP `/healthz`**（Phase 8 ✅） |
 | 真实臂 | AVR (ATmega328P) · 串口 115200 8N1（Phase 9） |
-| 测试 | Vitest（单元 / 验收）· `go test`（后端）· 零依赖 CDP e2e（无头 Edge/Chrome） |
+| **物理仿真** | **MuJoCo 3.13（Python，MJCF 由 `config/robot.yaml` + `config/physics.yaml` 生成）**（MuJoCo 轨 ✅） |
+| 测试 | Vitest（单元 / 验收）· `go test`（后端）· pytest（物理仿真）· 零依赖 CDP e2e（无头 Edge/Chrome） |
 
 ## 3. 目录结构
 
 ```
 MeArm-3D/
 ├── config/robot.yaml             # ★ 唯一模型定义（links / joints / actuators / home / tcp）
+├── config/physics.yaml           # ★ MuJoCo 物理参数（纯物理量，全 SI；**禁写限位与标定**）
+├── simulation/                   # ★ MuJoCo 物理仿真后端（device.Device 第三实现）
+│   ├── README.md                 #   ★ 怎么跑 / 判据纪律 / 验收数据 / Level 声明
+│   └── mujoco/
+│       ├── gen_model.py          #   robot.yaml + physics.yaml → mearm.xml（MJCF 是产物，禁手改）
+│       ├── mearm.xml             #   生成的 MJCF（nq=4 nbody=8 ngeom=33 nu=4）
+│       ├── units.py              #   单位 + **角度语义**（elbow 绝对角 ↔ hinge 局部角）单点换算
+│       ├── model.py              #   MeArmSim：reset / step / settle / state / gravity_torque
+│       ├── limits.py             #   限位校验（与 Go Validate 同语义、同文案）
+│       ├── server.py             #   无头设备服务（stdio 上跑 arm-device 协议）
+│       ├── run.py                #   独立 Viewer（spec §27：FPS / sim time / 关节角 / TCP / 接触数）
+│       ├── record.py             #   JSONL / CSV 记录（spec §34，不落数据库）
+│       ├── calibrate.py          #   标定接口（spec §38）
+│       └── fkref.py              #   参考 FK（独立实现，**仅用于验收**）
 ├── docs/
 │   ├── coordinate-system.md      # ★ 坐标系、单位、运动学链规则、标定表（权威文档）
 │   ├── model-structure.md        # ★ 显式几何（plate/servo/details）与运动学的边界
 │   ├── hardware-measurement.md   # ★★ 真机实测记录：角色映射 / 绝对角解耦 / 标定 / 不确定度
-│   ├── decisions.md              # 设计决策 ADR（D1–D47；D15–D17 实测修正，D27–D33 Phase 8，D44–D47 Phase 11–13 + A1/A2 判定）
+│   ├── ARCHITECTURE_ANALYSIS.md  # ★ MuJoCo 轨 Phase 1：自由度清点 / 五种角度对照 / 接入方案
+│   ├── decisions.md              # 设计决策 ADR（D1–D54；D48–D54 = MuJoCo 物理仿真轨）
 │   └── images/                   # 界面截图（armpilot-console.png 由 e2e 自动重出；
 │                                 #   armpilot-phase11-13.png 由 tests/e2e/screenshot.mjs 出）
 ├── protocol/serial-v1.md         # ★ 串口 / WS 协议基线（§4 固件侧待 Phase 9；§5 上位机侧 Phase 8 已实现）
@@ -127,16 +159,22 @@ MeArm-3D/
 │   │                          # StatusPanel（StatusPanel · ErrorPanel Phase 11 · LogPanel）
 │   ├── src/store/             # Zustand 唯一状态仓库 · transportBridge（尾沿节流 / 回推落地 / 回环打破 / 重连补发）
 │   └── tests/                 # unit / acceptance / e2e
+│                              #   tools/kinematics-bridge.mjs = ★ 把真实 ik.ts / fk.ts 暴露成 CLI
+│                              #     （Vite SSR 加载器；供 tests/sim/test_ik.py 当独立裁判用，见 D53）
 ├── backend/                   # ★ Phase 8：关节级 WebSocket 服务（自包含 Go module）
 │   ├── main.go                # 组装：cfg → robot.Model → device → controller → wsserver
 │   ├── config.yaml            # **只放运行参数**（端口 / 设备模式 / 模拟器参数），禁写限位与标定
 │   ├── internal/robot/        # 读 robot.yaml；关节↔舵机换算；限位校验（唯一"真值"入口）
 │   ├── internal/protocol/     # JSON / JR / OK JR / STATE / ERR 编解码（不认识机械结构）
+│   │                          #   + simulation_mode（spec §25：只加一个可选字符串，前端零改动）
 │   ├── internal/controller/   # ★ 唯一"懂机械臂"处：ACK 门控 · latest-wins · 标定核对 · 状态发布
-│   ├── internal/device/       # sim.go（假固件，Phase 8）· serial.go（Phase 9 桩，显式返回未实现）
+│   ├── internal/device/       # sim.go（假固件）· serial.go（真串口）· mujoco.go（★ Python 子进程）
 │   ├── internal/wsserver/     # 标准库 RFC6455 服务端 · 路由 · 广播 · 两层心跳
 │   └── README.md              # 架构图 · 与 MeArm-RemoteControl 的分工 · 测试矩阵
-└── tests/                     # （Phase 9+ 固件 / 硬件在环）
+└── tests/sim/                 # ★ MuJoCo 轨验收（pytest，106 项）
+    ├── harness.py             #   共用采样/求值工具（FK 与 IK 两条判据不各写一份）
+    ├── ikbridge.py            #   前端运动学 CLI 桥的 Python 门面
+    └── test_*.py              #   模型 / 重力 / 执行器 / 限位 / 碰撞 / 协议 / FK / IK / 系统级
 ```
 
 ## 4. 快速开始
@@ -256,6 +294,29 @@ cd frontend && npm run dev
 > ⚠️ **真机没有位置反馈**（无编码器）：界面上的 `Actual` 是**固件内部目标值反算**，
 > 不代表已物理到位。唯一的外部真值是相机 —— 见下方 Phase 9 验收与 `tools/verify_pose.py`。
 
+### 用 MuJoCo 物理仿真作末端（MuJoCo 轨）
+
+不接硬件，也不走"纯运动学回显"，而是让末端变成**真实的刚体动力学**：
+
+```bash
+# 1) 装依赖（隔离环境）
+~/.workbuddy/binaries/python/envs/default/Scripts/python.exe -m pip install mujoco pyyaml pytest
+
+# 2) 起一个 MuJoCo 末端（python 子进程由 Go 侧拉起，stdio 上跑同一套文本协议）
+cd backend && ./bin/armpilot-backend.exe        # ★ 需先把 config.yaml 的 device.mode 改成 "mujoco"
+curl http://localhost:8090/healthz              # {"device":"mujoco","linked":true,"ok":true,...}
+
+# 3) 前端连上即可（Connection 面板 → ws://localhost:8090/ws/joint → Connect）
+#    前端零改动：mujoco 按"仿真"放行安全门，hello.simulation_mode = "mujoco"
+
+# 4) 独立 Viewer（不进 Web，直接看动力学）
+<python> simulation/mujoco/run.py --demo
+```
+
+> ⚠️ **当前是 Level 3→4 参数化物理仿真**，`config/physics.yaml` 的值全是公开值/估算值，
+> 不是对本台 meArm 的标定模型。详见 [`simulation/README.md`](simulation/README.md) §0。
+> 改 `config/robot.yaml` 的几何后**必须重跑** `python simulation/mujoco/gen_model.py`。
+
 ## 5. 阶段进度
 
 | Phase | 内容 | 状态 | 验收证据 |
@@ -278,12 +339,38 @@ cd frontend && npm run dev
 | **13** | **示教录制 / 回放** | ✅ | `Record / Play / Pause / Stop / Clear / Export / Import`。录的是 **`commandJoints`**（不是 `actual` —— 那会把链路时延焊进轨迹）；回放**复用 `store.setCommandJoints()`**，于是尾沿节流与安全门自动生效，**不另开直发通道**。采样 20Hz + 静止去抖 0.5° + 上限 2000 帧**拒绝新帧**（不丢开头）+ 停录**强制补末帧**（否则轨迹终点 ≠ 臂当前位置）。回放**关节空间线性插值**保证命令连续，但结束时刻**精确取末帧** ⇒ 「回放终点 == 录制终点」是逐值不变量（e2e 以 1e-9 断言，ADR **D46**） |
 | **A3** | **标定精度闭环（待操作者执行）** | ⏳ | A1（骨架改双杆）/ A2（`coupling.gain` → −0.81）**双双判定为"不改"**：自检 C 显示双杆改善仅 0.3° 量级且**无单调趋势**；实拍矩阵 `rod_gap=4` 局部"修好"、`rod_gap=10` 让 `dir_S7` 崩到 **−46.3%**。`tools/verify_calib_repro.py` 判定跨批极差 **肩 10.8% / 肘 52.9% > 5% 容差 ⇒ 测量本身不可复现**，此时把偏差归因给模型或标定表都不成立。**台面锁变量清单 + 采集 + 判据**见 `docs/hardware-measurement.md` §7（ADR **D47**） |
 
+### MuJoCo 物理仿真轨（M1–M10，spec §39 的独立编号）
+
+> 这是一条**与上表并列的独立轨**（原 spec 自己编了 Phase 1–10），
+> 编号加 `M` 前缀以免与上面的 Web / 真机轨混淆。
+
+| Phase | 内容 | 状态 | 验收证据 |
+|-------|------|------|----------|
+| **M1** | 架构勘察 | ✅ | [`docs/ARCHITECTURE_ANALYSIS.md`](docs/ARCHITECTURE_ANALYSIS.md)（14 节，**数字全部实读**）：可动 DOF = 4 / 定位 DOF = 3；五种角度（Servo / Joint / Physical / UI / IK）对照表；FK↔刚体树对应表；三个接入方案对比（推荐 A = 第三 `device.Device`）；7 条风险 R1–R7（含 `docs/model-structure.md` §4 把 S8/S7 写反 —— **已在本轮修正**） |
+| **M2** | MJCF 刚体树 | ✅ | `gen_model.py` 从 `robot.yaml` + `physics.yaml` 生成 `mearm.xml`（8550 B · nq=4 nv=4 nbody=8 ngeom=33 nu=4 nexclude=5 · 总质量 0.2173 kg）。**MJCF 是产物，禁手改**；VISUAL / COLLISION / PHYSICS 几何三类分离，几何优先 primitive |
+| **M3** | 质量 / 惯量 / 重力 | ✅ | 重力对照实验：无驱动 3 s，有重力 Δ 肩 35.96° / 肘 48.10°，**关重力 Δ 全为 0**；稳态误差与「重力矩 ÷ kp」自洽（肩 0.36° = 0.0316 ÷ 5.0） |
+| **M4** | 执行器 / 位置控制 / 限位 | ✅ | 单/多关节控制正确；`elbow` 绝对角语义（局部角 85.311° = 125.977 − 40.666）；阶跃 60° 在 0.1 s 内只转 0.83°（速率限制生效）；**限位四方一致**：MuJoCo hinge range 刻意外扩 padding 2° ⇒ **不是限位真值**，把关人是 Go controller + `limits.py`（ADR **D49**） |
+| **M5** | 碰撞 / 摩擦 / 自碰撞 | ✅ | HOME 位 `ncon=0`（修掉"立柱戳在地上"与"爪伸出 TCP 34 mm"两个伪接触）；下压时 `jaw↔table` 且**无穿透**；5 对相邻连杆**实测重叠**（−20.0 / −1.576 / −7.123 / 0 / −5.0 mm）⇒ exclude 是必要的；摩擦单一组合来自配置；接触下 5 s 漂移 0.0013°。**纪律**：「有接触记录」和 `dist` 都不是证据，必须看 `qfrc_constraint` / 满力矩 / 对照位移（ADR **D51**） |
+| **M6** | Python Backend | ✅ | `server.py`（无头设备服务，协议逐字节正确、实时倍率 1.000）· `run.py`（Viewer，统计行含 FPS / sim time / 关节角 / TCP / 接触数）· `record.py`（JSONL/CSV）· `calibrate.py`（`--show/--template/--apply`） |
+| **M7** | Go 侧接入 | ✅ | `internal/device/mujoco.go` 起 Python 子进程；`exec.LookPath` 失败与 `No module named 'mujoco'` 都给明确修复指引；**启动握手 `PING → OK PING`**（否则"解释器不对 / 未装 mujoco / XML 编译失败"会表现成"设备可用但永远没回执"）。`go build`/`vet`/`test` 全绿；`healthz` = `"device":"mujoco","linked":true`；WebSocket 全链路探针 PASS（62 帧 `joint_state`，shoulder 1.21° → 20.49° **渐进收敛**） |
+| **M8** | `simulation_mode` | ✅ | spec §25「不要重新设计协议」：`ServerMessage` **只加一个可选字符串** `simulation_mode`（`omitempty`），`SimulationModeFor()` 映射 `sim→kinematic` / `mujoco→mujoco` / `serial→real`。**不改消息类型、不改 `joints` 结构 ⇒ 前端零改动**（ADR **D48**） |
+| **M9** | FK / IK 一致性 | ✅ | **FK**：参考实现 `fkref.py`（独立读 `robot.yaml` 原始几何）vs MuJoCo —— 零位 / HOME / 120 随机 + 256 限位角点，`max\|Δ\| = 7.1e-14 mm`。**IK**：**加载真实 `ik.ts`**（Vite SSR 桥，不用 Python 重写）—— 120 随机可达点成功率 **120/120**、`max = 1.137e-13 mm`；顺带把**前端 `fk.ts` 与 MuJoCo** 也对撞（376 点，`max = 1.137e-13 mm`）。两条**机构学结论**被算术+实测双重钉住：`elbow-down` 支恒不可行；**可达工作空间内锥为空**（最小水平半径 65.62 mm ⇒ 真机够不到自己的中轴线）（ADR **D49/D53**） |
+| **M10** | 系统级集成 + 文档 | ✅ | 三层时间步解耦（`step(1)×10 ≡ step(10)` 按位 · `fps=5 vs 240` qpos 按位相同）· 复位可重复 + 热启动不漏 · **跨进程确定性**（`run.py --demo` 跑两遍，12 行数值载荷逐字相同）· 数据记录回读 · Test D 快速运动峰值 4.92 rad/s（限速 10）· **Level 声明机器可检查**（ADR **D52**） |
+
+**MuJoCo 轨实测汇总**：pytest **106 passed**（10 文件）· `go test` 全绿 · vitest **293 passed** · `tsc -b` 0 error ·
+`vite build` OK（JS 产物 `__armPilot` 0 命中）。
+
 ### 本阶段明确**不实现**
 
-AI · 机器学习 · 强化学习（PPO/SAC）· 视觉识别 · 摄像头 · 目标检测 · 数据集 · 模型训练 ·
-ONNX · 语音控制 · 动作学习 · MuJoCo 训练 · Sim2Real。
+> MuJoCo 轨把「MuJoCo」从"不实现"移到了"已实现"，但**只实现了物理仿真本身** ——
+> 下面这些**仍然不做**（spec §30 明令禁止）。
+
+AI · 机器学习 · 强化学习（PPO/SAC）· 自训练 · 视觉识别 · 摄像头 · 目标检测 · 数据集 ·
+模型训练 · ONNX · 语音控制 · 动作学习 · **策略训练** · **自动数据采集** · Sim2Real 实机迁移。
+
 架构已按 spec §三十八 预留 `RobotCommand` / `RobotState` / `RobotModel` / `RobotTransport`
-四个扩展边界，未来能力（视觉 / AI / 语音 / MuJoCo）只需归一到 `RobotCommand` 即可接入。
+四个扩展边界；MuJoCo 轨另按 §29/§31 预留了 Sim2Real 接口
+（`state()` / `set_target_joints()` / `reset()` / `step()` ↔ `Observation` / `Action` / `Reset` / `Step`）。
 
 ### Phase 11–13 界面（同框可见三个新面板）
 
@@ -294,7 +381,7 @@ ONNX · 语音控制 · 动作学习 · MuJoCo 训练 · Sim2Real。
 **状态 · STATUS** → **链路误差 · LINK ERROR**（Phase 11：Command→Actual 逐关节偏差条 +
 误差趋势 sparkline + 健康结论）→ **模型 · ROBOT MODEL**。</sub>
 
-## 6. 当前验收数据（Phase 1–13）
+## 6. 当前验收数据（Phase 1–13 + MuJoCo 轨 M1–M10）
 ```
 类型检查      tsc -b                    0 error
 单元测试      vitest run                293 / 293 PASS（21 文件；含 13 项几何回归 · 19 项 IK · 19 项拖动平面 ·
@@ -313,7 +400,7 @@ FK(IK(XYZ))  2000 组随机可达位姿         末端位置最大残差 1.401e-
 IK 拖动连续性 300 点就近跟随             最大误差 1.017e-13 mm，支解切换 0 次
 拖动轨迹      400 点穿越工作空间边界      边界定位到一格（1.5mm）内；越界段关节**零变化**
 真实鼠标拖拽  无头 Edge + CDP 真实事件    Δ 17.47 mm；被锁轴 Z **逐位相同**（93.83984236589028）
-测试探针      生产构建产物                不含 __armPilot（dev-only 门控生效；`data-testid` 是有意保留的稳定选择器）
+测试探针      生产构建产物                JS bundle 中 `__armPilot` **0 命中**（dev-only 门控生效；`data-testid` 是有意保留的稳定选择器）
 运行态       真实浏览器（swiftshader）   FK↔3D = 3.18e-14 mm @ 初始位姿
 几何↔运动学  抹掉全部 geometry/details   endEffectorPosition 逐位不变
 真机一致性    HOME 位（四舵机全 90°）    虚拟臂渲染姿态与实拍照片目视一致
@@ -371,6 +458,31 @@ e2e 实测      滑杆跳 30°                  即时 cmd 29.9° / act 0.8°（
 向后兼容      rod_gap=0                  w2_S7 仍报 `+0.6033 / −13.1%`（逐值复现）⇒ 默认关闭不影响既有结论
 跨批极差      标定增益可复现性            肩 **[−13.1%, −2.3%] 极差 10.8%** · 肘 **[+0.9%, +53.8%] 极差 52.9%**（容差 5%）
 最终判定      —                          **测量本身不可复现** ⇒ A1/A2 双双不做；A3 上台面重测是唯一入口（见 `hardware-measurement.md` §7）
+──────────── MuJoCo 轨 · 物理仿真（M1–M10） ────────────
+生成器        gen_model.py              8550 B · nq=4 nv=4 nbody=8 ngeom=33 nu=4 nexclude=5 · 总质量 0.2173 kg
+FK 交叉验证   参考实现 vs MuJoCo        零位 [0,0,260] · HOME [111.9569,0,93.8398] · 120 随机 + 256 角点
+                                       → max|Δ| = 7.1e-14 mm（阈值 1e-6）
+IK 交叉验证   真实 ik.ts → MuJoCo 复算   目标由 MuJoCo FK 生成 ⇒ 120/120 成功（100%）
+                                       max = 1.137e-13 mm · mean = 3.76e-14 mm
+前端 fk.ts    与 MuJoCo 逐点对撞          376 点（含 256 限位角点）max = 1.137e-13 mm
+越限诊断      几何可达但限位不允许        IK 报 JOINT_LIMIT（不是 OUT_OF_WORKSPACE），最接近支差 55.0°
+可达内锥      合法域内最小水平半径         65.6208 mm（角点 θs=−6.0937°, θe=141.8582°）⇒ 够不到中轴线
+解支唯一性    θe − θs ≥ 58.9866°        ⇒ elbow-down（α<0）恒不可行；四对限位换算后恰好等价
+重力测试      无驱动 3s（有/无重力对照）  Δ base 3.873° / shoulder 35.962° / elbow 48.104° / gripper 31.691°
+                                       关重力对照：Δ 全部 == 0.0
+稳态误差自洽  qpos == ctrl − τ/kp        肩 0.36° = 0.0316 N·m ÷ 5.0
+接触力判据    dist = +1.439 mm           qfrc_constraint = [0, −0.23325, −0.145184, 0] · 执行器满力矩 0.1765
+                                       禁用台面 ⇒ TCP z 由 44.05 掉到 15.79 mm（Δz = −28.26 mm）
+自碰撞几何距  相邻连杆实测重叠            −20.0 / −1.576 / −7.123 / 0.0 / −5.0 mm ⇒ exclude 是必要的
+接触稳定性    下压 5s                   漂移 0.0013° · 无深穿透（min dist > −2 mm）
+时间步分层    1kHz / 100Hz / 33.3ms      step(1)×10 ≡ step(10)（按位）；第 10 步限速目标恰好走 1 格
+渲染解耦      fps=5 vs fps=240           qpos 按位相同（渲染帧率不决定物理步长）
+复位可重复    reset × 2 · 热启动泄漏       qpos/qvel 按位相同；新实例与复用实例亦一致
+跨进程确定性  run.py --demo 跑两遍         12 行数值载荷逐字相同（seed=0）
+记录回读      JSONL / CSV               列与 config 一致 · 数值等于当时状态 · sim_time 严格递增
+快速运动      Test D 峰值角速度           4.9161 rad/s（限速目标 10 rad/s，0.49×）· 无 NaN · 不越 range
+Level 声明    calibration.calibrated      false + 七项全空（由测试强制，ADR D52）
+ ─── pytest 106 passed（10 文件）· go test 56 全绿 · vitest 293 passed · tsc 0 error · vite build OK ───
 ```
 
 > **Phase 9 最重要的一条结论**：真机固件**没有位置反馈**（`arm_get_angle()` 回的是固件记着的
@@ -608,3 +720,15 @@ $PY tools/fit_pose.py .workbuddy/captures/w2_S7 --sweep both --anchor .workbuddy
 | 跟踪误差为什么是 0.02° 而不是 0（链路精度） | `docs/decisions.md` D31 · `docs/coordinate-system.md` §3.4 |
 | Phase 9 接真串口的落点与实测坑 | `backend/internal/device/serial.go` 注释 · `protocol/serial-v1.md` §6.1 |
 | 真机端到端怎么跑、相机怎么当唯一真值 | `tools/verify_serial_e2e.mjs` · `tools/verify_pose.py` 头注释 · D34–D36 |
+
+## 10. MuJoCo 物理仿真（`simulation/`）快速索引
+
+| 想知道 | 看 |
+|--------|-----|
+| 怎么跑、验收数据、Level 声明 | [`simulation/README.md`](simulation/README.md) |
+| 架构勘察：几个自由度、五种角度、接入方案对比 | [`docs/ARCHITECTURE_ANALYSIS.md`](docs/ARCHITECTURE_ANALYSIS.md) |
+| 为什么 MuJoCo 的 hinge range **不是**限位真值 | `docs/decisions.md` **D49** · `simulation/README.md` §4.2 |
+| 「有接触记录」为什么不等于「有力」 | `docs/decisions.md` **D51** · `tests/sim/test_collision.py` 文件头 |
+| 为什么 IK 验收必须加载真实 `ik.ts` | `docs/decisions.md` **D53** · `frontend/tests/tools/kinematics-bridge.mjs` |
+| 改了几何后要做什么 | 重跑 `python simulation/mujoco/gen_model.py`（**MJCF 是产物，禁手改**） |
+| 三个只在特定调用方式下暴露的静默错误 | `docs/decisions.md` **D54** |

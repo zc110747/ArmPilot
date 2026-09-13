@@ -3,7 +3,235 @@
 记录"为什么这么做"，尤其是**与原 spec 示例不一致**的地方，方便后续复盘与修改。
 每条都有编号，代码注释会引用编号（如 `D2`）。
 
-> 本文**最新条目在前**（D47 在最上，D1 在最下）。
+> 本文**最新条目在前**（D54 在最上，D1 在最下）。
+
+## D54 · 三个**只在特定调用方式下暴露**的静默错误：累加器 · settle 判据 · 双重换算
+
+**背景**：MuJoCo 后端落地过程中踩到三个 bug，共同特征是**代码本身看起来完全正常、
+单元测试也能过，只在换了调用方式或换了输入量级时才现形**。它们的代价都极高
+（表现成"命令没生效"/"模型是坏的"），因此值得单独记一条。
+
+### 一、控制周期累加器写成了局部变量
+
+```python
+def step(self, n=1):
+    for _ in range(n):
+        accum = 0.0                      # ✗ 每次 from 0
+        accum += dt
+        if accum >= ts_ctrl:  ...        # 永远达不到 10ms
+```
+- `settle()` 内部逐次调 `step(1)` ⇒ 累加器每次都从 0 开始 ⇒ **ctrl 永不更新 ⇒ 命令完全不生效**
+- 而 `step(200)` 这类"一次调用多步"的写法却**完全正常**
+
+⇒ 症状是「用 `settle()` 测就全挂、用 `step(200)` 测就全过」，极难归因。
+**修法**：累加器提升为实例状态（`self._ctrl_accum`），`reset()` 里归零。
+**回归**：`test_step_batching_does_not_change_result`（`step(1)`×10 ≡ `step(10)`，按位比较）。
+
+### 二、`settle()` 用"单步速度低"当静止判据
+
+`reset()` 之后 `qvel` 恒为 0 ⇒ 第一次 `step` 就判定"已静止"并返回 ⇒
+所有"下命令然后 settle"的测试都读到**从未移动过的初始位形**（又是"命令没生效"）。
+**修法**：改成「连续 `hold_s=0.2s` 内速度都低于阈值」。
+
+### 三、惯量的**双重单位换算**（静默率最高）
+
+`physics.yaml` 已声明全 SI（米），生成器又对 `com`/`length` 做了一次 `mm2m()`
+⇒ 40 mm 被写成 40 µm，惯量掉到 **1e-11**，再经 `%.6f` 格式化后**显示成 "0"**。
+MuJoCo 对零惯量要么报错、要么**静默产生一个不受力矩的关节**。
+**修法**：不再换算；格式化改用 `%g`（自动切科学计数法，MuJoCo 解析器支持）。
+
+### 四、顺带澄清一个语义（不是 bug，但会被误读）
+
+`SimState.target_angles` / `record.py` 的 `target_joint` 记的是**上层请求的目标**，
+不是"限速后真正写进 `ctrl` 的目标"。两者差 = 舵机速度限幅欠的债。
+旧 docstring 写成了后者（"速率受限目标"），与代码不符 —— 已修正，并新增
+`MeArmSim.ctrl_angles_deg()` 把后者也暴露出来（Phase 11 的跟踪误差面板需要分开看这两项）。
+
+---
+
+## D53 · IK 验收必须加载**真实的 `ik.ts`**，不能用 Python 重写一份
+
+**背景**：spec §21 要求「≥100 随机可达点，统计 success rate / mean / max error」。
+最省事的做法是在验收脚本里用 numpy 再写一遍平面 2R 解析解。
+
+**为什么不行**：那样只能证明"我又写了一遍、而且它自洽"，**证明不了 `ik.ts` 是对的**。
+而 `ik.ts` 恰恰是**真正驱动用户机械臂**的那一份；它的错不会被前端自己的 FK 测试发现
+（两者共享同一套旋转约定，会一起错）。要下判断，判据必须来自**另一个实现**。
+
+**做法**：写一个进程级桥 `frontend/tests/tools/kinematics-bridge.mjs`，
+用 **Vite 自己的 SSR 加载器**（`server.ssrLoadModule`）把 `ik.ts` / `fk.ts` 拉进 Node。
+为什么必须用 Vite：`loadRobotModel.ts` 里写着 `import ... from '@config/robot.yaml?raw'`
+（`?raw` 与 `@config` 都是 Vite 专属语法），且所有内部导入都是**无扩展名**的 ——
+Node 的解析器两条都不认。
+桥用 `--in` / `--out` **文件**传 JSON 而不是 stdout：Vite 与插件会往 stdout 打日志，
+任何一行都会让对方解析失败。
+
+**判据结构**（让被测对象只剩一个）：
+
+```
+生成：真机限位内随机采样关节角 ──► MuJoCo FK ──► 目标点 T    （两侧同源，不偏袒）
+被测：前端真实 ik.ts：T ──► 关节角                          （唯一被检验的对象）
+评判：关节角 ──► MuJoCo FK ──► TCP'   误差 = |TCP' − T|
+```
+
+**实测**：120 随机 + 256 限位角点，成功率 **376/376 = 100%**，
+`max = 1.137e-13 mm`、`mean = 3.76e-14 mm`。
+同一个桥顺带把 **前端 `fk.ts` 与 MuJoCo** 也对了（`max = 1.137e-13 mm`）——
+`fk.ts` 是真正画 3D 视图、做鼠标拖动的那一份，它若有系统偏差，用户看到的位姿就是错的。
+
+**脚手架自检**：`test_bridge_model_matches_robot_yaml` 先逐项比对桥加载到的模型与
+`config/robot.yaml`（关节/轴/限位/耦合/TCP/HOME/执行器）。**这一步不过，后面所有数字都无效** ——
+否则会出现"拿 A 配置的 IK 对 B 配置的 MuJoCo"，表面上一切绿灯。
+
+---
+
+## D52 · 「不伪造真实物理」做成**机器可检查**的，而不是 README 里的一句话
+
+**背景**：spec §37 禁止把参数化仿真说成真实模型，要求 README 显式声明 Level。
+但"写在文档里"的声明会随重构漂移 —— 换个人来改，很容易顺手把
+`calibrated: false` 改成 `true`。
+
+**做法**：把声明变成**测试**（`test_level_declaration_is_machine_checkable`）：
+
+1. `config/physics.yaml` 的 `calibration.calibrated` 必须为 `false`；
+2. 七个可标定量段（`servo_offset` / `joint_scale` / `joint_zero` / `max_velocity` /
+   `max_torque` / `damping` / `friction`）**必须全为空字典**
+   —— 有实测值却仍标 `false` 是自相矛盾的；
+3. `calibrate.collect_status()` 报出的待标定项数必须等于可标定项数。
+
+**同时钉住「真值只有一份」**：`test_config_truth_is_not_duplicated` 检查
+`physics.yaml` 里既没有 `robot`/`links`/`joints`/`tcp` 这些运动学段，
+也没有出现 `elbow`/`shoulder` 限位的字面量。抄一份不会报错，只会静默漂移。
+
+**当前 Level = 3→4（参数化物理仿真）**。要升到 5，必须先把七个量用真实实验填满、
+再把 `calibrated` 改成 `true` —— 测试会强制这个顺序。
+
+---
+
+## D51 · 「接触表里有记录」和 `dist` 都**不是**接触力的证据
+
+**背景**：下压位形（`shoulder=49.4549°, elbow=141.8582°`）实测
+`jaw_link_coll ↔ table_top` 的 `dist = +1.44 mm`（**正值**，按常理"没接触"），
+但 TCP 被稳稳托在 44.05 mm 高处不下沉 —— 到底有没有力？
+
+**排查过程**（每一步都排除了一个假设）：
+
+| 假设 | 实测 | 结论 |
+|------|------|------|
+| 是 `margin` 造成的"预备接触" | 把 `margin` 从 1mm 改成 0，结果一字不变 | ✗ 排除 |
+| 根本没接触，只是位置环的稳态误差 | `qfrc_constraint = [0, −0.23325, −0.145184, 0]` —— 肩/肘上有**真实反力矩** | ✓ 有力 |
+| 力矩是执行器硬顶出来的 | `qfrc_actuator[shoulder] = 0.1765` = **满力矩上限** | ✓ 有力 |
+| 托举只是巧合 | 禁用台面 ⇒ TCP z 从 44.05 掉到 **15.79 mm**（Δz = −28.26 mm） | ✓ 有力 |
+
+**结论**：`dist > 0` 的**软接触**（`solref`/`solimp` 定义的柔性约束）依然会施力；
+`dist` 只是软接触平衡态下的**名义间距**，不是"有没有力"的判据。
+
+**纪律（写进 `tests/sim/test_collision.py` 文件头）**：
+1. **有接触记录 ≠ 有力** ⇒ 必须看 `qfrc_constraint` / 执行器力 / 对照位移；
+2. **"接触没了"也不是证据** —— 必须配一个**只改一件事**的对照实验
+   （这里就是"禁用台面 vs 启用台面"，测同一个位形的 TCP z）。
+
+---
+
+## D50 · 几何只能**加载期**改（`MjSpec`）；但碰撞掩码可以运行时改
+
+**背景**：碰撞测试需要一个变体场景（抬高地面、改碰撞体尺寸）。
+最自然的写法是直接写 `model.geom_pos[i] = ...`。
+
+**实测**：这样写进 `MjModel` 之后，`mj_forward` **不会**重算静态 geom 的
+`data.geom_xpos` 与 broadphase AABB —— 碰撞检测**完全无视**这次改动。
+把工作台从 `z=15mm` 抬到 `z=100mm`，臂的稳态位置与接触对**一字不变**（假绿灯）。
+
+**修法**：给 `MeArmSim` 加一个"直接喂 XML 文本"的入口，测试里用 `mujoco.MjSpec`
+在**加载期**改几何：
+
+```python
+spec = mujoco.MjSpec.from_file(str(SIM_DIR / "mearm.xml"))
+spec.geom("floor").pos = [0, 0, 0.030]
+sim = MeArmSim(xml_text=spec.to_xml())      # 实测 geom_xpos=[0,0,0.03]，接触如期出现
+```
+
+**但**：`geom_contype` / `geom_conaffinity` **运行时改是有效的** ——
+碰撞过滤是逐对查询掩码，不走 AABB 缓存。所以"开关某个碰撞体"用掩码改，
+"改某个碰撞体的形状/位置"必须走 `MjSpec`。两者能力不同，别混用。
+
+---
+
+## D49 · `elbow` 的合法域是**斜的** ⇒ MuJoCo 的 hinge range 只承担"数值保护"
+
+**背景**：`elbow` 存的是**绝对倾角**（[108.4415°, 141.8582°]），
+而它与 `shoulder` 通过平行四连杆**耦合**（`gain = −1`）。
+MuJoCo 的 hinge `qpos` 是**局部角** `θe − θs`。
+
+**算术结论**（`tests/sim/test_joint_limits.py::test_arithmetic_legal_region_is_oblique`）：
+
+- 局部角的外接区间 = `[108.4415 − 49.4549, 141.8582 + 6.0937] = [58.9866, 147.9519]`
+- 取该区间**下界**配肩角**下界**：`θe = 58.9866 + (−6.0937) = 52.89°` < 108.4415° ✗ **越界**
+- 反过来求"内切"：下界 114.5352 > 上界 92.4033 ⇒ **空集**
+
+⇒ 外接盒**严格大于**合法域，而单一 `range` 只能表达盒。**没有任何 range 能表达它。**
+
+**实测把这条路走实**：MuJoCo 会**照常执行** `(shoulder=−6°, elbow=53°)` ——
+它只看到局部角 59° 落在外接区间内。而真机 S8 舵机结构上转不到那个绝对角。
+
+**因此定下架构**：
+
+| 层 | 的角色 |
+|----|--------|
+| `config/robot.yaml` | **唯一限位真值** |
+| `physics.yaml: range_padding_deg = 2.0` | 刻意让 hinge range 比真值更**宽** ⇒ 上层拒绝可被观测 |
+| Go controller / `limits.py` / `ik.ts` | **限位一致性的唯一把关人** |
+| MuJoCo hinge range | 只做**数值保护**，不是限位真值 |
+
+`test_physical_range_includes_padding` 断言物理上限超过真机限位 + padding/2 ——
+如果 padding 被改成 0，物理层会先钳住命令，我们就再也分不清"是上层拒了"还是"物理层钳了"。
+
+**同一族的两条推论**（都由配置算术得出，各有回归测试）：
+
+1. **`elbow-down` 支恒不可行**：`θe = θs + α` 且 `elbow.limit_min (108.44°) > shoulder.limit_max (49.45°)`
+   ⇒ α 恒 > 58.99° > 0。所以本机只有 `elbow-up` 一支存在。
+   `test_requesting_elbow_down_falls_back_to_the_only_feasible_branch` 还要求
+   显式请求 `elbow-down` 时**退回可行支**，绝不静默返回越界解。
+2. **可达工作空间的内锥是空的**：`dr = l1·sin θs + l2·sin θe` 对 θs 单调递增、
+   对 θe 单调递减 ⇒ 最小值在角点 `(θs_min, θe_max)`，实测 **65.6208 mm > 0**。
+   ⇒ 真机**够不到自己的中轴线**（"离底盘越近越容易够到"是错的）。
+   闭式与 MuJoCo 网格扫描同值（`test_yaw_axis_is_outside_the_reachable_workspace`）。
+
+**四对限位恰好等价**：`S9 [30,150]` · `S7 [80,160]` · `S8 [20,100]` · `S6 [40,130]`
+—— 关节限位换算到舵机后**无一越界**。所以真配置下**构造不出**"关节入限但舵机出限"
+的反例（`test_joint_and_servo_limits_are_equivalent`）。
+
+---
+
+## D48 · MuJoCo 作为 `device.Device` 的**第三个实现**接入（不改现有链路一行）
+
+**背景**：spec §2 要求「MuJoCo 不得直接侵入现有 Web UI」；§25 要求「不要重新设计协议」。
+同时项目已经有一套成熟的链路：浏览器 → WS → controller → `device.Device`。
+
+**决策**：把 MuJoCo 做成 `device.Device` 的**第三个实现**，与 `sim.go` / `serial.go` 并列。
+
+理由：`device.Device` 是一个 **7 方法的极小接口**
+（`Kind` / `Connected` / `UnavailableReason` / `WriteLine` / `Lines` / `OnStatus` / `Close`），
+它恰好就是"物理后端"的抽象边界。于是：
+
+- WebSocket 层、`controller`、`protocol`、前端 **全部零改动**（实测实装后一个字没改）；
+- Go 侧只是 `main.go` 的 `switch c.Device.Mode` 多一个 `case "mujoco"`；
+- Python 侧 `server.py` 在 stdio 上跑**与固件逐字节相同的文本协议**。
+
+**§25 的落地**：`ServerMessage` 只加**一个可选字符串** `simulation_mode`
+（`omitempty` ⇒ 老前端读不到就按 `kinematic` 处理），值为
+`SimulationModeFor(deviceKind)`：`sim→kinematic` / `mujoco→mujoco` / `serial→real`。
+不加新消息类型、不改 `joints` 的结构。这就是"不侵入 Web UI"的具体形态。
+
+**§32/§33 的落地**：`reset()` 是唯一允许写 `qpos` 的地方（`data.qpos[...] = target`
+**不是**控制方式）；跨进程确定性由 `run.py --demo` 跑两遍、数值行逐字比对来证明。
+
+**为什么握手要显式 `PING → OK PING`**：没有它，"Python 解释器不对 / mujoco 没装 /
+XML 编译失败"这三类最常见的故障会以**"设备可用但永远没有回执"**的形式出现，
+上层只能看到 ACK 超时 —— 那是最难查的一种失败。
+`exec.LookPath(python)` 失败、`stderr` 里出现 `No module named 'mujoco'` 都会给出明确修复指引。
+
+---
 
 ## D47 · 先证「测量可复现」，再谈「模型对不对」—— A1/A2 双双判定为**不改**
 

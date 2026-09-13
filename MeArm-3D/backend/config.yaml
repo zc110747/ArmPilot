@@ -19,8 +19,12 @@ robot:
   config_path: "../config/robot.yaml"
 
 device:
-  # sim    = 内置假固件（Phase 8 验收用；无真机也能跑通字节级闭环）
-  # serial = 真串口（Phase 9）
+  # sim    = 内置假固件（无真机也能跑通字节级闭环）
+  # mujoco = MuJoCo 物理仿真（device.Device 的第三个实现，协议与固件逐字节一致）
+  # serial = 真串口
+  #
+  # 三者的**上层完全一致**：controller 独占限位/标定与 ACK 门控，
+  # WebSocket 与前端一行都不用改。
   mode: "sim"
   sim:
     max_servo_speed: 240   # 舵机最大角速度（度/秒）；0 = 瞬时到位。与前端 Mock 默认一致
@@ -28,6 +32,23 @@ device:
     tick_ms: 20            # 位置推进周期
     enforce_limits: true   # 越界回 ERR JOINT 且位置保持不动（复刻固件行为）
     boot_ms: 0             # 开机静默窗口：模拟 Uno bootloader 交权期（0 = 关闭）
+  mujoco:
+    # ⚠️ 这里**只有运行参数**。质量/惯量/摩擦/增益在 config/physics.yaml，
+    #    限位与标定在 config/robot.yaml —— 一个都不许抄到这里来。
+    #
+    # Python 解释器：必须指向**装了 mujoco 包**的那一个，否则启动握手会失败
+    # （错误信息里会直接提示，不会表现为"设备可用但没有回执"）。
+    # 本机可用值（隔离环境，py3.13 + mujoco 3.13 + numpy + pyyaml）：
+    python: "C:/Users/zc110/.workbuddy/binaries/python/envs/default/Scripts/python.exe"
+    # 留空 = 按 ../simulation/mujoco/server.py → simulation/... 依次回退
+    script: ""
+    report_hz: 30          # STATE 上报频率（Hz）
+    phys_hz: 1000          # 物理步频率（Hz）—— 渲染帧率不决定它
+    batch_ms: 10           # 每次实时对齐前连续推进 10ms
+    #    ↑ Windows 的 sleep 粒度约 1~2ms；按物理步逐步 sleep 会让仿真
+    #      比真实时间慢一个数量级，"实时"就名存实亡。
+    no_realtime: false     # true = 不做实时对齐（离线回归 / 压测）
+    start_timeout_ms: 20000  # 启动握手超时（首次 import mujoco 较慢）
   serial:
     # ⚠️ 运行参数在这里；**标定/限位不在这里**（全在 config/robot.yaml）
     port: "COM16"          # 本机实测：USB-SERIAL CH340 = 机械臂

@@ -51,6 +51,34 @@ const (
 	CodeAckTimeout = "ACK_TIMEOUT"
 )
 
+// 仿真模式（spec §25）。
+//
+// 三者对应 `device.Device` 的三个实现，区别是**末端发生了什么**：
+//
+//	kinematic  sim 设备：纯运动学 + 速率限制。关节"瞬间听话"，没有重力、没有接触。
+//	mujoco     MuJoCo 刚体动力学：有重力、有接触、有有限力矩，会**压不到位**。
+//	real       真机串口：物理世界（唯一的外部地面真值是相机）。
+//
+// ⚠️ 这不是"UI 开关"，只是一份**事实声明** —— 前端拿它决定要不要提示
+//    "当前是参数化物理仿真，不是真机标定模型"（spec §37 的 Level 声明）。
+const (
+	SimulationKinematic = "kinematic"
+	SimulationMujoco    = "mujoco"
+	SimulationReal      = "real"
+)
+
+// SimulationModeFor 把 `device.Kind()` 映射成对前端友好的仿真模式。
+func SimulationModeFor(deviceKind string) string {
+	switch deviceKind {
+	case "mujoco":
+		return SimulationMujoco
+	case "serial":
+		return SimulationReal
+	default:
+		return SimulationKinematic
+	}
+}
+
 // ClientMessage 是浏览器下行消息。
 //
 // `seq` 是本项目在 spec 字段之外加的**可选项**：拖动时命令高频变化，
@@ -75,6 +103,12 @@ type ServerMessage struct {
 	Model     *ModelInfo         `json:"model,omitempty"`
 	Device    string             `json:"device,omitempty"`
 	Connected *bool              `json:"connected,omitempty"`
+	// SimulationMode 说明末端是哪种"仿真"（spec §25）。
+	//
+	// ⚠️ 刻意只加这**一个可选字符串**，不加新消息类型、不改 joints 的结构：
+	//    前端不认识它也照常工作（omitempty ⇒ 老前端读不到就按 kinematic 处理）。
+	//    这就是 spec §2「MuJoCo 不侵入现有 Web UI」的落地方式 —— UI 零改动。
+	SimulationMode string `json:"simulation_mode,omitempty"`
 }
 
 // ModelInfo 是握手时下发的模型真值快照。前端拿它与本地 RobotModel 比对：

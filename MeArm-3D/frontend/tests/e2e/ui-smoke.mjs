@@ -391,8 +391,18 @@ const setSlider = (index, value) => `(() => {
 })()`;
 
 /** 读取状态表里某个关节的 Command 值 */
+/**
+ * 状态卡（"状态 · Status"）第 rowIndex 行的 Command 单元格文本。
+ *
+ * ⚠️ 必须**限定在状态卡内**：`.sidebar table.grid` 这个选择器还会命中「连接 · Transport」
+ *    卡里的"指标 / 值"表（已发送/已接收、丢帧/拒绝…）。一旦页面在断言之前已连上任意传输，
+ *    那张表就会渲染并排在前头，`rows[rowIndex]` 会静默落到错误的表上
+ *    —— 实测复用一个残留后端时，本项读到的是"丢帧 / 拒绝"行的 `0 / 0`，变成假 FAIL。
+ */
 const readCommandCell = (rowIndex) => `(() => {
-  const rows = document.querySelectorAll('.sidebar table.grid tbody tr');
+  const card = ${cardByTitle('状态 · Status')};
+  if (!card) return null;
+  const rows = card.querySelectorAll('table.grid tbody tr');
   const row = rows[${rowIndex}];
   if (!row) return null;
   return row.children[1].textContent.trim();
@@ -509,10 +519,29 @@ const TOGGLE_ACTUAL_ARM = `(() => {
  * 分两次 CDP 往返（每次十几毫秒 + 中间还有别的 evaluate）会让第二次读到时
  * 误差已经归零 —— 那样断言会变成**间歇性**失败，而不是稳定复现。
  */
-const READ_LAG_WITH_GHOST = `(() => {
-  const rows = document.querySelectorAll('[data-testid="err-rows"] .err-row');
-  const row = rows[1];
-  const errEl = row ? row.querySelector('.err-val') : null;
+/**
+ * 滞后瞬间的**单次求值快照**：关节滞后 + 误差行 + 健康结论 + 幽灵分离量。
+ *
+ * ⚠️ 为什么不拆成几个探针：Mock 的 34° 跳合约 150ms 就收敛完，一次 CDP 往返在
+ *    负载高时可能就要上百毫秒 —— 拆开取就会让后取的读数落到"已收敛"态，
+ *    于是「滞后期间不得说已到位」「幽灵与主臂分离」变成**间歇性假 FAIL**
+ *    （实测：复用一个残留后端把机器拖慢后，同一份代码 4 项全红，清干净后 88/88 全绿）。
+ *    因此这里必须一次取全，让四条断言判的是**同一时刻**。
+ */
+const readLagSnapshot = () => `(() => {
+  const card = ${cardByTitle('状态 · Status')};
+  const row = card ? card.querySelectorAll('table.grid tbody tr')[1] : null;
+  let command = null, actual = null, gap = null;
+  if (row) {
+    command = parseFloat(row.children[1].textContent);
+    actual = parseFloat(row.children[2].textContent);
+    if (Number.isFinite(command) && Number.isFinite(actual)) gap = Math.abs(actual - command);
+  }
+  const errRows = document.querySelectorAll('[data-testid="err-rows"] .err-row');
+  const errEl = errRows[1] ? errRows[1].querySelector('.err-val') : null;
+  const errVals = Array.from(document.querySelectorAll('[data-testid="err-rows"] .err-row .err-val'))
+    .map(r => parseFloat(r.textContent.replace(/[+°]/g, '')));
+  const health = document.querySelector('[data-testid="link-health"]');
   const p = window.__armPilot;
   const g = window.__armPilotGhost;
   let ghostGap = null;
@@ -521,8 +550,11 @@ const READ_LAG_WITH_GHOST = `(() => {
     ghostGap = Math.hypot(g.tcp[0] - c[0], g.tcp[1] - c[1], g.tcp[2] - c[2]);
   }
   return {
+    command, actual, gap,
     errDeg: errEl ? parseFloat(errEl.textContent.replace(/[+°]/g, '')) : null,
+    errVals,
     ghostGap,
+    health: health ? health.textContent.replace(/\\s+/g, ' ').trim() : null,
   };
 })()`;
 
@@ -1093,36 +1125,32 @@ async function main() {
     const connected = await poll(cdp, READ_CONNECTION, (v) => v === 'Connected', 8000);
     check('连接 MockTransport → 状态灯变 Connected', connected === 'Connected', String(connected));
 
-    // (b) 瞬间跳到 40°：立刻读，Actual 还没跟上。
-    //     这一条是「Mock 不是零延迟等值回显」的直接证据 —— 若把 Mock 做成理想回显，这里恒为 0。
+    // (b)(b1)(b2) 瞬间跳到 40°，然后在**同一次求值**里取全滞后相位的四条证据：
+    //     ① Actual 还没跟上（若把 Mock 做成零延迟理想回显，这里恒为 0）；
+    //     ② 实际臂幽灵已渲染且与主臂分离；③ 误差面板不得说"已到位"。
+    //     合并成一次求值的原因见 readLagSnapshot 注释（拆开取会落到归零值 ⇒ 间歇性假 FAIL）。
     await cdp.evaluate(setJointSlider(1, 40));
-    const immediate = await cdp.evaluate(readJointGap(1));
+    const lag = await cdp.evaluate(readLagSnapshot());
+
     check(
       '命令送达前 Actual 明显滞后（Mock 模拟延迟 + 有限角速度）',
-      immediate !== null && immediate.gap > 1,
-      immediate ? `cmd ${immediate.command}° / act ${immediate.actual}° / 差 ${immediate.gap.toFixed(1)}°` : 'null',
+      lag !== null && lag.gap !== null && lag.gap > 1,
+      lag ? `cmd ${lag.command}° / act ${lag.actual}° / 差 ${lag.gap.toFixed(1)}°` : 'null',
     );
-
-    // (b1) Phase 12：滞后瞬间，实际臂幽灵必须已渲染**且与主臂分离** —— 分离量就是滞后量。
-    //      与 (b) 的滞后读数取在同一次求值里：Mock 的 34° 跳合约 150ms 就收敛完，
-    //      分两次往返会让第二次读到归零值，断言就变成间歇性失败而非稳定复现。
-    const lagGhost = await cdp.evaluate(READ_LAG_WITH_GHOST);
     check(
       'Phase 12：滞后瞬间实际臂幽灵已渲染并与主臂分离（分离量=滞后量）',
-      lagGhost !== null && lagGhost.ghostGap !== null && lagGhost.ghostGap > 0.5,
-      lagGhost && lagGhost.ghostGap !== null
-        ? `分离 ${Number(lagGhost.ghostGap).toFixed(1)} mm / 误差 ${lagGhost.errDeg}°`
+      lag !== null && lag.ghostGap !== null && lag.ghostGap > 0.5,
+      lag && lag.ghostGap !== null
+        ? `分离 ${Number(lag.ghostGap).toFixed(1)} mm / 误差 ${lag.errDeg}°`
         : 'null',
     );
-
-    // (b2) Phase 11：滞后期间误差面板必须与链路事实一致 —— 不得说"已到位"
-    const errsLag = await cdp.evaluate(READ_ERR_VALUES);
+    const errsLag = lag ? lag.errVals : null;
     check(
       'Phase 11：误差面板逐关节列出偏差（可动关节数一致）',
       Array.isArray(errsLag) && errsLag.length === 4 && errsLag.every((v) => Number.isFinite(v)),
       Array.isArray(errsLag) ? `${errsLag.length} 行` : 'null',
     );
-    const healthLag = await cdp.evaluate(READ_LINK_HEALTH);
+    const healthLag = lag ? lag.health : null;
     check(
       'Phase 11：滞后期间健康结论**不是**"已到位"（滞后与到位必须分开）',
       typeof healthLag === 'string' && !healthLag.includes('已到位'),
@@ -1748,6 +1776,19 @@ async function main() {
     // 这里断言修复后的语义：点 Real Robot **不切**，且给出拒绝原因。
     {
       // 前端此刻连着 sim 后端（或已断开）—— 两种情形都**不该**切得过去。
+      //
+      // ⚠️ 入口状态必须显式归位（"跨批次状态残留"防线）：Phase 8 走 serial 分支时，
+      //    它末尾的"归位到 Real Robot"那一步不会执行，mode 可能被留在 real；
+      //    此时 Phase 10.6 读到的是**上一段的结果**，与本次点击无关
+      //    —— 实测污染环境里就出现「提示条说已拒绝、按钮却仍高亮 Real」的自相矛盾。
+      await cdp.evaluate(CLICK_SIMULATION);
+      await sleep(200);
+
+      // ⚠️ 前提：链路末端**非 serial**。复用一个残留的真机后端时前提不成立 ——
+      //    此时"允许切到 Real Robot"才是正确行为。D65 给 Phase 8 的同类断言加了 skip()，
+      //    这里当时漏了，污染环境下这两条会变成假 FAIL。
+      const serialLinkNow = backend !== null && backend.health.device === 'serial';
+
       const clicked = await cdp.evaluate(CLICK_REAL_ROBOT);
       await sleep(400);
       const after = await cdp.evaluate(READ_MODE_BUTTONS);
@@ -1755,18 +1796,29 @@ async function main() {
       const tail = await cdp.evaluate(READ_LOG_TAIL);
 
       check('Phase 10.6：Real Robot 按钮可点击', clicked === true, String(clicked));
-      check(
-        'Phase 10.6：链路末端非 serial 时点 Real Robot → **拒绝切换**（按钮仍高亮 Simulation）',
-        after !== null && after.realActive === false && after.simActive === true,
-        after
-          ? `simActive=${after.simActive} realActive=${after.realActive}`
-          : 'null（按钮未找到）',
-      );
-      check(
-        'Phase 10.6：拒绝时必须给出原因（不留静默）',
-        typeof tail === 'string' && /Real Robot 未启用/.test(tail),
-        tail === null ? 'null' : tail.slice(-90),
-      );
+      if (serialLinkNow) {
+        skip(
+          'Phase 10.6：链路末端非 serial 时点 Real Robot → **拒绝切换**（按钮仍高亮 Simulation）',
+          `复用的后端末端是 serial（device=${backend.health.device}）—— 此时"允许切到 Real Robot"才是正确行为`,
+        );
+        skip(
+          'Phase 10.6：拒绝时必须给出原因（不留静默）',
+          '同上：serial 末端不产生"Real Robot 未启用"日志，该断言在当前环境下不可测',
+        );
+      } else {
+        check(
+          'Phase 10.6：链路末端非 serial 时点 Real Robot → **拒绝切换**（按钮仍高亮 Simulation）',
+          after !== null && after.realActive === false && after.simActive === true,
+          after
+            ? `simActive=${after.simActive} realActive=${after.realActive}`
+            : 'null（按钮未找到）',
+        );
+        check(
+          'Phase 10.6：拒绝时必须给出原因（不留静默）',
+          typeof tail === 'string' && /Real Robot 未启用/.test(tail),
+          tail === null ? 'null' : tail.slice(-90),
+        );
+      }
       check(
         'Phase 10.6：提示条不得显示"正在驱动真实机械臂"',
         typeof hint === 'string' && !/正在驱动真实机械臂/.test(hint),

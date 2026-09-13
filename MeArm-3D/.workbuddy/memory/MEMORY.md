@@ -73,7 +73,13 @@ cd frontend
 node tests/e2e/ui-smoke.mjs
 ```
 - `npx <tool>` 会触发 WSL 黑名单 ⇒ **一律 `./node_modules/.bin/<tool>` 直调**。
-- 跑 e2e 前**必须清掉带 `VITE_AUTO_CONNECT` 的残留 dev server**，否则"环境差异"被读成"代码回归"（D40/D43）。
+- **`(cmd &)` 起的后台进程只活到本次工具调用结束** ⇒ 起服务与跑 e2e 必须在**同一次调用**里，
+  否则下一条命令必然 `ERR_CONNECTION_REFUSED`。
+- **`/tmp/*.log` 重定向在沙箱内会被拦**（文件不生成）⇒ 日志落到工作区内（`.workbuddy/captures/`，已 gitignore）。
+- `node "/e/cnb/..."` 会被解析成 `E:\e\cnb\...` ⇒ 传 **`E:/cnb/...`** 正斜杠盘符形式。
+- **跑 e2e 不要动用户在跑的实例，改用隔离端口**（见下条）—— 旧写法"清掉带 `VITE_AUTO_CONNECT` 的残留
+  dev server"**已作废**：它实际会杀掉用户 `start.bat --real` 起的**那一对**进程（D67）。
+  判别残留是否在害你的**症状**：e2e 读到 `状态表 Command 列跟随滑杆 — 0 / 0`、滞后类断言读到已收敛值。
 - Python：系统 `python3` 无 numpy。用 `~/.workbuddy/binaries/python/envs/default/Scripts/python.exe`
   （numpy / PIL / **mujoco / pyyaml / pytest**），并设 `PYTHONIOENCODING=utf-8`（否则中文乱码）。
 - **物理仿真轨另加**：`<python> -m pytest tests/sim -q`（106 项）。
@@ -90,13 +96,24 @@ node tests/e2e/ui-smoke.mjs
 - **探针（含 `delete window.__xxx` 那一行）必须 `import.meta.env.DEV` 守卫**，
   否则字面量进生产包（D27 起的固定检查项）。
 - **时间相关的多个读数必须合并在同一次 `cdp.evaluate`** —— 分两次 CDP 往返会让快收敛的量读到归零值，
-  变成**间歇性失败**。
+  变成**间歇性失败**（D67 二：滞后相位四条断言必须一个 `readLagSnapshot()` 取全；
+  自洽性判据 = 滞后角 ↔ 幽灵分离量 ↔ 误差值必须**互相印证**，修前出现"39.1° 却只分离 0.2mm"）。
+- **★ 位置型读取（`rows[i].children[j]`）必须限定到同一个容器内**（D67 一）：
+  `.sidebar table.grid tbody tr` 会同时命中 `ConnectionControl` 的"指标 / 值"表，
+  而它排在 `StatusPanel` **前面** ⇒ 一旦那张表渲染，`rows[1]` 就静默漂移到"丢帧 / 拒绝"行。
+  "读到一个值"≠"读到了想读的那个对象"。用 `cardByTitle('状态 · Status')` 先限定。
+  ⚠️ 这类探针**必须写成函数**：模块级模板字面量会在 import 时求值 ⇒ `cardByTitle` 还在 TDZ 直接 ReferenceError。
+- **`start.bat` 起的是"一对"进程**（D67 三）：真机后端（8090）**和**带 `VITE_AUTO_CONNECT=ws` 的 vite（5273）。
+  只清一个还会踩；页面加载即自动连上真机链路会让 **Mock 闭环类断言整体失真**。
 - **不许用推导量当独立判据**：`TransportStats.moving = lagDeg > eps`，用它判"卡死"永远得不到结论（D44）。
 - **没有正面证据不下断言**（如"卡死"）：宁可停在保守态（`tracking`）。
 - **★ 端口预检不许用「分组 + `\b`」**（D65）：本机 GNU grep 3.0 里 `\b` 紧跟 `)` 会失效，
   且**漏 `-E` 时 `(` `|` `)` 是字面字符** ⇒ 两个缺陷叠加让预检**恒返回"干净"**。
   必须用字段级比较：`netstat -ano | tr -d '\r' | awk '$4=="LISTENING"{n=split($2,p,":"); if (p[n]==8090) print $5}'`。
-  同理 `taskkill //PID` 在本机 Git Bash 下**报错并静默失败** ⇒ 杀进程用 PowerShell `Stop-Process`。
+  同理 `taskkill //PID` 在本机 Git Bash 下**报错并静默失败**（`//F` 也一样，实测提示
+  `无效参数/选项 - '//F'`）⇒ 杀进程用 **`taskkill -F -PID <pid>`（单横线）** 或 PowerShell `Stop-Process`。
+  ⚠️ 这条我**复犯过**：会话开头又用 `grep -E ":(5273|…|8090)\b"` 做预检 ⇒ 误报"端口已干净"。
+  省事写法：`netstat -ano | grep -E ":8090|:5273" | grep LISTENING`（**不带 `\b`**）。
 - **★ 固定 ROI 只在同一机位下可比**（D64 七）：换机位必须重定 ROI，并**目视复核 ROI 在物体上**。
   量一个小面时不要用"掩膜 bbox 画矩形"（会把**确实该变**的邻件圈进来）⇒
   正解是**用基线图算像素集合、在固定集合上量**（D39/D40）。

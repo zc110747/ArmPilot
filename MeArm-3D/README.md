@@ -128,8 +128,8 @@ MeArm-3D/
 │   ├── model-structure.md        # ★ 显式几何（plate/servo/details）与运动学的边界
 │   ├── hardware-measurement.md   # ★★ 真机实测记录：角色映射 / 绝对角解耦 / 标定 / 不确定度
 │   ├── ARCHITECTURE_ANALYSIS.md  # ★ MuJoCo 轨 Phase 1：自由度清点 / 五种角度对照 / 接入方案
-│   ├── decisions.md              # 设计决策 ADR（D1–D56；D48–D54 = MuJoCo 物理轨 · D55 = 真值冻结 · D56 = 纹理校正）
-│   ├── texture-capture-guide.md  # ★ 图像采集指南（拍哪块板 / 大面朝向 / 四项硬性要求 / 自查清单）
+│   ├── decisions.md              # 设计决策 ADR（D1–D57；D48–D54 = MuJoCo 物理轨 · D55 = 真值冻结 · D56 = 纹理校正 · D57 = 采集判定）
+│   ├── texture-capture-guide.md  # ★ 图像采集指南（拍哪块板 / 大面朝向 / 采集闭环 / 四项硬性要求 / 自查清单）
 │   └── images/                   # 界面截图（armpilot-console.png 由 e2e 自动重出；
 │                                 #   armpilot-phase11-13.png 由 tests/e2e/screenshot.mjs 出）
 ├── protocol/serial-v1.md         # ★ 串口 / WS 协议基线（§4 固件侧待 Phase 9；§5 上位机侧 Phase 8 已实现）
@@ -146,6 +146,7 @@ MeArm-3D/
 │   ├── cam_stability.py          # 相机/台面稳定性抽检
 │   ├── freeze_baseline.py        # ★ 冻结/校验运动学+物理真值（两级判据；改外观放行，改真值报错）
 │   ├── make_texture.py           # ★ 实拍照片 → 板件纹理（PCA 估四角 + homography 校正 + 归一化；--selftest）
+│   ├── capture_texture.py        # ★ 采集判定：摄像头抓帧 → 三态判定(ok/reject/undecidable) → 给出该往哪动
 │   └── ws_probe.mjs · lan_e2e_probe.mjs   # WS / 局域网链路探针
 ├── assets/textures/mearm/        # ★ 板件纹理资产（raw/ = 原图 · tiles/ = 校正后的贴图）
 ├── frontend/
@@ -412,7 +413,9 @@ IK 拖动连续性 300 点就近跟随             最大误差 1.017e-13 mm，�
 真值冻结      运动学+物理语义核心         与基线一致（L2 哈希未变）；改 geometry 放行 · 改 length/gravity 报错
                                        （D55；`tools/freeze_baseline.py` + 11 项辨识力测试）
 纹理校正      合成"模拟照片"往返          四角估计 max|Δ| = 1.00 px；刻度线偏差 1/1/1 px；板色 58≈60
-                                       （D56；`tools/make_texture.py --selftest`，pytest 共 129 项）
+                                       （D56）
+采集判定      合成帧 + 真机实测值          真机帧轮廓过渡 1.17 px（上限 2.5）；整条臂连通域 ⇒ 判 undecidable 且不误报倾斜
+                                       （D57；`tools/capture_texture.py`，pytest 共 147 项）
 ──────────── Phase 7 · 传输闭环（Mock） ────────────
 Mock 物理约束 240°/s · 15ms 延迟 · tick 20ms   每 tick 恰好 4.8°；阶跃 40° 约 182ms 收敛
 延迟语义      命令送达前                  不回推任何状态；送达瞬间走出第一步
@@ -777,26 +780,49 @@ primitive（`plate` / `cylinder` / `servo`）+ 十六进制单色 —— 这就�
 **做法**：把实物照片贴到对应板件的**大面**上。
 
 ```
-拍照(你) → assets/textures/mearm/raw/*.jpg
-         → tools/make_texture.py（PCA 估四角 → homography 透视校正 → 按真实尺寸归一化）
-         → assets/textures/mearm/tiles/*.png（+ 目视复核图，强制看图再信结果）
-         → frontend 按面用材质数组贴图（仅 geometry 层，运动学/物理不动）
+机械臂转到镜头前 → tools/capture_texture.py --plate <name>
+   │                 三态判定：ok / reject / undecidable
+   │                 不 ok 时给出**具体动作**（靠近多少 / 绕哪根轴转 / 长边横过来）
+   ↓ 通过
+assets/textures/mearm/raw/<name>.jpg
+   → tools/make_texture.py（PCA 估四角 → homography 透视校正 → 按真实尺寸归一化）
+   → assets/textures/mearm/tiles/*.png（+ 目视复核图，强制看图再信结果）
+   → frontend 按面用材质数组贴图（仅 geometry 层，运动学/物理不动）
 ```
 
 ```bash
-$PY tools/make_texture.py --list          # 待拍清单（文件名 + 大面尺寸，直接来自 robot.yaml）
-$PY tools/make_texture.py --selftest      # 合成数据自测，证明校正几何正确
-$PY tools/make_texture.py --all           # 处理 raw/ 里已有的照片
+$PY tools/capture_texture.py --plate upper_arm_link   # 抓帧 → 判定 → 告诉你要怎么调
+$PY tools/capture_texture.py --list-devices           # 列出 DirectShow 视频设备
+$PY tools/make_texture.py --list                      # 待拍清单（文件名 + 大面尺寸，直接来自 robot.yaml）
+$PY tools/make_texture.py --selftest                  # 合成数据自测，证明校正几何正确
+$PY tools/make_texture.py --all                       # 处理 raw/ 里已有的照片
 ```
 
-**两条决定成败的事实**（都是实测，不是推断）：
+**四条决定成败的事实**（都是实测，不是推断）：
 
-1. **plate 的大面法向 = `size` 里最小那一维。**
-   例：大臂板 `[22,5,74]` 的大面是 22×74、法向 **±Y（左右）** ⇒ 相机摆正前方只会拍到
-   5mm 窄边。**必须转 base 关节或绕到侧面拍。** 详见 `docs/texture-capture-guide.md` §1。
-2. **`RoundedBoxGeometry` 的 UV 是"每个面各自铺满 [0,1]"，与长宽比无关。**
+1. **大面法向 = `size` 里最小那一维，但「局部轴 ≠ 世界轴」。**
+   大臂板 `[22,5,74]` 的局部薄轴是 Y，本位姿实测映射到**世界 Y**（垂直臂摆动平面）
+   ⇒ 相机摆正前方只会拍到 5mm 窄边，**必须站侧面或转 base 90°**。
+   ⚠️ 但 `forearm_brace` / `tool_link` 的局部薄轴同为 Z，实测却映射到**世界 X（沿臂方向）**
+   ⇒ 早期表格按"局部 ±Z = 世界竖直"给出的"俯拍"是**错的**（D57 一）。
+   **别背轴向 —— 拿实物转一圈，找面积最大的那个面。**
+   （坐标系基准：`base` 轴 = 世界 Z、`shoulder`/`elbow` 轴 = 世界 Y ⇒ 摆动平面 = X–Z。）
+2. **相机上限只有 1280×720。** ⇒ 长边**横过来**放，顶到画面边之前还能再靠近 **1.78 倍**。
+   目标 ≥ 6 px/mm。隔离办法：**在目标板后面插一张白卡** —— 臂板螺栓连成一体，
+   否则"最大的暗色块"永远是**整条臂**，判定会（正确地）返回 `undecidable`。
+3. **真机臂板是镂空桁架**，`geometry.size` 只是**外接盒**（可透过开口看到背后的墙）
+   ⇒ 轮廓填充率天然只有 40~50%。**直接把照片烘到实心盒上会把背景色带进孔洞**，
+   贴上去比现在更假。贴图阶段需要**孔洞掩膜**，或把镂空建成几何。列为待办（D57 四）。
+4. **`RoundedBoxGeometry` 的 UV 是"每个面各自铺满 [0,1]"，与长宽比无关。**
    直接挂一张图会 6 个面各显示一遍并被非等比拉伸 ⇒ 必须**按面用材质数组**
    （实测 6 个 group 覆盖全部顶点：`0=+X 1=-X 2=+Y 3=-Y 4=+Z 5=-Z`）。
 
-**当前状态**：采集指南 + 校正管线（含 12 项测试）已就绪并验证；
-**前端渲染接入尚未开始** —— 等第一批照片到位后做（届时效果才可验证）。
+**当前状态**：采集指南 + 透视校正管线（12 项测试）+ **采集判定**（16 项测试）已就绪并验证。
+本机摄像头已实测可用（`Integrated Camera`，`ffmpeg -f dshow` 直取，上限 **1280×720**）；
+**首帧判定已跑通** —— 对当前场景正确返回 `undecidable`（画面里最大的暗色块是**整条臂**），
+并给出「插白卡隔离 / 推到只剩目标板」两个可执行办法，而**没有**误报成"板倾斜"（D57 二）。
+
+**下一步（等你）**：按 `docs/texture-capture-guide.md` §2.5 拍**第一批** ——
+`upper_arm_link` / `forearm_link` / `base_link` / `column_link`，
+关键是**先在目标板后面插一张白卡**把它从连通域里隔离出来。照片到位后再做**前端渲染接入**
+（按面材质数组 + 孔洞掩膜）—— 届时效果才可验证。

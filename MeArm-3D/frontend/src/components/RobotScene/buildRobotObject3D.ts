@@ -22,7 +22,7 @@
  */
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
-import type { Link, LinkGeometry, PlateGeometry, ServoGeometry } from '@robot/model/Link';
+import type { Link, LinkGeometry, PlateGeometry, PlateTextureSpec, ServoGeometry } from '@robot/model/Link';
 import {
   geometryColor,
   geometryPosition,
@@ -30,8 +30,10 @@ import {
   jawPlateSize,
   linkDetails,
   plateCornerRadius,
+  plateTexture,
   servoRenderSpec,
 } from '@robot/model/Link';
+import { resolveTextureUrl } from '@robot/model/textureRegistry';
 import type { Joint } from '@robot/model/Joint';
 import type { JointState, Vec3 } from '@robot/model/Pose';
 import { degToRad } from '@robot/model/Pose';
@@ -135,15 +137,156 @@ function createRoundedBox(size: Vec3, radius: number): THREE.BufferGeometry {
   return new RoundedBoxGeometry(sx, sy, sz, 2, clamped);
 }
 
+/**
+ * `BoxGeometry` / `RoundedBoxGeometry` 的 materialIndex → 面。
+ * **实测得出**（`.workbuddy/captures/uv_probe.mjs`，见 ADR D63），非按记忆推定。
+ */
+const FACE_GROUPS = [
+  { normal: '+X', du: '-Z', dv: '+Y' },
+  { normal: '-X', du: '+Z', dv: '+Y' },
+  { normal: '+Y', du: '+X', dv: '-Z' },
+  { normal: '-Y', du: '+X', dv: '+Z' },
+  { normal: '+Z', du: '+X', dv: '+Y' },
+  { normal: '-Z', du: '-X', dv: '+Y' },
+] as const;
+
+/**
+ * 「大面」（贴照片的那两个面）在材质数组里的下标。
+ *
+ * 大面 = `size` 里**最小那一维**所在的轴（薄板的两个最大平面就垂直于它）。
+ * 例：大臂板 `[22, 5, 74]` 最小维是 Y ⇒ 大面 = group 2 / 3。
+ */
+function bigFaceIndices(size: Vec3): [number, number] {
+  let axis = 0;
+  for (let i = 1; i < 3; i++) if (size[i]! < size[axis]!) axis = i;
+  return [axis * 2, axis * 2 + 1];
+}
+
+/**
+ * 同一块板「两个大面里哪一面需要镜像、镜像在哪个 uv 轴」。
+ *
+ * **两条依据，缺一不可：**
+ *
+ * 1）几何必然（上面实测表）：两个大面的 Δu/Δv 必有一个相反 ⇒ 同一张照片
+ *    只能在一面上原样显示，另一面必须镜像，否则从两侧看会有一次左右/上下翻转。
+ *
+ * 2）★ **`TextureLoader` 默认 `flipY = true`**：上传时图像被垂直翻转，
+ *    因此 **图像顶行 ⇔ `uv_v = 1`**（而不是 `v = 0`）。这一条极易漏，
+ *    漏掉会让所有 v 方向的推理**整体反号** —— 本轮就是这么错了一次：
+ *    受控实验（四象限探针纹理，`.workbuddy/captures/probe_axes.py`）拍到
+ *    屏幕上 tile 的 `v>0.5` 出现在**上方**，才定位到多翻了一次。
+ *
+ * 于是「基准面」定为 **+ 轴侧那个 group**（`thinAxis * 2`）：照片的"上"是物理世界的"上"，
+ * 大面里 Δv 与「局部 + 轴」同向的那一个直接可用，另一个才镜像。
+ * 例（`±Y` 大面，本轮实测）：面 2 (+Y) Δv = `-Z` ⇒ 需镜像；面 3 (−Y) Δv = `+Z` ⇒ 原样。
+ *
+ * 照片那一侧（哪端朝上、是否整体翻转）属于外观事实，交给 `robot.yaml` 的 `textureFlipU/V`。
+ */
+function mirrorAxisForThinAxis(thinAxis: number): 'u' | 'v' {
+  const front = FACE_GROUPS[thinAxis * 2]!;
+  const back = FACE_GROUPS[thinAxis * 2 + 1]!;
+  return front.du !== back.du ? 'u' : 'v';
+}
+
+/**
+ * 本环境能否加载图片纹理。
+ *
+ * `THREE.TextureLoader` 内部会 `document.createElementNS('img')`，
+ * 而本项目的单元/验收测试跑在 **node 环境**（`vite.config.ts` 的 `environment: 'node'`）——
+ * 那里没有 DOM，硬加载会直接抛 `ReferenceError: document is not defined`，
+ * 把整棵对象树建不出来。纹理只影响外观、不参与任何几何或 FK 判定，
+ * 所以在无 DOM 的环境按「没配纹理」处理是正确取舍，不是降级 hack。
+ */
+const CAN_LOAD_TEXTURE = typeof document !== 'undefined';
+
+/**
+ * 照片纹理材质：一张图 → `MeshStandardMaterial`。
+ *
+ * 三个必须显式设置的量：
+ * - `colorSpace = SRGBColorSpace`：纹理是 sRGB 图，不声明会让整块板偏暗（three 默认按线性解释）。
+ * - `ClampToEdgeWrapping`：翻转靠 `repeat` 取负值实现，`Repeat` 会让边缘采到对侧像素。
+ * - `anisotropy`：板面在场景里常以大角度出现，各向异性过滤能救回边缘清晰度。
+ *
+ * 翻转用 `repeat/offset` 而不是 `texture.flipY`：`flipY` 只在**上传时**生效
+ * （对 ImageBitmap 等路径无效），`repeat` 是在着色器里做的，一律可靠。
+ */
+function createTextureMaterial(
+  spec: PlateTextureSpec,
+  url: string,
+  mirrorAxis: 'u' | 'v' | null,
+  disposables: Disposables,
+): THREE.MeshStandardMaterial {
+  const material = new THREE.MeshStandardMaterial({
+    // 照片本身已含颜色；材质基色保持白，避免二次染色
+    color: 0xffffff,
+    metalness: 0.05,
+    roughness: 0.85,
+  });
+
+  const texture = new THREE.TextureLoader().load(url);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.wrapS = THREE.ClampToEdgeWrapping;
+  texture.wrapT = THREE.ClampToEdgeWrapping;
+  texture.anisotropy = 4;
+
+  const repeatU = (spec.flipU ? -1 : 1) * (mirrorAxis === 'u' ? -1 : 1);
+  const repeatV = (spec.flipV ? -1 : 1) * (mirrorAxis === 'v' ? -1 : 1);
+  texture.repeat.set(repeatU, repeatV);
+  texture.offset.set(repeatU < 0 ? 1 : 0, repeatV < 0 ? 1 : 0);
+
+  material.map = texture;
+  disposables.push(texture, material);
+  // 贴了照片的板就不再是单色板：金属度压低、粗糙度抬高，让照片自己说话
+  return material;
+}
+
+/**
+ * 薄板材质：无纹理时返回**单个材质**，有纹理时返回**6 元材质数组**
+ * （大面贴照片，其余四面仍是板色）。
+ *
+ * 为什么不给整块板一个材质：`RoundedBoxGeometry` 的 UV 是「每个面各自铺满 [0,1]」，
+ * 一个材质会让 5mm 窄边也被整张照片铺满 —— 侧面出现被拉扁的螺栓，比不贴更假。
+ */
+function createPlateMaterial(
+  geometry: PlateGeometry,
+  disposables: Disposables,
+): THREE.Material | THREE.Material[] {
+  const base = createMaterial(geometryColor(geometry), 0.2, 0.62);
+  disposables.push(base);
+
+  const spec = plateTexture(geometry);
+  if (!spec || !CAN_LOAD_TEXTURE) return base;
+
+  const url = resolveTextureUrl(spec.key);
+  if (!url) {
+    // 纹理缺失不该让场景崩掉：留下配色板，并把情况说出来
+    console.warn(`[robot] 纹理未登记，回退纯色: ${spec.key}（可用的 key 见 listTextureKeys()）`);
+    return base;
+  }
+
+  const [frontIndex, backIndex] = bigFaceIndices(geometry.size);
+  const thinAxis = Math.round(frontIndex / 2);
+  const mirrorAxis = mirrorAxisForThinAxis(thinAxis);
+
+  // 基准面 = + 轴侧（thinAxis*2）需要镜像，− 轴侧原样 —— 理由见 mirrorAxisForThinAxis 注释
+  const front = createTextureMaterial(spec, url, mirrorAxis, disposables);
+  const back = createTextureMaterial(spec, url, null, disposables);
+
+  const materials: THREE.Material[] = [base, base, base, base, base, base];
+  materials[frontIndex] = front;
+  materials[backIndex] = back;
+  return materials;
+}
+
 /** 倒角薄板（低多边形工程外观主力件）：边缘适当倒角，spec §5 */
 function createPlateMesh(geometry: PlateGeometry, disposables: Disposables): THREE.Mesh {
   const objectGeometry = createRoundedBox(geometry.size, plateCornerRadius(geometry));
-  const material = createMaterial(geometryColor(geometry), 0.2, 0.62);
+  const material = createPlateMaterial(geometry, disposables);
   const mesh = new THREE.Mesh(objectGeometry, material);
   mesh.name = 'plate';
   mesh.castShadow = true;
   mesh.receiveShadow = true;
-  disposables.push(objectGeometry, material);
+  disposables.push(objectGeometry);
   return mesh;
 }
 

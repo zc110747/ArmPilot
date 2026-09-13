@@ -20,11 +20,22 @@ interface ArmPilotProbe {
   state(): Record<string, unknown>;
   /** 以编程方式指定末端目标 */
   moveTo(xyz: [number, number, number]): Record<string, unknown>;
+  /**
+   * 把主相机摆到指定位姿（**只动相机，不动任何机器人状态**）。
+   *
+   * 用途：视觉验收需要一个**确定的**视图才能做「贴图朝向对不对」这类判定
+   * （正对板面时上下颠倒 / 左右镜像一眼可辨；斜视图下判不出来）。
+   * 与其余探针一样只挂在 dev 构建下。
+   */
+  setCamera(position: [number, number, number], target: [number, number, number]): void;
 }
 
 export function TestProbe() {
   const camera = useThree((s) => s.camera);
   const gl = useThree((s) => s.gl);
+  const controls = useThree((s) => s.controls) as unknown as
+    | { target: { set(x: number, y: number, z: number): void }; update(): void }
+    | null;
 
   useEffect(() => {
     const projected = new THREE.Vector3();
@@ -76,12 +87,23 @@ export function TestProbe() {
           ? { ok: true, branch: result.branch, residual: result.residual }
           : { ok: false, reason: result.reason, joint: result.joint };
       },
+      setCamera(position, target) {
+        // 本场景是 Z-up，相机 up 必须显式设成 +Z，否则 lookAt 会绕出一个歪斜的滚转角
+        camera.up.set(0, 0, 1);
+        camera.position.set(...position);
+        camera.lookAt(...target);
+        // OrbitControls 每帧会按自己的 target 重算球坐标，不同步会把相机拉回去
+        if (controls) {
+          controls.target.set(...target);
+          controls.update();
+        }
+      },
     };
 
     return () => {
       delete holder.__armPilot;
     };
-  }, [camera, gl]);
+  }, [camera, gl, controls]);
 
   return null;
 }

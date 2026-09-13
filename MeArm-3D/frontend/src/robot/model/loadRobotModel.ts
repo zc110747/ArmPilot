@@ -180,6 +180,9 @@ function parseGeometry(value: unknown, path: string): LinkGeometry {
               }
               return rawRadius;
             })();
+      const texture = optString(dict, 'texture', path);
+      const flipU = optBool(dict, 'textureFlipU', path, false);
+      const flipV = optBool(dict, 'textureFlipV', path, false);
       const plate: PlateGeometry = {
         type: 'plate',
         size,
@@ -187,6 +190,9 @@ function parseGeometry(value: unknown, path: string): LinkGeometry {
         ...(position ? { position } : {}),
         ...(rotation ? { rotation } : {}),
         ...(color ? { color } : {}),
+        ...(texture ? { texture } : {}),
+        ...(flipU ? { textureFlipU: true } : {}),
+        ...(flipV ? { textureFlipV: true } : {}),
       };
       return plate;
     }

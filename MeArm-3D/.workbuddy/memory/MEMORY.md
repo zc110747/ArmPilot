@@ -27,6 +27,26 @@
   2. **`RoundedBoxGeometry` 的 UV 是"每面各自铺满 [0,1]"、与长宽比无关** ⇒
      不能整块挂一张图（会 6 面各显示一遍且非等比拉伸），必须**按面用材质数组**。
      实测 6 个 group 覆盖全部顶点，`materialIndex`：`0=+X 1=-X 2=+Y 3=-Y 4=+Z 5=-Z`。
+     ⚠️ 它还是**非索引几何**（`g.index === null`）⇒ group 的 `start/count` 是**顶点范围**，
+     按索引遍历会直接 `TypeError`。
+  3. ★★ **`TextureLoader` 的 `flipY` 默认 `true`** ⇒ **图像顶行 ⇔ `uv_v = 1`**（不是 0）。
+     这是一个**不报错、类型检查也查不出**的隐式默认值，漏掉会让**所有 v 方向的推理整体反号**
+     （D63 三：我据此实现后实测完全相反，返工一次）。
+  4. **实测 UV 轴方向**（`.workbuddy/captures/uv_probe.mjs`，`RoundedBoxGeometry(22,5,74)`）：
+     `2(+Y): Δu=+X, Δv=-Z` · `3(-Y): Δu=+X, Δv=+Z`（其余四面见表）。
+     规律：**两个大面的 Δu/Δv 必有一个相反**（盒体展开的必然）⇒ 同一张照片
+     **必有一面需要镜像**，否则从两侧看总有一侧左右/上下反。
+- **照片纹理前端接入（D63）**：plate 在 `robot.yaml` 里填 `texture: <key>`（相对 `assets/textures/`）
+  ⇒ `robot/model/textureRegistry.ts` 用 `import.meta.glob` 静态登记 key→URL
+  ⇒ 渲染层**按面材质数组**（大面贴照片、其余四面保持板色；大面 = `size` 最小维所在的轴）。
+  **新增纹理只丢文件进 `assets/textures/`，无需改代码**。两个必要守卫：
+  ① **无 DOM 不加载**（`TextureLoader` 内部要 `document`，而 vitest 是 **node 环境**
+  ⇒ 不加守卫会让 5 个几何/验收测试直接 `ReferenceError`）；
+  ② **key 未登记 ⇒ `console.warn` + 回退纯色**（贴图失败是**静默**的，只有测试能兜住）。
+  守卫测试：`tests/unit/plateTexture.test.ts`（含"纹理长宽比必须与板大面一致"抓配错图）。
+  ⚠️ **定朝向不许靠目视 / 推断**（真实纹理是近黑塑料，特征模糊，读数会飘）：
+  用**四象限探针纹理**（纯色 + 对角白带）做受控实验，两侧各拍一张、读完**还原**
+  （`git status assets/` 复核干净）。实测两侧都正确且**互为镜像** —— 这正是真实物体两面的关系。
 - **照片纹理链路**：`docs/texture-capture-guide.md`（拍摄清单，文件名权威清单是
   `python tools/make_texture.py --list`）→ `raw/` → `tools/make_texture.py` → `tiles/`。
   ⚠️ **禁用 PIL 的 `Image.transform(QUAD)` 做透视校正**：它会引入 +12~17px 的**静默**平移

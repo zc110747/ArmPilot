@@ -23,6 +23,24 @@ export interface PlateGeometry {
   position?: Vec3;
   rotation?: EulerDeg;
   color?: string;
+  /**
+   * 照片纹理 key —— 相对 `assets/textures/` 的路径，如 `mearm/tiles/upper_arm_link.png`。
+   *
+   * **纯外观字段**：不参与 FK / IK / 标定 / 物理（D55 冻结运动学与物理层）。
+   * 由 `textureRegistry` 静态登记为 URL；查不到时静默回退纯色，不会让场景崩掉。
+   */
+  texture?: string;
+  /**
+   * 纹理整体水平 / 垂直翻转。
+   *
+   * 为什么需要它：`make_texture.py` 产出的 tile 是「四边形 → 矩形」的正投影图，
+   * 其 u/v 轴指向由**拍照时机位与臂姿**决定（板长边在画面里是竖是横，
+   * 决定 `build_tile` 是否 `rotate(-90)`，两种情况 u/v 语义不同）。
+   * 这是**外观事实**，不是可推导量 ⇒ 放配置里，不写死在代码。
+   * （渲染层另外会自动处理「盒体两个大面的 uv 互为镜像」这一几何必然，见 buildRobotObject3D。）
+   */
+  textureFlipU?: boolean;
+  textureFlipV?: boolean;
 }
 
 /**
@@ -124,6 +142,24 @@ export function plateCornerRadius(geometry: PlateGeometry): number {
   const halfMin = Math.min(...geometry.size) / 2;
   if (!(halfMin > 0)) return 0;
   return Math.max(0, Math.min(requested, halfMin - 0.01));
+}
+
+/** 薄板照片纹理规格（补齐缺省，渲染层不再关心 `?? false`） */
+export interface PlateTextureSpec {
+  /** 相对 `assets/textures/` 的 key */
+  key: string;
+  flipU: boolean;
+  flipV: boolean;
+}
+
+/** 薄板是否配了照片纹理；未配返回 null */
+export function plateTexture(geometry: PlateGeometry): PlateTextureSpec | null {
+  if (!geometry.texture) return null;
+  return {
+    key: geometry.texture,
+    flipU: geometry.textureFlipU ?? false,
+    flipV: geometry.textureFlipV ?? false,
+  };
 }
 
 /** 舵机渲染参数（补齐全部默认值，渲染层不再关心缺省逻辑） */

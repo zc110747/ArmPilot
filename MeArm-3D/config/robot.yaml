@@ -156,8 +156,12 @@ links:
       cornerRadius: 2
       position: [0, 14, 37]
       color: "#4d8fe8"
+      # 照片纹理（相对 assets/textures/ 的 key）—— 纯外观，不影响 FK/IK。
+      # 两侧板各自贴同一张：盒体两个大面的 uv 互为镜像，渲染层会自动处理，
+      # 因此**不需要**判断哪一面朝外。
+      texture: mearm/tiles/upper_arm_link.png
     details:
-      - { type: plate, size: [22, 5, 74], cornerRadius: 2, position: [0, -14, 37], color: "#4d8fe8" }
+      - { type: plate, size: [22, 5, 74], cornerRadius: 2, position: [0, -14, 37], color: "#4d8fe8", texture: mearm/tiles/upper_arm_link.png }
       # 肩轴端盖
       - { type: cylinder, radius: 5.5, height: 4, position: [0, 17.5, 0], color: "#2b3446" }
       - { type: cylinder, radius: 5.5, height: 4, position: [0, -17.5, 0], color: "#2b3446" }
@@ -180,8 +184,9 @@ links:
       cornerRadius: 2
       position: [0, 13.5, 34]
       color: "#6aa0ff"
+      texture: mearm/tiles/forearm_link.png
     details:
-      - { type: plate, size: [18, 5, 68], cornerRadius: 2, position: [0, -13.5, 34], color: "#6aa0ff" }
+      - { type: plate, size: [18, 5, 68], cornerRadius: 2, position: [0, -13.5, 34], color: "#6aa0ff", texture: mearm/tiles/forearm_link.png }
       # 肘轴端盖（肘关节轴）
       - { type: cylinder, radius: 5, height: 4, position: [0, 16.5, 0], color: "#2b3446" }
       - { type: cylinder, radius: 5, height: 4, position: [0, -16.5, 0], color: "#2b3446" }

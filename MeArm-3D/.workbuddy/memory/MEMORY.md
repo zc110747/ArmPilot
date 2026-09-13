@@ -7,6 +7,16 @@
 - **模型 / 标定 / 限位 / 零位的真值只有一份**：`config/robot.yaml`。前端与 Go 后端**都读它**
   （`hello` 带限位/标定做在线互检）。**禁止在代码里硬编码尺寸 / 角度 / 限位。**
 - `backend/config.yaml` **只放运行参数**（端口 / 设备模式 / 模拟器参数），**禁写限位与标定**。
+- ★ **真值已冻结（2026-09-13，用户要求）**：`config/baseline-kinematics-physics.json` +
+  `tools/freeze_baseline.py` + `tests/sim/test_baseline_frozen.py`。
+  **判据是「语义核心哈希」不是整文件哈希**（D55）——
+  改**外观**（`links[].geometry` / `details`：尺寸 / 颜色 / 细节件）**放行**，
+  改**运动学**（`length` / `joints` 轴限位耦合 / `actuators` 标定）或**物理量**
+  （gravity / contact / timestep / servo / inertia）**报错**并逐字段列出差异。
+  有意识地改参数后：`$PY tools/freeze_baseline.py --update`
+  **并且**重跑 `python simulation/mujoco/gen_model.py`（否则 MJCF 与配置脱同步）。
+  > 推论：**外观层完全自由** —— 几何 primitive / 颜色 / 未来的照片纹理与重建网格
+  > 都可以随便迭代，运动学与物理被钉死。这是做视觉建模的前提。
 - **第二份真值（MuJoCo 轨）**：`config/physics.yaml` **只放物理量、全 SI**；
   运动学量（长度 / 轴 / 限位 / TCP / HOME）**一律从 `robot.yaml` 读**，有测试盯着
   （`test_config_truth_is_not_duplicated`）。改 `robot.yaml` 后**必须重跑

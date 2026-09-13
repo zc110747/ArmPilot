@@ -3,7 +3,73 @@
 记录"为什么这么做"，尤其是**与原 spec 示例不一致**的地方，方便后续复盘与修改。
 每条都有编号，代码注释会引用编号（如 `D2`）。
 
-> 本文**最新条目在前**（D54 在最上，D1 在最下）。
+> 本文**最新条目在前**（D55 在最上，D1 在最下）。
+
+## D55 · 「冻结运动学/物理真值」必须分**两级判据** —— 整文件哈希会误伤视觉层
+
+**背景**：用户要求「保存目前的运动学物理数据不变」。字面做法是给 `config/robot.yaml`
+与 `config/physics.yaml` 存一份快照 + 一个整文件哈希守卫。
+
+### 为什么整文件哈希是**错误的**判据
+
+`robot.yaml` 同时装了两类完全不同的东西：
+
+| 类别 | 字段 | 是否该冻结 |
+|---|---|---|
+| **运动学真值** | `links[].length` · `joints[]` · `actuators[]` · `robot.tcp` · `robot.homePose` | ✅ 是 |
+| **外观几何** | `links[].geometry` · `links[].details`（板件/舵机/轴销 + 颜色） | ❌ 否 |
+
+而文件里早就明确写着「**改 geometry 只影响外观，绝不影响 FK / IK / 标定**」。
+后续「图像采集 → 更真实的视觉建模」**必然要动外观那一层**。整文件哈希会把**合法**的
+外观变更判成违规 ⇒ 守卫要么被绕过、要么被删掉。
+
+> **一个会被绕过的守卫，等于没有守卫。** 这是本条的核心。
+
+### 做法：两级判据（`tools/freeze_baseline.py`）
+
+```
+Level 1  整文件 SHA256         记录用。变了就提示"去看看是不是只动了外观"
+Level 2  **语义核心 SHA256**   真正的判据，只覆盖运动学 / 物理字段
+```
+
+```python
+KINEMATIC_LINK_KEYS = ("id", "parent", "length")          # ✗ 不含 geometry / details
+PHYSICS_SECTIONS    = ("timestep","solver","gravity","servo","inertia",
+                       "contact","limits","calibration")   # ✗ 不含 recording / deterministic
+```
+
+- 字段白名单（**不是黑名单**）：将来 yaml 新增运动学字段而忘了登记时，守卫会**漏检**
+  而不是**误报**。漏检可以接受，误报会让人把守卫关掉 —— 那才是真正的失败。
+- `recording`（I/O 配置）与 `deterministic.seed`（运行参数）**不是物理量**，
+  改记录开关不该报"物理参数被改"。
+
+于是：
+
+| 改动 | L1 | L2 | 结果 |
+|---|---|---|---|
+| 改 `geometry.color` / `size` / `details` | 变 | 不变 | **放行**（视觉建模正需要） |
+| 改 `length` / 限位 / `coupling.gain` / 标定 offset | 变 | **变** | ❌ 报错 |
+| 改 `gravity` / `friction` / `timestep` | 变 | **变** | ❌ 报错 |
+| 改 `recording.enabled` / `deterministic.seed` | 变 | 不变 | **放行** |
+
+### 守卫的"辨识力"必须被测试 —— 否则它可能是假绿
+
+一条永远返回通过的守卫，和没有守卫在报告里长得**一模一样**（都是绿色）。
+所以 `tests/sim/test_baseline_frozen.py` 除"真值没变"外，还**用内存变异证明守卫对
+外观不敏感、对真值敏感**（`copy.deepcopy` 后改 dict，**不碰** yaml 文件 ——
+测试不该有"跑挂了就把真值改坏"的尾部风险）。
+
+另用一次性脚本做过**反向验证**：把 `column_link.length` 60→61 ⇒ 测试**确实失败**，
+且报错精确到 `kinematic_summary/links/column_link: {'length': (60, 61)}`；还原后
+字节一致、11 passed。
+
+> 报错只说"某个哈希变了"帮不上任何忙。`_diff_summary` 逐字段列差异，是这条守卫
+> 能被真正使用（而不是被忽略）的前提。
+
+### 推论：视觉层从此可以自由迭代
+
+外观（几何 primitive / 颜色 / 未来的照片纹理）**不再受冻结约束**，
+而运动学与物理被钉死。这正是「图像采集 → 更真实建模」能推进的前提条件。
 
 ## D54 · 三个**只在特定调用方式下暴露**的静默错误：累加器 · settle 判据 · 双重换算
 

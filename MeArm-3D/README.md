@@ -109,6 +109,7 @@ Go: device.MujocoDevice ──stdio(同一套 JR/OK JR/STATE 文本协议)──
 MeArm-3D/
 ├── config/robot.yaml             # ★ 唯一模型定义（links / joints / actuators / home / tcp）
 ├── config/physics.yaml           # ★ MuJoCo 物理参数（纯物理量，全 SI；**禁写限位与标定**）
+├── config/baseline-kinematics-physics.json  # ★ 真值冻结基线（语义核心哈希；守卫见 D55）
 ├── simulation/                   # ★ MuJoCo 物理仿真后端（device.Device 第三实现）
 │   ├── README.md                 #   ★ 怎么跑 / 判据纪律 / 验收数据 / Level 声明
 │   └── mujoco/
@@ -127,7 +128,7 @@ MeArm-3D/
 │   ├── model-structure.md        # ★ 显式几何（plate/servo/details）与运动学的边界
 │   ├── hardware-measurement.md   # ★★ 真机实测记录：角色映射 / 绝对角解耦 / 标定 / 不确定度
 │   ├── ARCHITECTURE_ANALYSIS.md  # ★ MuJoCo 轨 Phase 1：自由度清点 / 五种角度对照 / 接入方案
-│   ├── decisions.md              # 设计决策 ADR（D1–D54；D48–D54 = MuJoCo 物理仿真轨）
+│   ├── decisions.md              # 设计决策 ADR（D1–D55；D48–D54 = MuJoCo 物理轨，D55 = 真值冻结）
 │   └── images/                   # 界面截图（armpilot-console.png 由 e2e 自动重出；
 │                                 #   armpilot-phase11-13.png 由 tests/e2e/screenshot.mjs 出）
 ├── protocol/serial-v1.md         # ★ 串口 / WS 协议基线（§4 固件侧待 Phase 9；§5 上位机侧 Phase 8 已实现）
@@ -142,6 +143,7 @@ MeArm-3D/
 │   ├── verify_calib_repro.py     # ★A1 判定：跨批 × 底座掩膜 × 骨架杆距的增益散布矩阵 + 极差 ≤5% 判据
 │   ├── verify_serial_e2e.mjs     # Phase 9 真机端到端（opt-in）
 │   ├── cam_stability.py          # 相机/台面稳定性抽检
+│   ├── freeze_baseline.py        # ★ 冻结/校验运动学+物理真值（两级判据；改外观放行，改真值报错）
 │   └── ws_probe.mjs · lan_e2e_probe.mjs   # WS / 局域网链路探针
 ├── frontend/
 │   ├── src/robot/
@@ -404,6 +406,8 @@ IK 拖动连续性 300 点就近跟随             最大误差 1.017e-13 mm，�
 运行态       真实浏览器（swiftshader）   FK↔3D = 3.18e-14 mm @ 初始位姿
 几何↔运动学  抹掉全部 geometry/details   endEffectorPosition 逐位不变
 真机一致性    HOME 位（四舵机全 90°）    虚拟臂渲染姿态与实拍照片目视一致
+真值冻结      运动学+物理语义核心         与基线一致（L2 哈希未变）；改 geometry 放行 · 改 length/gravity 报错
+                                       （D55；`tools/freeze_baseline.py` + 11 项辨识力测试，pytest 共 117 项）
 ──────────── Phase 7 · 传输闭环（Mock） ────────────
 Mock 物理约束 240°/s · 15ms 延迟 · tick 20ms   每 tick 恰好 4.8°；阶跃 40° 约 182ms 收敛
 延迟语义      命令送达前                  不回推任何状态；送达瞬间走出第一步
@@ -732,3 +736,30 @@ $PY tools/fit_pose.py .workbuddy/captures/w2_S7 --sweep both --anchor .workbuddy
 | 为什么 IK 验收必须加载真实 `ik.ts` | `docs/decisions.md` **D53** · `frontend/tests/tools/kinematics-bridge.mjs` |
 | 改了几何后要做什么 | 重跑 `python simulation/mujoco/gen_model.py`（**MJCF 是产物，禁手改**） |
 | 三个只在特定调用方式下暴露的静默错误 | `docs/decisions.md` **D54** |
+
+## 11. 真值冻结与视觉层边界
+
+用户要求「保存目前的运动学物理数据不变」。`config/robot.yaml` + `config/physics.yaml`
+的**语义核心**已冻结（基线 `config/baseline-kinematics-physics.json`）：
+
+```bash
+$PY tools/freeze_baseline.py            # 校验（不符则退出码 1，并逐字段列出差异）
+$PY tools/freeze_baseline.py --update   # 有意识改过参数后重新冻结
+$PY tools/freeze_baseline.py --show     # 打印当前核心摘要
+```
+
+| 改动 | 结果 |
+|------|------|
+| `links[].geometry` / `links[].details`（外观：尺寸 / 颜色 / 细节件） | ✅ **放行** —— 视觉建模正需要这一层 |
+| `links[].length` · `joints[]`（轴 / 限位 / `coupling`） · `actuators[]`（标定） | ❌ 报错 |
+| `gravity` · `contact` · `timestep` · `servo` · `inertia` | ❌ 报错 |
+| `recording` · `deterministic.seed`（非物理量） | ✅ 放行 |
+
+> **判据是语义核心哈希，不是整文件哈希。** 整文件哈希会把"换外观"误判成违规，
+> 于是守卫会被绕过或删掉 —— 一个会被绕过的守卫等于没有守卫（ADR **D55**）。
+
+改真值后除 `--update` 外，**还必须**重跑 `python simulation/mujoco/gen_model.py`
+让 MJCF 跟上（`test_generated_mjcf_is_in_sync_with_config` 会盯这件事）。
+
+**推论（这是做视觉建模的前提）**：外观层自此完全自由 —— 几何 primitive、颜色、
+以及未来的**照片纹理 / 重建网格**都可以随便迭代，而运动学与物理被钉死在基线上。

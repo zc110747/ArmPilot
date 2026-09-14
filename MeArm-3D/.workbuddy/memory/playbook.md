@@ -112,10 +112,14 @@
   表现为"按 PID 清理进程"的循环一个都没杀。去重用 `awk '!seen[$0]++'`，或走 `/usr/bin/sort`。
   **与 §1 的 `grep \b`、`taskkill //PID` 是同一类坑：工具语义没验证。**
 - `backend/config.yaml → device.mujoco.python` 是**本机绝对路径**，换机器必改（followups **F5**）。
-- ★★ **`git push` 会"成功但不退出"**（本沙箱，2026-09-14 实测）：远端 ref 已更新，进程却挂住
-  （6 分钟无输出、被自动转后台），**`GIT_TERMINAL_PROMPT=0` 也拦不住**。
-  ⇒ **判定推送是否成功只能靠 `git ls-remote origin refs/heads/<branch>` 与本地 HEAD 比对**，
-  不要等进程输出、也不要据此认为失败（可直接 `TaskStop` 收尾，再 `git fetch origin <branch>` 刷新跟踪引用）。
+- ★★ **`git push` 在本沙箱"推送已生效，但退出非 0 / 或干脆不退出"**（2026-09-14 实测两次）：
+  stderr 末尾是 `fatal: unable to write credential store: Permission denied` +
+  `[sandbox] 命令被沙箱拦截 … C:\Users\lx176\.git-credentials (写 · 剥写)`，
+  但**上一行已经打印了 `6981c77..d98f7ea  Develop -> Develop`** ⇒ **推送其实成功了**，
+  挂掉的只是"把凭据回写缓存"这一步（另一次同场景表现为进程 6 分钟无输出被转后台，
+  `GIT_TERMINAL_PROMPT=0` 拦不住）。
+  ⇒ **判定推送是否成功只认 `git ls-remote origin refs/heads/<branch>` 与本地 HEAD 比对**，
+  **不要看退出码**；非 0 时先读 stderr 最后一行，分辨"真失败"与"收尾被拦"。
   连通性自检：`curl -s -o /dev/null -w "%{http_code}" --max-time 8 https://github.com`（返回 200 即网络正常，
   curl 自身 exit 23 是沙箱写 `/dev/null` 被拦，**不是网络故障**）。
 - `start.bat` 前置检查只依赖：`backend/bin/armpilot-backend.exe` · `backend/config.yaml` ·

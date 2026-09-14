@@ -208,7 +208,7 @@ interface RobotStore {
   clearTeachTrack(): void;
 }
 
-const model = loadRobotModel();
+const model = loadRobotModel('mearm-v1');
 
 let logSeq = 0;
 function makeLogEntry(kind: LogEntry['kind'], text: string): LogEntry {

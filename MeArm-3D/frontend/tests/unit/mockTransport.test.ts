@@ -18,7 +18,7 @@ import {
 } from '@robot/index';
 import { FakeTimer } from '../helpers/fakeTimer';
 
-const model = loadRobotModel();
+const model = loadRobotModel('mearm-v1');
 const home = homeJointState(model);
 
 /** 默认调参：240°/s、15ms 延迟、tick 20ms ⇒ 每 tick 最多 4.8° */

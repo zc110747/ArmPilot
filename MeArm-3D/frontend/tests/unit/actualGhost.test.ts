@@ -17,7 +17,7 @@ import {
 } from '../../src/components/RobotScene/buildRobotObject3D';
 import { endEffectorPosition, loadRobotModel, type JointState } from '../../src/robot';
 
-const model = loadRobotModel();
+const model = loadRobotModel('mearm-v1');
 
 const COMMAND: JointState = { base: -18, shoulder: 8, elbow: 118, gripper: 38 };
 const ACTUAL: JointState = { base: 26, shoulder: 34, elbow: 132, gripper: 58 };

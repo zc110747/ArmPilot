@@ -21,7 +21,7 @@ import {
   type Vec3,
 } from '../../src/robot';
 
-const model = loadRobotModel();
+const model = loadRobotModel('mearm-v1');
 const geometry = ikGeometry(model);
 const home = homeJointState(model);
 const shoulder = jointByRole(model, 'shoulder')!;

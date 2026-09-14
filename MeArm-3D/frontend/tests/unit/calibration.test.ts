@@ -21,7 +21,7 @@ import {
 } from '../../src/robot';
 
 describe('Phase 1 · 标定层', () => {
-  const model = loadRobotModel();
+  const model = loadRobotModel('mearm-v1');
 
   it('关节限位端点标定后恰好落在固件舵机硬限位上', () => {
     const checks = checkCalibration(model);

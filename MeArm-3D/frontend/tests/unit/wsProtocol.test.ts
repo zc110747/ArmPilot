@@ -30,7 +30,7 @@ import {
 } from '@robot/index';
 import { backendInfoFromLocal } from '../helpers/backendModel';
 
-const model = loadRobotModel();
+const model = loadRobotModel('mearm-v1');
 
 describe('wsProtocol · 编码', () => {
   it('joint_command 带 version / type / timestamp / joints', () => {

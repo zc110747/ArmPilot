@@ -31,7 +31,7 @@ function pngSize(file: string): { w: number; h: number } {
 
 /** 收集模型里所有配了纹理的 plate（含 details 附加件） */
 function texturedPlates(): Array<{ linkId: string; geometry: PlateGeometry }> {
-  const model = loadRobotModel();
+  const model = loadRobotModel('mearm-v1');
   const out: Array<{ linkId: string; geometry: PlateGeometry }> = [];
   const consider = (linkId: string, geometry: LinkGeometry): void => {
     if (geometry.type === 'plate' && geometry.texture) out.push({ linkId, geometry });

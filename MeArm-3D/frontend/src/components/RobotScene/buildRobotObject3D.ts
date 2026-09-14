@@ -28,6 +28,7 @@ import {
   geometryColor,
   geometryPosition,
   geometryRotation,
+  geometryRotationConvention,
   jawRenderSpec,
   linkDetails,
   plateCornerRadius,
@@ -35,8 +36,9 @@ import {
   servoRenderSpec,
 } from '@robot/model/Link';
 import { resolveTextureUrl } from '@robot/model/textureRegistry';
+import { createMeshObject } from './meshObject';
 import type { Joint } from '@robot/model/Joint';
-import type { JointState, Vec3 } from '@robot/model/Pose';
+import type { EulerDeg, JointState, RotationConvention, Vec3 } from '@robot/model/Pose';
 import { degToRad } from '@robot/model/Pose';
 import type { Appearance, RobotModel } from '@robot/model/RobotModel';
 import { jointById, jointByRole, linkById, rootLink } from '@robot/model/RobotModel';
@@ -114,6 +116,29 @@ function makeGhost(root: THREE.Object3D): void {
   root.renderOrder = 1;
 }
 
+/**
+ * 欧拉角 → `THREE.Euler`，按其**声明的约定**。
+ *
+ * - `'xyz'`（缺省）→ three 的 `'XYZ'`：三次旋转的合成矩阵 = `Rx · Ry · Rz`，
+ *   与 `kinematics/transform.ts → mat4EulerXYZ` 逐元素一致（既有行为，逐值不变）。
+ * - `'rpy'` → three 的 `'ZYX'`：合成矩阵 = `Rz · Ry · Rx`，
+ *   即 URDF `<origin rpy="roll pitch yaw">` 的 fixed-axis 约定，
+ *   与 `mat4Rpy` 一致。**数值三元组原样传入**（只换 order），不做任何换算。
+ *
+ * ⚠️ 约定用错**不会报错**，只会让件 / 关节安静地转到错误姿态 ——
+ * 这正是它必须由配置显式声明、且 FK 与渲染层共用同一判据的原因。
+ */
+function eulerByConvention(
+  rotation: EulerDeg,
+  convention: RotationConvention | undefined,
+): THREE.Euler {
+  const [rx, ry, rz] = rotation;
+  const toRad = (v: number) => degToRad(v);
+  return convention === 'rpy'
+    ? new THREE.Euler(toRad(rx), toRad(ry), toRad(rz), 'ZYX')
+    : new THREE.Euler(toRad(rx), toRad(ry), toRad(rz), 'XYZ');
+}
+
 /** 把几何体摆到它在「近端关节坐标系」中的位置 / 姿态 */
 function applyPlacement(
   object: THREE.Object3D,
@@ -121,12 +146,8 @@ function applyPlacement(
   linkLength: number,
 ): void {
   object.position.copy(toVector3(geometryPosition(geometry, linkLength)));
-  const rotation = geometryRotation(geometry);
-  object.rotation.set(
-    degToRad(rotation[0]),
-    degToRad(rotation[1]),
-    degToRad(rotation[2]),
-    'XYZ',
+  object.rotation.copy(
+    eulerByConvention(geometryRotation(geometry), geometryRotationConvention(geometry)),
   );
 }
 
@@ -365,6 +386,14 @@ function createGeometryObject(
 
     case 'servo': {
       const group = createServoObject(geometry, disposables);
+      applyPlacement(group, geometry, linkLength);
+      return group;
+    }
+
+    case 'mesh': {
+      // 外部 CAD 网格（SO-ARM101 的官方 STL）。加载是**异步**的：这里返回的 Group
+      // 可能暂时为空，解析完成后再挂上子网格；本渲染循环是连续的，无需额外触发重绘。
+      const group = createMeshObject(geometry, disposables);
       applyPlacement(group, geometry, linkLength);
       return group;
     }
@@ -794,13 +823,9 @@ export function buildRobotObject3D(
       jointGroup.position.set(0, 0, link.length);
       jointGroup.position.add(toVector3(joint.origin.position));
 
+      // 关节固定旋转：同样**按声明约定**解释（缺省 'XYZ' = intrinsic XYZ，既有行为逐值不变）
       const originQuaternion = new THREE.Quaternion().setFromEuler(
-        new THREE.Euler(
-          degToRad(joint.origin.rotation[0]),
-          degToRad(joint.origin.rotation[1]),
-          degToRad(joint.origin.rotation[2]),
-          'XYZ',
-        ),
+        eulerByConvention(joint.origin.rotation, joint.origin.rotationConvention),
       );
       jointGroup.quaternion.copy(originQuaternion);
 

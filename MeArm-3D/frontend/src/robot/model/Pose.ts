@@ -16,6 +16,24 @@ export type Vec3 = [number, number, number];
 export type EulerDeg = [number, number, number];
 
 /**
+ * 三数欧拉角三元组的**约定**。
+ *
+ * - `'xyz'`（**缺省**）：intrinsic XYZ，`R = Rx · Ry · Rz`。
+ *   与 Three.js `Euler` 的 order `'XYZ'` 逐值一致，也是 MeArm-V1 一直在用的约定。
+ * - `'rpy'`：fixed-axis（extrinsic）XYZ，`R = Rz(yaw) · Ry(pitch) · Rx(roll)`。
+ *   这是 **URDF `<origin rpy="r p y">`** 的约定。
+ *
+ * 为什么需要它：官方 URDF 的 `rpy` 与 `'xyz'` **不是同一种参数化**
+ * （extrinsic XYZ(x,y,z) ≡ intrinsic ZYX(z,y,x)，只在特定角组合下才巧合相等）。
+ * 若不让配置自己声明约定，接入官方 URDF 时就必须把每个 `rpy` 换算成 intrinsic XYZ ——
+ * yaml 里会出现一批**在官方文件里查不到的数**，之后无人能复核它有没有抄错。
+ * 声明约定后，官方数值可**逐个原样**落进配置，可审计性最高。
+ *
+ * ⚠️ 缺省（`undefined`）语义 = `'xyz'`，保证引入本字段**不改变任何既有行为**。
+ */
+export type RotationConvention = 'xyz' | 'rpy';
+
+/**
  * 关节角集合（单位 **degree**），key = Joint.id。
  * 这是虚拟机械臂与真实机械臂之间唯一的“共同语言”。
  */

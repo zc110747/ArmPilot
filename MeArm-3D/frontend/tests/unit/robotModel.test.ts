@@ -38,7 +38,7 @@ function replaceOnce(text: string, anchor: string, from: string, to: string): st
 
 describe('Phase 1 · RobotModel 加载与自洽性', () => {
   it('内置 config/robot.yaml 可加载且无 error 级校验问题', () => {
-    const model = loadRobotModel();
+    const model = loadRobotModel('mearm-v1');
     const issues = validateRobotModel(model);
     const errors = issues.filter((issue) => issue.level === 'error');
     expect(errors).toEqual([]);
@@ -48,7 +48,7 @@ describe('Phase 1 · RobotModel 加载与自洽性', () => {
   });
 
   it('结构正确：根连杆唯一，链序 root -> tip', () => {
-    const model = loadRobotModel();
+    const model = loadRobotModel('mearm-v1');
 
     expect(rootLink(model).id).toBe('base_link');
     expect(model.links.map((l) => l.id)).toEqual([
@@ -71,7 +71,7 @@ describe('Phase 1 · RobotModel 加载与自洽性', () => {
   });
 
   it('每个关节的父/子连杆与轴向符合 Z-up 右手系约定', () => {
-    const model = loadRobotModel();
+    const model = loadRobotModel('mearm-v1');
 
     expect(jointById(model, 'base')!.axis).toEqual([0, 0, 1]); // 绕竖直轴偏航
     expect(jointById(model, 'shoulder')!.axis).toEqual([0, 1, 0]); // 绕 Y 俯仰
@@ -90,7 +90,7 @@ describe('Phase 1 · RobotModel 加载与自洽性', () => {
   });
 
   it('连杆长度是运动学唯一真值：改一个数字即改变机构尺寸', () => {
-    const base = loadRobotModel();
+    const base = loadRobotModel('mearm-v1');
     expect(linkById(base, 'upper_arm_link')!.length).toBe(80);
 
     const patched = replaceOnce(
@@ -142,7 +142,7 @@ describe('Phase 1 · RobotModel 加载与自洽性', () => {
   });
 
   it('homePose 与固件开机位一致：全部舵机 90°', () => {
-    const model = loadRobotModel();
+    const model = loadRobotModel('mearm-v1');
     const home = homeJointState(model);
     const servo = jointStateToServoAngles(model, home);
 
@@ -161,7 +161,7 @@ describe('Phase 1 · RobotModel 加载与自洽性', () => {
   });
 
   it('TCP 只由定位关节决定（不参考夹爪关节）', () => {
-    const model = loadRobotModel();
+    const model = loadRobotModel('mearm-v1');
     expect(model.tcp.joint).toBe('tool');
     expect(model.tcp.offset).toEqual([0, 0, 40]);
   });

@@ -22,7 +22,7 @@ import {
 } from '../../src/robot';
 import { targetGapMm, useRobotStore } from '../../src/store/robotStore';
 
-const model = loadRobotModel();
+const model = loadRobotModel('mearm-v1');
 const home = homeJointState(model);
 const store = () => useRobotStore.getState();
 

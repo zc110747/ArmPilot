@@ -11,7 +11,7 @@
  *
  * 本文件属于机器人模型层，**不依赖 Three.js**。
  */
-import type { EulerDeg, Vec3 } from './Pose';
+import type { EulerDeg, RotationConvention, Vec3 } from './Pose';
 import { clamp } from './Pose';
 
 /**
@@ -41,6 +41,13 @@ export interface JointOrigin {
   position: Vec3;
   /** 父关节坐标系 -> 本关节坐标系 固定旋转（intrinsic XYZ, degree） */
   rotation: EulerDeg;
+  /**
+   * `rotation` 的欧拉角约定。**缺省 = `'xyz'`（intrinsic XYZ，既有行为）**。
+   *
+   * 取 `'rpy'` 时 `rotation` 按 URDF `<origin rpy>` 的 fixed-axis XYZ 解释。
+   * 引入它的理由见 `Pose.ts → RotationConvention`：让官方 URDF 的数值可以原样落配置。
+   */
+  rotationConvention?: RotationConvention;
 }
 
 export interface JointLimits {

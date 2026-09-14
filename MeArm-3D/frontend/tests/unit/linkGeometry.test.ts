@@ -33,7 +33,7 @@ import {
   type ServoGeometry,
 } from '../../src/robot';
 
-const model = loadRobotModel();
+const model = loadRobotModel('mearm-v1');
 
 /** 收集对象树里所有指定名字的对象（three.js 无选择器，手写遍历） */
 function collectByName(root: THREE.Object3D, name: string): THREE.Object3D[] {

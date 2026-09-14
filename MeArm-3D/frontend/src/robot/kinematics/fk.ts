@@ -12,10 +12,13 @@
  * 与 Three.js 的**严格等价关系**（Phase 3 验收条件，误差必须 < 0.1mm）：
  *
  *   本文件的 FK 链       T_J = T_parent · Tz(parentLink.length) · T(origin.position)
- *                              · R_eulerXYZ(origin.rotation) · R_axis(θ)
+ *                              · R_euler(origin.rotation, origin.rotationConvention) · R_axis(θ)
  *   Three.js Joint Tree  group.position = origin.position
- *                        group.quaternion = qEulerXYZ(origin.rotation) · qAxisAngle(axis, θ)
+ *                        group.quaternion = qEuler(origin.rotation, convention) · qAxisAngle(axis, θ)
  *                        （父 group 已承担 Tz(parentLink.length)）
+ *
+ * 其中 `R_euler(·, convention)` 缺省为 intrinsic XYZ（既有行为），声明 `'rpy'` 时
+ * 按 URDF `<origin rpy>` 的 fixed-axis XYZ 解释 —— 见 `transform.ts → mat4EulerByConvention`。
  *
  * 单位：输入关节角 degree，输出位置 mm / 欧拉角 degree。
  * 本文件**不依赖 Three.js**，可在 node 中直接做验收测试。
@@ -29,7 +32,7 @@ import type { Link } from '../model/Link';
 import {
   type Mat4,
   mat4AxisAngle,
-  mat4EulerXYZ,
+  mat4EulerByConvention,
   mat4GetEulerXYZ,
   mat4GetPosition,
   mat4Identity,
@@ -119,7 +122,12 @@ export function jointMatrices(model: RobotModel, state: JointState): Map<string,
     const linkAdvance = mat4Translation([0, 0, link.length]);
     for (const joint of jointsByParent.get(link.id) ?? []) {
       const originTranslation = mat4Translation(joint.origin.position);
-      const originRotation = mat4EulerXYZ(joint.origin.rotation);
+      // 按关节**自己声明的**欧拉角约定解释 origin.rotation（缺省 intrinsic XYZ，既有行为不变）。
+      // 直接调 mat4EulerXYZ 会把约定硬编码，使任何 'rpy' 来源的配置被静默按错约定解读。
+      const originRotation = mat4EulerByConvention(
+        joint.origin.rotation,
+        joint.origin.rotationConvention,
+      );
       const jointRotation =
         joint.type === 'fixed'
           ? mat4Identity()

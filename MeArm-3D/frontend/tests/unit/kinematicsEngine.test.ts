@@ -35,7 +35,7 @@ import {
 } from '../../src/robot';
 import { loadFkCases, loadIkCases } from '../helpers/mearmV1Baseline';
 
-const model = loadRobotModel();
+const model = loadRobotModel('mearm-v1');
 const def = defineRobot(model);
 const engine = createMeArmKinematics(model);
 

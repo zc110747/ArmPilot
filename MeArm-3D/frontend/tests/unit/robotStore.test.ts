@@ -11,7 +11,7 @@ import {
 } from '../../src/robot';
 import { useRobotStore } from '../../src/store/robotStore';
 
-const model = loadRobotModel();
+const model = loadRobotModel('mearm-v1');
 const store = () => useRobotStore.getState();
 
 describe('Phase 4 · 关节控制 → RobotState', () => {

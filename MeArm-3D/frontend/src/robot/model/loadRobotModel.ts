@@ -1,8 +1,22 @@
 /**
- * `config/robot.yaml` → `RobotModel` 加载器。
+ * `robot.yaml` → `RobotModel` 加载器。
  *
  * 机器人参数必须独立于代码：本文件是「配置 → 模型」的唯一入口，
  * 业务代码只消费 `RobotModel`，绝不直接读 yaml，也绝不硬编码尺寸/角度。
+ *
+ * ## 加载哪一台？（`loadRobotModel(robotId?)`）
+ *
+ * ```text
+ *   loadRobotModel('mearm-v1')   ← 显式指定（推荐；所有既有调用点都已显式化）
+ *   loadRobotModel('so-arm101')  ← 另一台机器人
+ *   loadRobotModel()             ← 读 config/robots.yaml 的 `default`
+ * ```
+ *
+ * 「用哪台机器人」这件事由 `config/robots.yaml` 声明（见 `robotConfigRegistry`），
+ * 而"参数是什么"永远只在各自的 `robot.yaml` 里 —— 两件事分开，谁都不复制谁。
+ *
+ * ⚠️ 未知 id **抛错**而不是回退到缺省：回退会让"id 写错一个字"表现成
+ * "静默加载了另一台机器人"，而模型不对时所有 FK / 限位判据都会失真却都能跑。
  *
  * 校验分两级：
  *   - 解析级：字段类型 / 必填项错误 → 抛 `RobotConfigError`
@@ -10,16 +24,29 @@
  */
 import { parse as parseYaml } from 'yaml';
 import robotYamlText from '@config/robot.yaml?raw';
-import type { Actuator, ActuatorLimits } from './Actuator';
+import type { Actuator, ActuatorLimits, ActuatorUnit } from './Actuator';
+import { RobotConfigError } from './configError';
 import type { Joint, JointCoupling, JointLimits, JointOrigin, JointRole, JointType } from './Joint';
-import type { JawGeometry, Link, LinkGeometry, PlateGeometry, ServoGeometry } from './Link';
+import type {
+  JawGeometry,
+  Link,
+  LinkGeometry,
+  MeshGeometry,
+  PlateGeometry,
+  ServoGeometry,
+} from './Link';
 import {
   DEFAULT_JAW_SPEC,
   DEFAULT_PLATE_CORNER_RADIUS,
   DEFAULT_SERVO_SHAFT_LENGTH,
   DEFAULT_SERVO_SIZE,
 } from './Link';
-import type { EulerDeg, JointState, Vec3 } from './Pose';
+import type { EulerDeg, JointState, RotationConvention, Vec3 } from './Pose';
+import {
+  defaultRobotId,
+  resetRobotSelectorCache,
+  robotYamlTextById,
+} from './robotConfigRegistry';
 import type { Appearance, ModelIssue, RobotModel, TcpSpec } from './RobotModel';
 import {
   DEFAULT_APPEARANCE,
@@ -29,15 +56,16 @@ import {
   validateRobotModel,
 } from './RobotModel';
 
-/** 内置的 robot.yaml 原文（编译期内联，运行时无需读磁盘） */
+/**
+ * 随包内置的 **MeArm-V1**（Golden Baseline）配置原文。
+ *
+ * 用途：① 缺省加载路径的历史兼容；② `tests/unit/robotModel.test.ts` 对它做
+ * 字符串级改写以构造"坏配置"用例。**它不是"通用内置配置"** ——
+ * 要拿某一台机器人的原文，请用 `robotYamlTextById(id)`。
+ */
 export const BUNDLED_ROBOT_YAML: string = robotYamlText;
 
-export class RobotConfigError extends Error {
-  constructor(message: string) {
-    super(`[robot.yaml] ${message}`);
-    this.name = 'RobotConfigError';
-  }
-}
+export { RobotConfigError };
 
 type Dict = Record<string, unknown>;
 
@@ -159,7 +187,14 @@ const GEOMETRY_TYPES = [
   'sphere',
   'servo',
   'jaw',
+  'mesh',
 ] as const;
+
+/** 欧拉角约定（`origin.rotation` / `geometry.rotation` 共用），缺省为 config 的 'xyz' */
+const ROTATION_CONVENTIONS = ['xyz', 'rpy'] as const;
+
+/** 执行器角度空间，缺省 `'deg'`（舵机空间 0..180°） */
+const ACTUATOR_UNITS = ['deg', 'joint'] as const;
 
 function parseGeometry(value: unknown, path: string): LinkGeometry {
   if (value === undefined || value === null) return { type: 'none' };
@@ -168,6 +203,11 @@ function parseGeometry(value: unknown, path: string): LinkGeometry {
   const color = optString(dict, 'color', path);
   const position = optKeyVec3(dict, 'position', path);
   const rotation = optKeyVec3(dict, 'rotation', path);
+  // 欧拉角约定：缺省 'xyz'（= 既有语义）。写了 'rpy' 才按 URDF <origin rpy> 解释。
+  const rotationConvention = optEnum(dict, 'rotationConvention', path, ROTATION_CONVENTIONS, 'xyz');
+  // 只有非缺省时才写进对象 —— 这样 'xyz' 分支产出的对象与引入本字段前**逐字段相同**。
+  const convField: { rotationConvention?: RotationConvention } =
+    rotationConvention === 'xyz' ? {} : { rotationConvention };
 
   switch (type) {
     case 'none':
@@ -179,6 +219,7 @@ function parseGeometry(value: unknown, path: string): LinkGeometry {
         size,
         ...(position ? { position } : {}),
         ...(rotation ? { rotation } : {}),
+        ...convField,
         ...(color ? { color } : {}),
       };
     }
@@ -204,6 +245,7 @@ function parseGeometry(value: unknown, path: string): LinkGeometry {
         cornerRadius,
         ...(position ? { position } : {}),
         ...(rotation ? { rotation } : {}),
+        ...convField,
         ...(color ? { color } : {}),
         ...(texture ? { texture } : {}),
         ...(flipU ? { textureFlipU: true } : {}),
@@ -223,6 +265,7 @@ function parseGeometry(value: unknown, path: string): LinkGeometry {
         ears,
         ...(position ? { position } : {}),
         ...(rotation ? { rotation } : {}),
+        ...convField,
         ...(color ? { color } : {}),
         ...(shaftColor ? { shaftColor } : {}),
       };
@@ -242,6 +285,7 @@ function parseGeometry(value: unknown, path: string): LinkGeometry {
         ...(radialSegments !== undefined ? { radialSegments } : {}),
         ...(position ? { position } : {}),
         ...(rotation ? { rotation } : {}),
+        ...convField,
         ...(color ? { color } : {}),
       };
     }
@@ -252,6 +296,7 @@ function parseGeometry(value: unknown, path: string): LinkGeometry {
         radius,
         ...(position ? { position } : {}),
         ...(rotation ? { rotation } : {}),
+        ...convField,
         ...(color ? { color } : {}),
       };
     }
@@ -315,9 +360,30 @@ function parseGeometry(value: unknown, path: string): LinkGeometry {
         holeRadius,
         ...(position ? { position } : {}),
         ...(rotation ? { rotation } : {}),
+        ...convField,
         ...(color ? { color } : {}),
       };
       return jaw;
+    }
+    case 'mesh': {
+      // 外部 CAD 网格（SO-ARM101 的官方 STL 走这条路）。`file` 相对 `assets/models/`。
+      // 几何来自权威模型，**不重做、不猜尺寸** —— 故除 file 外全部可选。
+      const file = reqString(dict, 'file', path);
+      const scale = optKeyVec3(dict, 'scale', path);
+      const metalness = dict['metalness'] === undefined ? undefined : reqNumber(dict, 'metalness', path);
+      const roughness = dict['roughness'] === undefined ? undefined : reqNumber(dict, 'roughness', path);
+      const mesh: MeshGeometry = {
+        type: 'mesh',
+        file,
+        ...(scale ? { scale } : {}),
+        ...(position ? { position } : {}),
+        ...(rotation ? { rotation } : {}),
+        ...convField,
+        ...(color ? { color } : {}),
+        ...(metalness !== undefined ? { metalness } : {}),
+        ...(roughness !== undefined ? { roughness } : {}),
+      };
+      return mesh;
     }
   }
 }
@@ -356,9 +422,12 @@ function parseOrigin(value: unknown, path: string): JointOrigin {
     return { position: [0, 0, 0], rotation: [0, 0, 0] };
   }
   const dict = asDict(value, path);
+  const convention = optEnum(dict, 'rotationConvention', path, ROTATION_CONVENTIONS, 'xyz');
   return {
     position: optNumberVec(dict['position'], `${path}.position`, 3, [0, 0, 0]),
     rotation: optNumberVec(dict['rotation'], `${path}.rotation`, 3, [0, 0, 0]) as EulerDeg,
+    // 只在非缺省时写出 —— 保证 'xyz' 的 origin 与引入本字段前**逐字段相同**。
+    ...(convention === 'xyz' ? {} : { rotationConvention: convention }),
   };
 }
 
@@ -426,6 +495,7 @@ function parseActuator(value: unknown, index: number): Actuator {
     min: reqNumber(limitsValue, 'min', `${path}.limits`),
     max: reqNumber(limitsValue, 'max', `${path}.limits`),
   };
+  const unit = optEnum(dict, 'unit', path, ACTUATOR_UNITS, 'deg') as ActuatorUnit;
 
   return {
     id,
@@ -436,6 +506,8 @@ function parseActuator(value: unknown, index: number): Actuator {
     scale: optNumber(dict, 'scale', path, 1),
     reverse: optBool(dict, 'reverse', path, false),
     limits,
+    // 只在非缺省时写出 —— 保证 'deg'（缺省）的执行器与引入本字段前**逐字段相同**。
+    ...(unit === 'deg' ? {} : { unit }),
   };
 }
 
@@ -578,15 +650,40 @@ export function parseRobotModel(raw: unknown, options: ParseRobotModelOptions = 
   return model;
 }
 
-let cached: RobotModel | undefined;
+/**
+ * 按机器人 id 缓存已解析的模型。
+ *
+ * 每个 id 各一份 ⇒ 两台机器人可以**同时存在**（切换模型时旧的那份不会被顶掉，
+ * 于是"A 的 FK 结果"与"B 的 FK 结果"可以在同一个进程里并存比对，
+ * 这对 Phase 8 的切换压力回归是必需的）。
+ */
+const cache = new Map<string, RobotModel>();
 
-/** 加载随包内置的 `config/robot.yaml`（结果缓存） */
-export function loadRobotModel(): RobotModel {
-  if (!cached) cached = parseRobotModelYaml(BUNDLED_ROBOT_YAML);
-  return cached;
+/**
+ * 加载机器人模型（结果按 id 缓存）。
+ *
+ * @param robotId 机器人 id（见 `config/robots.yaml`）。**省略时读选择器的 `default`**。
+ *
+ * ```ts
+ * loadRobotModel('mearm-v1');   // Golden Baseline
+ * loadRobotModel('so-arm101');  // 官方 SO-ARM101 派生模型
+ * loadRobotModel();             // = loadRobotModel(defaultRobotId())
+ * ```
+ *
+ * ⚠️ 未知 id 抛 `RobotConfigError`（**不回退**，理由见文件头）。
+ */
+export function loadRobotModel(robotId?: string): RobotModel {
+  const id = robotId ?? defaultRobotId();
+  const cached = cache.get(id);
+  if (cached) return cached;
+
+  const model = parseRobotModelYaml(robotYamlTextById(id));
+  cache.set(id, model);
+  return model;
 }
 
-/** 清空缓存（仅测试/热重载使用） */
+/** 清空缓存（仅测试/热重载使用）。选择器缓存也一并清掉，避免两个缓存不一致 */
 export function resetRobotModelCache(): void {
-  cached = undefined;
+  cache.clear();
+  resetRobotSelectorCache();
 }

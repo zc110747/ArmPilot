@@ -38,6 +38,7 @@
 import { defineRobot, type RobotDefinition } from '../../definition/RobotDefinition';
 import type { RobotModel } from '../../model/RobotModel';
 import { loadRobotModel } from '../../model/loadRobotModel';
+import { MEARM_V1_ROBOT_ID } from '../../model/robotIds';
 import type { JointState, Pose, Vec3 } from '../../model/Pose';
 import { forwardKinematics } from '../fk';
 import { solveIk, type IkPreference } from '../ik';
@@ -139,9 +140,13 @@ export class MeArmKinematics implements KinematicsEngine {
 /**
  * 建立 MeArm-V1 的运动学引擎。
  *
- * 缺省用随包内置的 `config/robot.yaml`（`loadRobotModel()` 的结果是缓存的单例，
+ * 缺省用随包内置的 `config/robot.yaml`（`loadRobotModel` 的结果按 id 缓存，
  * 所以反复调用不会重复解析）。
+ *
+ * ⚠️ id 显式写死为 `'mearm-v1'` 而**不是**读选择器的 `default`：
+ * 本类**就是** MeArm-V1 的实现，它的缺省值不该随"当前默认机器人"变化。
+ * （改选择器的 default 后，`createMeArmKinematics()` 仍应造出 MeArm 引擎。）
  */
 export function createMeArmKinematics(model?: RobotModel): MeArmKinematics {
-  return new MeArmKinematics(defineRobot(model ?? loadRobotModel()));
+  return new MeArmKinematics(defineRobot(model ?? loadRobotModel(MEARM_V1_ROBOT_ID)));
 }

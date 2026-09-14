@@ -55,7 +55,7 @@ function maxMatrixDelta(a: readonly number[], b: readonly number[]): number {
 }
 
 describe('Phase 3 · FK 与 Three.js 位姿一致性（< 0.1 mm）', () => {
-  const model = loadRobotModel();
+  const model = loadRobotModel('mearm-v1');
 
   it('零位：爪被锁成水平 ⇒ 末端在 (40, 0, 220)，不再位于正上方', () => {
     // ⚠️ 这条断言在本轮改动里**必须变**：爪不再是"小臂的延长线"。

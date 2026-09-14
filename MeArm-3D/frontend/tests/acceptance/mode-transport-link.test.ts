@@ -23,7 +23,7 @@ import { FakeSocketFactory } from '../helpers/fakeSocket';
 import { FakeTimer } from '../helpers/fakeTimer';
 import { backendInfoFromLocal } from '../helpers/backendModel';
 
-const model = loadRobotModel();
+const model = loadRobotModel('mearm-v1');
 const home = homeJointState(model);
 const URL = 'ws://test.local:8090/ws/joint';
 

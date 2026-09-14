@@ -30,7 +30,7 @@ import {
   type Vec3,
 } from '../../src/robot';
 
-const model = loadRobotModel();
+const model = loadRobotModel('mearm-v1');
 const geometry = ikGeometry(model);
 
 /** 可复现的伪随机数（LCG），保证验收结果可复盘 */

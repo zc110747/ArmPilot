@@ -49,7 +49,7 @@ import {
   loadWorkspaceCases,
 } from '../helpers/mearmV1Baseline';
 
-const model = loadRobotModel();
+const model = loadRobotModel('mearm-v1');
 const engine = createMeArmKinematics(model);
 const def = defineRobot(model);
 

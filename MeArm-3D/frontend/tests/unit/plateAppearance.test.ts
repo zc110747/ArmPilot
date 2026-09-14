@@ -88,13 +88,13 @@ function minimalModelYaml(appearance?: unknown): Record<string, unknown> {
 
 describe('robot.yaml 的 appearance 声明', () => {
   it('内置配置能解析出 appearance', () => {
-    const model = loadRobotModel();
+    const model = loadRobotModel('mearm-v1');
     expect(model.appearance).toBeDefined();
     expect(model.appearance.texturedPlate).toBeDefined();
   });
 
   it('★ 声明值必须落在合法区间 —— 抓「多打一个 0」这类误填', () => {
-    const plate = loadRobotModel().appearance.texturedPlate;
+    const plate = loadRobotModel('mearm-v1').appearance.texturedPlate;
     expect(plate.exposureEv).toBeGreaterThanOrEqual(EXPOSURE_EV_RANGE.min);
     expect(plate.exposureEv).toBeLessThanOrEqual(EXPOSURE_EV_RANGE.max);
     // 强度是乘在 IBL 上的系数，>1 会明显过曝；上限留 2 足够实验

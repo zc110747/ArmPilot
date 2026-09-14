@@ -19,7 +19,7 @@ import { connectMockTransport, disconnectTransport } from '@/store/transportBrid
 import { useRobotStore } from '@/store/robotStore';
 import { FakeTimer } from '../helpers/fakeTimer';
 
-const model = loadRobotModel();
+const model = loadRobotModel('mearm-v1');
 const home = homeJointState(model);
 
 /** 仿真 tick 20ms / 每 tick 4.8° / 延迟 15ms —— 与单测保持同一套参数 */

@@ -28,7 +28,7 @@ import {
 } from '../../src/robot';
 import { targetGapMm, useRobotStore } from '../../src/store/robotStore';
 
-const model = loadRobotModel();
+const model = loadRobotModel('mearm-v1');
 
 // 与 RobotScene.tsx 的默认相机一致
 const CAMERA: Vec3 = [300, -430, 300];

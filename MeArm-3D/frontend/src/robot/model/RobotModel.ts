@@ -16,7 +16,7 @@
  * 本文件属于机器人模型层，**不依赖 Three.js**，可在 node 中独立测试。
  */
 import type { Actuator } from './Actuator';
-import { actuatorJointToServo, actuatorServoRangeForLimits } from './Actuator';
+import { actuatorJointToServo, actuatorServoRangeForLimits, actuatorUnit } from './Actuator';
 import type { Joint, JointRole } from './Joint';
 import { isMovableJoint } from './Joint';
 import type { Link } from './Link';
@@ -427,7 +427,11 @@ export function validateRobotModel(model: RobotModel): ModelIssue[] {
     if (!(actuator.limits.max > actuator.limits.min)) {
       err('ACTUATOR_LIMIT_RANGE', `执行器 ${actuator.id} 舵机限位非法`);
     }
-    if (actuator.limits.min < 0 || actuator.limits.max > 180) {
+    // 0..180 只在**舵机空间**（unit = 'deg'，缺省）成立 —— 那是舵机机械行程的物理事实。
+    // 关节空间位置伺服（unit = 'joint'，如 SO-ARM101 官方 MJCF 的 <position> 执行器，
+    // ctrlrange ≡ 关节范围）根本没有"舵机行程"这一说，它的 limits 就是关节可达区间；
+    // 强行套 0..180 等于给一个不存在的量加限制，会把合法模型判成非法。
+    if (actuatorUnit(actuator) !== 'joint' && (actuator.limits.min < 0 || actuator.limits.max > 180)) {
       err('ACTUATOR_LIMIT_180', `执行器 ${actuator.id} 舵机限位超出 0..180`);
     }
     if (!Number.isInteger(actuator.channel) || actuator.channel <= 0) {

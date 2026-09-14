@@ -4,8 +4,11 @@
  * 分层（严格对应 spec §六）：
  *   definition/   RobotDefinition（机器人定义的最小统一入口）
  *   model/        RobotModel / Link / Joint / Actuator / Pose / RobotState / RobotCommand
+ *                 + loadRobotModel（配置 → 模型）/ robotConfigRegistry（id → 配置）
  *   kinematics/   coordinate（坐标系转换层）/ transform（矩阵）/ fk / ik
- *                 + KinematicsEngine（统一调用面）/ IKResult（统一结果）/ mearm/（实现）
+ *                 + KinematicsEngine（统一调用面）/ IKResult（统一结果）
+ *                 + mearm/（MeArm-V1 实现）/ soarm101/（SO-ARM101 实现）
+ *   registry/     RobotRegistry（id → 定义 + 引擎的**唯一**分派表）
  *   calibration/  关节角 ↔ 舵机角 标定
  *   transport/    RobotTransport 抽象 + Mock / WebSocket 实现
  */
@@ -18,6 +21,9 @@ export * from './model/Actuator';
 export * from './model/RobotModel';
 export * from './model/RobotState';
 export * from './model/RobotCommand';
+export * from './model/configError';
+export * from './model/robotIds';
+export * from './model/robotConfigRegistry';
 export * from './model/loadRobotModel';
 export * from './model/linkFeedback';
 
@@ -32,6 +38,9 @@ export * from './kinematics/ik';
 export * from './kinematics/IKResult';
 export * from './kinematics/KinematicsEngine';
 export * from './kinematics/mearm/MeArmKinematics';
+export * from './kinematics/soarm101/SoArm101Kinematics';
+
+export * from './registry/RobotRegistry';
 
 export * from './interaction/dragPlane';
 

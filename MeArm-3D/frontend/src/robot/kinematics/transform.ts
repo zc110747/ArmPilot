@@ -7,9 +7,11 @@
  * 约定：
  *   - 矩阵乘法 `a·b` 表示“先施加 b，再施加 a”（与数学习惯一致）
  *   - 欧拉角使用 intrinsic XYZ，即 R = Rx·Ry·Rz，与 Three.js `Euler` order `'XYZ'` 完全一致
+ *     （这是**缺省**约定 `'xyz'`；`'rpy'` = fixed-axis XYZ = Rz·Ry·Rx，见 `mat4Rpy`，
+ *      用于原样承载 URDF `<origin rpy>` 的数值。调用方一律走 `mat4EulerByConvention`）
  *   - 旋转轴按右手定则，角度为弧度（对外 API 用 degree，转换集中在本文件与 coordinate.ts）
  */
-import type { EulerDeg, Vec3 } from '../model/Pose';
+import type { EulerDeg, RotationConvention, Vec3 } from '../model/Pose';
 import { degToRad } from '../model/Pose';
 
 /** 列主序 4x4 矩阵，长度 16；m[col * 4 + row] */
@@ -101,8 +103,75 @@ export function mat4EulerXYZ(rotationDeg: EulerDeg): Mat4 {
   return m;
 }
 
-export function mat4TransformPoint(m: Mat4, p: Vec3): Vec3 {
-  return [
+/**
+ * fixed-axis（extrinsic）XYZ 欧拉角（degree）→ 旋转矩阵，`R = Rz · Ry · Rx`。
+ *
+ * 这就是 **URDF `<origin rpy="roll pitch yaw">`** 的约定，也等价于"先绕 X 转 roll、
+ * 再绕**固定** Y 转 pitch、最后绕**固定** Z 转 yaw"。
+ *
+ * ⚠️ 与 `mat4EulerXYZ`（intrinsic，`R = Rx · Ry · Rz`）**不是同一种参数化**：
+ *   extrinsic XYZ(r,p,y) ≡ intrinsic ZYX(y,p,r)。除少数特例外两者数值不等，
+ *   所以「用哪个」必须由配置显式声明，不能靠猜。
+ */
+export function mat4Rpy(rotationDeg: EulerDeg): Mat4 {
+  const [rx, ry, rz] = rotationDeg;
+  if (rx === 0 && ry === 0 && rz === 0) return mat4Identity();
+  const a = Math.cos(degToRad(rx));
+  const b = Math.sin(degToRad(rx));
+  const c = Math.cos(degToRad(ry));
+  const d = Math.sin(degToRad(ry));
+  const e = Math.cos(degToRad(rz));
+  const f = Math.sin(degToRad(rz));
+
+  // R = Rz·Ry·Rx，按列主序写入（m[col*4+row]）
+  const m = mat4Identity();
+  m[0] = e * c; //  R00
+  m[1] = f * c; //  R10
+  m[2] = -d; //     R20
+
+  m[4] = -f * a + e * d * b; //  R01
+  m[5] = e * a + f * d * b; //   R11
+  m[6] = c * b; //               R21
+
+  m[8] = f * b + e * d * a; //   R02
+  m[9] = -e * b + f * d * a; //  R12
+  m[10] = c * a; //              R22
+
+  return m;
+}
+
+/**
+ * 按**显式约定**把欧拉角三元组变成旋转矩阵。
+ *
+ * 这是唯一应当被 FK / 渲染层调用的入口 —— 直接调 `mat4EulerXYZ` 等于把约定
+ * 硬编码成 intrinsic，那么任何 `'rpy'` 来源的配置都会被**静默**按错误约定解读。
+ * 缺省参数保证既有调用语义不变。
+ */
+export function mat4EulerByConvention(
+  rotationDeg: EulerDeg,
+  convention: RotationConvention = 'xyz',
+): Mat4 {
+  return convention === 'rpy' ? mat4Rpy(rotationDeg) : mat4EulerXYZ(rotationDeg);
+}
+
+/**
+ * 取旋转矩阵的 3x3 部分（**行主序** 9 个数）。
+ *
+ * 用途：跨实现比对姿态。欧拉角三元组在万向锁附近会跳变、且同一旋转有多组等价解，
+ * 直接比三元组会得到"其实一致却判为不一致"的假失败；比矩阵没有这个问题。
+ */
+export function mat4RotationMatrix3(m: Mat4): number[] {
+  return [m[0]!, m[4]!, m[8]!, m[1]!, m[5]!, m[9]!, m[2]!, m[6]!, m[10]!];
+}
+
+/** 两个旋转的两个 3x3 之间的最大逐元素绝对差（行主序输入） */
+export function rotationMatrixMaxAbsDiff(a: readonly number[], b: readonly number[]): number {
+  let worst = 0;
+  for (let i = 0; i < 9; i += 1) worst = Math.max(worst, Math.abs((a[i] ?? 0) - (b[i] ?? 0)));
+  return worst;
+}
+
+export function mat4TransformPoint(m: Mat4, p: Vec3): Vec3 {  return [
     m[0]! * p[0] + m[4]! * p[1] + m[8]! * p[2] + m[12]!,
     m[1]! * p[0] + m[5]! * p[1] + m[9]! * p[2] + m[13]!,
     m[2]! * p[0] + m[6]! * p[1] + m[10]! * p[2] + m[14]!,

@@ -12,6 +12,25 @@
  */
 import type { JointLimits } from './Joint';
 
+/**
+ * 执行器角度的**语义空间**。
+ *
+ * - `'deg'`（**缺省**）：**舵机空间**。`limits` 是舵机硬限位（0..180°），
+ *   `offset` / `scale` / `reverse` 是一段真实的仿射标定
+ *   （"舵机装反了 / 装了舵盘后零点偏了"这类物理事实）。
+ *   MeArm-V1 即此形态。
+ * - `'joint'`：**关节空间**。该通道没有独立标定，`limits` 直接就是关节角的可达区间（degree）。
+ *   SO-ARM101 即此形态：官方 MJCF 的执行器是 `<position>`，其 `ctrlrange` **等于**关节范围、
+ *   `gear=1`，属**关节空间位置伺服** —— 官方模型里根本不存在 offset/scale/reverse。
+ *
+ * 为什么不能"用 scale 把 SO-101 压进 0..180"：那会凭空发明一段并不存在的标定
+ * （官方文件里没有这些数），使"标定表"从**事实**退化成**为了让校验通过而凑的参数**。
+ * 声明空间语义则如实反映"这条通道本来就没有标定"。
+ *
+ * ⚠️ 缺省（`undefined`）语义 = `'deg'`，保证引入本字段**不改变任何既有行为**。
+ */
+export type ActuatorUnit = 'deg' | 'joint';
+
 export interface ActuatorLimits {
   /** 舵机强制下限（0..180 degree） */
   min: number;
@@ -34,6 +53,16 @@ export interface Actuator {
   reverse: boolean;
   /** **舵机**硬件强制范围（非关节范围） */
   limits: ActuatorLimits;
+  /**
+   * `limits` 所在的语义空间；**缺省 = `'deg'`（舵机空间 0..180°，既有行为）**。
+   * 取 `'joint'` 表示本通道是关节空间位置伺服、`limits` 即关节可达区间。
+   */
+  unit?: ActuatorUnit;
+}
+
+/** 执行器的角度空间（补齐缺省，避免调用方到处写 `?? 'deg'`） */
+export function actuatorUnit(actuator: Actuator): ActuatorUnit {
+  return actuator.unit ?? 'deg';
 }
 
 /** 关节角（degree）→ 舵机角（degree） */

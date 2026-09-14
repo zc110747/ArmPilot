@@ -9,20 +9,38 @@
  * 全部件由参数化基础体（plate / box / cylinder / sphere / servo）拼装，
  * 后续可替换为 GLB/GLTF/OBJ 而不影响运动学（spec §29 / §30）。
  */
-import type { EulerDeg, Vec3 } from './Pose';
+import type { EulerDeg, RotationConvention, Vec3 } from './Pose';
+
+/**
+ * 显示几何的**公共定位字段** —— 凡是会出现在 3D 里的件都有的那一组。
+ *
+ * 抽出来的原因不只是去重：`rotationConvention` 必须与 `rotation` **成对出现**，
+ * 否则就会出现"某类件能声明约定、另一类不能"的静默不一致 ——
+ * 而约定写错的后果是**件安静地转到错误姿态**（不报错、类型也查不出）。
+ */
+export interface GeometryPlacement {
+  /** 相对本连杆「近端关节坐标系」的平移（mm）；省略时按连杆中段放置 */
+  position?: Vec3;
+  /** 相对本坐标系的固定旋转（缺省零） */
+  rotation?: EulerDeg;
+  /**
+   * `rotation` 的欧拉角约定；缺省 `'xyz'`（intrinsic XYZ = 既有语义）。
+   * 直接采用 URDF `<origin rpy>` / `<visual><origin rpy>` 的数值时写 `'rpy'`。
+   */
+  rotationConvention?: RotationConvention;
+  /** 基础色；缺省由 `geometryColor()` 决定 */
+  color?: string;
+}
 
 /**
  * 倒角薄板：低多边形工程外观的主力件（底盘 / 立柱侧板 / 臂板 / 爪片）。
  * 对应 three.js `RoundedBoxGeometry`。`size = [x, y, z]`（mm），位置为几何中心。
  */
-export interface PlateGeometry {
+export interface PlateGeometry extends GeometryPlacement {
   type: 'plate';
   size: Vec3;
   /** 倒角半径（mm）；缺省用 DEFAULT_PLATE_CORNER_RADIUS，渲染时按最小边自动钳位 */
   cornerRadius?: number;
-  position?: Vec3;
-  rotation?: EulerDeg;
-  color?: string;
   /**
    * 照片纹理 key —— 相对 `assets/textures/` 的路径，如 `mearm/tiles/upper_arm_link.png`。
    *
@@ -48,7 +66,7 @@ export interface PlateGeometry {
  * **本体局部坐标系约定：`+Z` 为输出轴方向，原点在壳体中心。**
  * 因此「轴朝上」不写 rotation，「轴朝 +Y」写 rotation: [-90, 0, 0]。
  */
-export interface ServoGeometry {
+export interface ServoGeometry extends GeometryPlacement {
   type: 'servo';
   /** 壳体尺寸 [x, y, z]（mm），缺省为常见微型舵机 DEFAULT_SERVO_SIZE */
   size?: Vec3;
@@ -56,10 +74,6 @@ export interface ServoGeometry {
   shaftLength?: number;
   /** 是否绘制两侧安装耳，缺省 true */
   ears?: boolean;
-  position?: Vec3;
-  rotation?: EulerDeg;
-  /** 壳体颜色，缺省 DEFAULT_SERVO_COLOR */
-  color?: string;
   /** 输出轴 / 舵盘颜色，缺省 DEFAULT_SERVO_SHAFT_COLOR */
   shaftColor?: string;
 }
@@ -83,7 +97,7 @@ export interface ServoGeometry {
  * ⚠️ 与 `plate` 的 `size` 语义不同：`length` 量的是**齿轮中心 → 爪尖**，
  * 而不是某条边的长度。`jaw_link.length`（运动学量）仍恒为 0，不受影响。
  */
-export interface JawGeometry {
+export interface JawGeometry extends GeometryPlacement {
   type: 'jaw';
   /** 齿轮中心 → 爪尖（mm），沿局部 +Z */
   length: number;
@@ -113,27 +127,49 @@ export interface JawGeometry {
   neckAt?: number;
   /** 齿轮盘中心装饰镂空半径（0 = 实心） */
   holeRadius?: number;
-  position?: Vec3;
-  rotation?: EulerDeg;
-  color?: string;
+}
+
+/**
+ * 外部网格件 —— **真实 CAD 几何**（由官方模型导出的 STL / GLB / OBJ…）。
+ *
+ * 与 plate / box / cylinder / servo / jaw 这些**参数化基础体**的分工：
+ * 基础体是"用少量数字徒手描述一个件"，适合自研件（MeArm 的亚克力板）；
+ * 网格件是"直接采用权威 CAD 网格"，适合**不该凭外观重建**的第三方件
+ * （SO-ARM101 的 13 个官方 STL 即此）。
+ *
+ * ★ 它同样**不参与任何运动学计算**：运动学只看 `Link.length` 与 `Joint.origin` / `axis`。
+ *   网格只决定"这一节长什么样"。（同一份 STL 若被两个 link 引用会出现两份实例，
+ *   这是渲染层的正常行为，不是数据重复。）
+ *
+ * ⚠️ `rotationConvention` 与 `JointOrigin` 的同名字段语义完全一致：
+ *   URDF `<visual><origin rpy="...">` 是 extrinsic，故取 `'rpy'` 才能原样落配置。
+ */
+export interface MeshGeometry extends GeometryPlacement {
+  type: 'mesh';
+  /** 相对 `assets/models/` 的路径，如 `so-arm101/official/assets/base_so101_v2.stl` */
+  file: string;
+  /** 各轴缩放；缺省 `[1,1,1]`（URDF `<mesh scale="...">` 的等价物） */
+  scale?: Vec3;
+  /** 金属度；缺省由渲染层决定（外部网格常是打印件/舵机壳，默认非金属） */
+  metalness?: number;
+  /** 粗糙度；缺省由渲染层决定 */
+  roughness?: number;
 }
 
 export type LinkGeometry =
   | { type: 'none'; color?: string }
-  | { type: 'box'; size: Vec3; position?: Vec3; rotation?: EulerDeg; color?: string }
+  | ({ type: 'box'; size: Vec3 } & GeometryPlacement)
   | PlateGeometry
-  | {
+  | ({
       type: 'cylinder';
       radius: number;
       height: number;
       radialSegments?: number;
-      position?: Vec3;
-      rotation?: EulerDeg;
-      color?: string;
-    }
-  | { type: 'sphere'; radius: number; position?: Vec3; rotation?: EulerDeg; color?: string }
+    } & GeometryPlacement)
+  | ({ type: 'sphere'; radius: number } & GeometryPlacement)
   | ServoGeometry
-  | JawGeometry;
+  | JawGeometry
+  | MeshGeometry;
 
 export interface Link {
   id: string;
@@ -208,6 +244,17 @@ export function geometryPosition(geometry: LinkGeometry, linkLength = 0): Vec3 {
 export function geometryRotation(geometry: LinkGeometry): EulerDeg {
   if (geometry.type === 'none') return [0, 0, 0];
   return geometry.rotation ? [...geometry.rotation] : [0, 0, 0];
+}
+
+/**
+ * 显示几何 `rotation` 的约定（缺省 `'xyz'` → 与既有行为一致）。
+ *
+ * 渲染层必须用它来决定欧拉角怎么变成四元数；用错约定**不会报错**，
+ * 只会让件安静地转到错误姿态 —— 所以这个默认值必须与 `EulerDeg` 的历史语义绑定。
+ */
+export function geometryRotationConvention(geometry: LinkGeometry): RotationConvention {
+  if (geometry.type === 'none') return 'xyz';
+  return geometry.rotationConvention ?? 'xyz';
 }
 
 export function geometryColor(geometry: LinkGeometry): string {

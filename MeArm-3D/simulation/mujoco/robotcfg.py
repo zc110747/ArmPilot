@@ -137,6 +137,13 @@ class RobotCfg:
     actuators: list[ActuatorCfg]
     source_path: Path
 
+    #: 模型标识（`robot.yaml` 的 `robot.model`，如 `"MeArm-V1"`）。
+    #: **只读元数据，不参与任何运动学/物理推导** —— 它唯一的用途是让
+    #: 「抽象前后行为一致」这句验收话可被机器检查（见 tests/baseline/mearm-v1/）。
+    model: str | None = None
+    #: 模型语义版本（`robot.yaml` 的 `robot.version`）。同上，只读元数据。
+    model_version: str | None = None
+
     # -- 索引 -------------------------------------------------------------
 
     def link(self, link_id: str) -> LinkCfg:
@@ -298,6 +305,9 @@ def load_robot(path: Path | str | None = None) -> RobotCfg:
         joints=joints,
         actuators=actuators,
         source_path=p,
+        # 只读元数据：缺省为 None（缺省不影响任何行为）
+        model=(str(robot["model"]) if robot.get("model") is not None else None),
+        model_version=(str(robot["version"]) if robot.get("version") is not None else None),
     )
     _validate_robot(cfg)
     return cfg

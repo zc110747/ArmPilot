@@ -32,8 +32,14 @@
  *
  * 请求格式：
  * ```json
- * { "cases": [ { "id": 0, "target": [120, 0, 90], "near": {...}, "prefer": "nearest" } ] }
+ * {
+ *   "cases": [ { "id": 0, "target": [120, 0, 90], "near": {...}, "prefer": "nearest" } ],
+ *   "fk":    [ { "id": 0, "joints": { "base": 0, "shoulder": 30, ... } } ]
+ * }
  * ```
+ * `cases` = IK 批量求解（缺省空）；`fk` = FK 批量求值（缺省空）。
+ * 两者互不影响，可同时给出 —— 响应里分别是 `results` 与 `fkResults`。
+ *
  * 响应格式：见文件末尾 `run()` 的组装处。
  */
 import { createServer } from 'vite';
@@ -100,6 +106,9 @@ function describeModel(robotModel, ikGeometry, model) {
     id: model.id,
     name: model.name,
     units: model.units,
+    /** 模型标识（只读元数据）—— 让"基线属于哪个模型"可被机器检查 */
+    model: model.model ?? null,
+    modelVersion: model.modelVersion ?? null,
     homePose: { ...model.homePose },
     tcp: { joint: model.tcp.joint, offset: [...model.tcp.offset] },
     /** 按 `movableJoints` 的顺序（与 MuJoCo 的关节顺序无关，仅作对照） */
@@ -155,11 +164,48 @@ async function run(opts) {
       ok: true,
       model: describeModel(robotModel, geometry, model),
       results: [],
+      fkResults: [],
     };
 
     if (opts.info) return response;
 
     const req = JSON.parse(readFileSync(opts.in, 'utf8'));
+
+    // ---- FK 批量求值（MeArm-V1 黄金基线用）----------------------------------
+    // 走的是**同一份** fk.ts 的 `forwardKinematics()` —— 与 Three.js 共用
+    // `effectiveJointAngle()` 耦合语义，所以它同时是 "Joint → FK" 与
+    // "Joint → Three.js" 两条判据的参考面。
+    const fkCases = Array.isArray(req.fk) ? req.fk : [];
+    for (const c of fkCases) {
+      const id = c.id ?? response.fkResults.length;
+      const joints = c.joints;
+      if (!joints || typeof joints !== 'object') {
+        response.fkResults.push({ id, success: false, message: 'joints 必须是对象' });
+        continue;
+      }
+      try {
+        const clean = sanitizeJoints(joints);
+        const pose = fk.forwardKinematics(model, clean);
+        const frames = {};
+        for (const [jid, tf] of Object.entries(pose.joints)) {
+          frames[jid] = { position: [...tf.position], rotation: [...tf.rotation] };
+        }
+        response.fkResults.push({
+          id,
+          success: true,
+          tcp: [...pose.endEffector.position],
+          tcpRotation: [...pose.endEffector.rotation],
+          frames,
+        });
+      } catch (error) {
+        response.fkResults.push({
+          id,
+          success: false,
+          message: String(error && error.message ? error.message : error),
+        });
+      }
+    }
+
     const cases = Array.isArray(req.cases) ? req.cases : [];
 
     for (const c of cases) {
@@ -246,7 +292,7 @@ async function main() {
   const response = await run(opts);
   writeFileSync(opts.out, JSON.stringify(response, null, 2), 'utf8');
   console.log(
-    `[kinematics-bridge] ${opts.info ? '模型元信息' : `${response.results.length} 个用例`}` +
+    `[kinematics-bridge] ${opts.info ? '模型元信息' : `IK ${response.results.length} 个用例 · FK ${response.fkResults.length} 个用例`}` +
       ` → ${opts.out}`,
   );
   return 0;

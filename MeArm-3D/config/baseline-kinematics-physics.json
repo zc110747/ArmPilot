@@ -1,9 +1,9 @@
 {
   "note": "本文件是「运动学 + 物理」真值的冻结基线。判据是 *_core_sha256（语义核心），整文件 sha256 仅作记录。改外观几何（links[].geometry / details）不会触发失败；改 length / 限位 / 耦合 / 标定 / 质量 / 摩擦会。重新冻结：python tools/freeze_baseline.py --update",
-  "frozen_at": "2026-09-13 20:27:03 +0800",
+  "frozen_at": "2026-09-14 09:16:10 +0800",
   "files": {
     "config/robot.yaml": {
-      "sha256": "3c2a4104a389ff17b4503806c00e8d230c373f0cef7e3eeae17cd989ae6629d0",
+      "sha256": "d03551929ea98b035a1853f498f92e25acba23e1180c4cfe749dd999a22c81bf",
       "kinematic_core_sha256": "f64e49ce56a50e90afab7f84394a1a091c57238e095f6b26c1f75d942fe06ee1",
       "frozen_fields": {
         "robot": [

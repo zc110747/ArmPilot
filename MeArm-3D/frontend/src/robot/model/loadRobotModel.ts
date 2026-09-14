@@ -552,6 +552,13 @@ export function parseRobotModel(raw: unknown, options: ParseRobotModelOptions = 
     version,
     id: reqString(robotDict, 'id', 'robot'),
     name: optString(robotDict, 'name', 'robot') ?? reqString(robotDict, 'id', 'robot'),
+    // 模型标识（只读元数据，不参与任何运动学计算）—— 缺省不影响行为。
+    ...(optString(robotDict, 'model', 'robot')
+      ? { model: optString(robotDict, 'model', 'robot')! }
+      : {}),
+    ...(optString(robotDict, 'version', 'robot')
+      ? { modelVersion: optString(robotDict, 'version', 'robot')! }
+      : {}),
     units,
     links,
     joints,

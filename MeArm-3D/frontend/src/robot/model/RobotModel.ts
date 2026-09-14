@@ -78,6 +78,19 @@ export interface RobotModel {
   version: number;
   id: string;
   name: string;
+  /**
+   * 模型标识（robot.yaml 的 `robot.model`，如 `MeArm-V1`）。
+   *
+   * **只读元数据，不参与任何运动学计算**（FK / IK / 标定 / 限位一律不读它）。
+   * 它的唯一用途是让「抽象前后行为一致」这句验收话可被机器检查：
+   * 基线数据里记下自己属于哪个模型，回归测试核对当前加载的是不是同一个。
+   *
+   * 与 `version`（本文件顶层的 yaml 格式版本号 `version: 1`）**不是一回事** ——
+   * 那个是 schema 版本，这个是**机器人模型版本**。
+   */
+  model?: string;
+  /** 机器人模型语义版本（robot.yaml 的 `robot.version`，如 `1.0.0`）。只读元数据 */
+  modelVersion?: string;
   units: 'mm';
   links: Link[];
   joints: Joint[];

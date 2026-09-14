@@ -79,7 +79,13 @@ class KinematicsBridge:
 
     # -- 内部 ---------------------------------------------------------------
 
-    def _invoke(self, *, info: bool, cases: Sequence[dict] | None) -> dict[str, Any]:
+    def _invoke(
+        self,
+        *,
+        info: bool,
+        cases: Sequence[dict] | None,
+        fk: Sequence[dict] | None = None,
+    ) -> dict[str, Any]:
         self._n += 1
         req_path = self._tmp / f"req-{self._n}.json"
         out_path = self._tmp / f"res-{self._n}.json"
@@ -88,7 +94,7 @@ class KinematicsBridge:
             args.append("--info")
         else:
             req_path.write_text(
-                json.dumps({"cases": list(cases or [])}, ensure_ascii=False),
+                json.dumps({"cases": list(cases or []), "fk": list(fk or [])}, ensure_ascii=False),
                 encoding="utf-8",
             )
             args += ["--in", str(req_path)]
@@ -141,6 +147,19 @@ class KinematicsBridge:
         if len(res) != 1:
             raise BridgeError(f"期望 1 条结果，收到 {len(res)} 条")
         return res[0]
+
+    def forward(self, cases: Sequence[dict]) -> list[dict[str, Any]]:
+        """批量 FK 求值（MeArm-V1 黄金基线用）。
+
+        `cases` 里每项要有 `joints: dict[str, float]`（**绝对角语义**，degree）。
+        返回项含 `tcp` / `tcpRotation` / `frames`（每个关节坐标系的位姿）——
+        全部由前端 `fk.ts` 的 `forwardKinematics()` 产出。
+
+        ⚠️ 它在这里被当作"前端运动学的唯一出口"：黄金数据集的 FK 期望值
+        与回归断言都读它，**绝不另写一份 Python FK 当参考**（那会变成自证，
+        理由见本模块文件头与 spec §21）。
+        """
+        return list(self._invoke(info=False, cases=None, fk=cases)["fkResults"])
 
     def close(self) -> None:
         """删掉临时目录（请求/响应 JSON）。失败不影响测试结论。"""

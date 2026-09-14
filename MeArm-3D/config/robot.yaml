@@ -59,6 +59,24 @@ version: 1
 robot:
   id: mearm
   name: mARM
+  # ---------------------------------------------------------------------------
+  # ★ 版本标识（冻结记录，非运动学量）
+  #
+  # `MeArm-V1` 是 ArmPilot 的**第一个正式 Robot Model**，也是后续所有通用化开发的
+  # Reference Robot / Golden Baseline。它不是一个"待替换的旧模型"，而是被冻结的基准。
+  #
+  # 本字段的作用只是给"被冻结的那一个模型"一个可引用的名字，使
+  #   「抽象前后行为一致」这句验收话可以被机器检查
+  #   （见 frontend/src/robot/model/RobotModel.ts 的 model / modelVersion）。
+  #
+  # 冻结判据见 docs/architecture/mearm-v1-baseline.md：
+  #   改外观（links[].geometry / details）⇒ 放行
+  #   改运动学（length / joints / actuators）或物理量 ⇒ 报错
+  # ⚠️ 它**不在** `tools/freeze_baseline.py` 的语义核心白名单里
+  #    （白名单 = id/name/units/tcp/homePose），所以加它不会触发真值告警。
+  # ---------------------------------------------------------------------------
+  model: MeArm-V1
+  version: 1.0.0
   units: mm
 
   # 工具中心点（TCP / End Effector）：指定关节坐标系下的固定偏移点。

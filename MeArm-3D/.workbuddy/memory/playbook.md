@@ -112,12 +112,19 @@
   表现为"按 PID 清理进程"的循环一个都没杀。去重用 `awk '!seen[$0]++'`，或走 `/usr/bin/sort`。
   **与 §1 的 `grep \b`、`taskkill //PID` 是同一类坑：工具语义没验证。**
 - `backend/config.yaml → device.mujoco.python` 是**本机绝对路径**，换机器必改（followups **F5**）。
+- ★★ **`git push` 会"成功但不退出"**（本沙箱，2026-09-14 实测）：远端 ref 已更新，进程却挂住
+  （6 分钟无输出、被自动转后台），**`GIT_TERMINAL_PROMPT=0` 也拦不住**。
+  ⇒ **判定推送是否成功只能靠 `git ls-remote origin refs/heads/<branch>` 与本地 HEAD 比对**，
+  不要等进程输出、也不要据此认为失败（可直接 `TaskStop` 收尾，再 `git fetch origin <branch>` 刷新跟踪引用）。
+  连通性自检：`curl -s -o /dev/null -w "%{http_code}" --max-time 8 https://github.com`（返回 200 即网络正常，
+  curl 自身 exit 23 是沙箱写 `/dev/null` 被拦，**不是网络故障**）。
 - `start.bat` 前置检查只依赖：`backend/bin/armpilot-backend.exe` · `backend/config.yaml` ·
   `config/robot.yaml` · PATH 上的 `node` · `frontend/node_modules/.bin/vite.cmd`。
 
 ## §6 协作约定与真机链路
 
-- `git push` **由用户自行执行**；agent 只做本地 commit / diff。
+- `git push` **默认由用户自行执行**；**用户显式要求时可代推**（2026-09-14 起，用户明确下达过一次）。
+  ⚠️ 推送的判定与坑见 §5「push 成功但不退出」。
 - **破坏性操作先列清单确认**；建新目录先跑 `git check-ignore -v <path>/probe.txt` 探针。
 - 每轮收尾：README 阶段表/§6 + `docs/decisions.md` ADR + memory **同步更新**。
 - 提交按逻辑拆分（freeze / refactor / test 各自独立），不混在一起。

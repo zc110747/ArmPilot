@@ -391,8 +391,67 @@ curl http://localhost:8090/healthz              # {"device":"mujoco","linked":tr
 | **P1** | 引入官方模型 | ✅ | `assets/models/so-arm101/official/` **14 个文件逐字节原样**（TheRobotStudio/SO-ARM100 @ `eecbe3e0`）· 13 个二进制 STL 共 16,129,292 B / 322,564 三角形 · `SOURCE.md` 记 26 个 sha256 + 两条勘误 + 一条裁决 · 保留官方目录布局（`meshdir="assets"`）⇒ **URDF 与 MJCF 都零修改加载**（实测 MuJoCo 3.13：`nq=6 nv=6 nu=6 nmesh=13`） |
 | **P2** | SO-101 RobotDefinition + 引擎 | ✅ | `config/robots/so-arm101/robot.yaml`（生成产物，`--check` 盯同步）· `SoArm101Kinematics`（FK 纯委托通用 `fk.ts`；**IK 诚实留白**）· `physics.yaml` **不复制任何数值**（真值 = 官方 MJCF）+ `tools/inspect_so101_physics.py --check` 复核 46 项（另做 5 组变异反验证） |
 | **P3** | 配置驱动的模型选择（**前端侧**） | ✅ | `config/robots.yaml` 选择器（只放 id/name/config）→ `robotConfigRegistry` → `loadRobotModel(id?)` → `RobotRegistry`（**唯一**分派表 + `assertRegistryCoverage()` 自检）。既有 22 处调用点显式化 ⇒ **既有 351 条断言逐条不变** · 新增 33 条 · vitest **384/384** · `tsc` 0 error · `pytest tests/sim` 147 + `tests/sim2sim` 9 · 4 份黄金数据**逐位一致** |
-| P3' | Go / Python 侧选择器 | ⬜ | 三端必须读**同一份** `config/robots.yaml`，禁止各自抄映射 |
-| P4–P8 | 3D 切换 · FK cases · MuJoCo 接入 · 统一 `runSim2Sim(robot)` · 切换压力回归 | ⬜ | — |
+| **P3'** | **Go / Python 侧选择器（三端同源）** | ✅ | `internal/robot/registry.go`（`LoadByID` / `Selector.IDList` / `physicsKind`）· `robotcfg.py`（`load_robot_selector` / `load_robot_by_id` / `resolve_robot_entry_by_config`）。三端读**同一份** `config/robots.yaml`；**★ 注册表 id ≠ 模型 id**（选择器 key `mearm-v1` vs `robot.yaml → robot.id = mearm`）⇒ 必须按**配置路径反查**，禁止用 `robot.id` 反查。后端启动实测：`default=mearm-v1，可选 mearm-v1 / so-arm101`，`-robot so-arm101` 时打印 6 关节 + 6 通道 + MJCF + `tcpSite=gripperframe` + 形态 `driver` |
+| **P4** | **三维模型切换（通用 mesh 支持）** | ✅ | 活动机器人从**模块常量**改为 **store 状态**（`robotId` + `model`），`setRobot(id)` 整体复位模型相关派生状态；渲染层已按 `model` 依赖重建树（`RobotArm` / `ActualGhostArm` 用 `useEffect([model])` + `disposeRobotObject3D`）。SO-101 的 13 个 STL 已进产物；**Three.js `tcpMarker.matrixWorld` ↔ FK 基线 max\|Δ\| = 3.596e-13 mm**（46 例，读真实渲染矩阵而非重算）。**MeArm 视觉行为零改动** |
+| **P5** | **SO-101 FK + 固定 joint/fk cases** | ✅ | `tests/baseline/so-arm101/sim2sim.json`（46 例：零位 / HOME / 各关节 min·mid·max / 角点 / seed 随机）由 `tools/run_sim2sim.py --freeze` 采集。三侧面互证：**前端↔参考 3.824e-13 mm**（两个独立实现消费同一份 yaml）。`inverse()` 对每个探测目标返回 `NOT_IMPLEMENTED` 且 `joints:{}` / `positionError:null`。**不伪造 IK / 不写 workspace**（报告里没有这两个字段） |
+| **P6** | **SO-101 MuJoCo 接入** | ✅ | `server.py --robot so-arm101` 实测：`STATUS S1..S6` / `JR` 6 关节 / `RESET`→HOME(0,0,0,0,0,0)。**Go→MuJoCo 全链路实测**：`-robot so-arm101 -c config.mujoco.yaml` ⇒ `device:"mujoco","linked":true`，`healthz` 报 SO-101 物理状态。★ 顺带修掉一条**错位告警**：原先无条件打印"物理量为估算值（config/physics.yaml）"—— 对 MeArm 成立、对 SO-101 是错的（其真值在官方 MJCF），现按 `physics_kind` 分支。`--phys-hz` 与 MJCF timestep 不一致时**告警而不静默**（SO-101 0.002 vs MeArm 0.001）。**官方物理参数一个未改** |
+| **P7** | **统一 Sim2Sim 框架 `runSim2Sim(robot)`** | ✅ | `simulation/mujoco/sim2sim.py`（**唯一入口**）+ `tools/run_sim2sim.py`（CLI：`--all` / `--robot` / `--freeze`）。**不是两个平行实现**：判据（用例枚举 / 三侧面比对 / 能力门）只有一份，两台机器人跑同一份代码。回归矩阵 = 选择器声明的**全部** robots（新增机器人自动进入）。★ 容差**按机器人登记且必须写明理由**，未登记一律**报错**（拒绝"先看跑出来是多少再填"）。`tests/sim/test_sim2sim_matrix.py` 14 项 + 前端 `so-arm101-baseline.test.ts` 12 项读**同一批**冻结文件 |
+| **P8** | **切换压力回归 + 终报告** | ✅ | `tests/acceptance/robot-switch.test.ts` 13 项：往返 **200 轮**后回到 MeArm 的状态与初始**逐位相同**（无漂移）；切换后关节键集合恰好是新模型的（MeArm 独有键**整个消失**）；已接入传输时**拒绝**切换且状态一位不变；未知 id 拒绝且**不回退**；同 id 幂等。**核心验收问题见下方专节** |
+
+**★ 核心验收问题（P8 · 必须回答的那一句）**
+
+> **在完全不修改 MeArm-V1 核心模型的情况下，ArmPilot 是否已经能够通过配置加载第二个
+> 完全不同的机器人，并使用同一套上层模型接口完成 3D、FK、MuJoCo 和 Sim2Sim？**
+
+**答：是，四层全部完成，且 MeArm-V1 的黄金基线逐位未变。**
+
+| 层 | 判据 | 实测 |
+|---|---|---|
+| **配置** | 三端读同一份 `config/robots.yaml` | 前端 / Go / Python 均实测解析出 `mearm-v1` + `so-arm101` |
+| **3D** | 渲染树的 TCP 矩阵 == 该机器人的 FK | SO-101 **3.596e-13 mm**（46 例，读 `matrixWorld`） |
+| **FK** | 两条独立实现 + 引擎三面一致 | 前端↔参考 **3.824e-13 mm**；参考↔MuJoCo **3.318e-03 mm**（< 登记容差 5e-02，残差有根因：官方 URDF 6 位有效数字截断） |
+| **MuJoCo** | Go→Python 子进程全链路 | `device:"mujoco","linked":true`，`healthz` 报 6 关节 |
+| **Sim2Sim** | 同一入口跑两台 | `tools/run_sim2sim.py --all` 一条命令输出两行；MeArm `1e-13` 量级、SO-101 `3.3e-3` 量级 |
+| **MeArm 未被改动** | 真值冻结 + 4 份黄金数据 + 既有断言 | `freeze_baseline.py` ✅ · `gen_mearm_v1_baseline.py --check` **4 份逐位一致** · `tests/sim2sim` 9 项 ✅ · 前端 **409/409** |
+
+**边界（同一句话的另一半）**：SO-101 **没有 IK、没有工作空间数据**，且这是**声明出来的**
+（`capability.solverKind='none'`），不是"跑不出来"。`store.moveTo()` 在 `solverKind !== 'analytic'`
+时**不调用求解器**、直接返回 `NO_SOLVER` 并保留 `target`（让用户看到"我想去哪"）——
+这层门是必需的：MeArm 的解析解对着 6 铰链的 SO-101 会**成功返回**一组无意义的关节角。
+
+**★ 复现流程（P0–P8 全链，一次跑完）**
+
+```bash
+# ── ① 三端读同一份选择器 ────────────────────────────────────────────────
+<python> tools/run_sim2sim.py --all                      # 统一矩阵（唯一入口）
+<python> tools/run_sim2sim.py --all --freeze             # 重新冻结 Sim2Sim 快照
+cd backend && ./bin/armpilot-backend.exe -robot so-arm101    # 后端换模型（日志会打印 6 关节 + MJCF）
+
+# ── ② 前端（4 件套）────────────────────────────────────────────────────
+cd frontend
+./node_modules/.bin/tsc -b --force                       # 0 error
+./node_modules/.bin/vitest run                           # 409 passed（含 13 项切换压力 + 12 项 SO-101 基线）
+./node_modules/.bin/vite build                           # 产物中 __armPilot 命中 0
+# e2e 必须**隔离端口**（8090/5273 可能是用户正在驱动真机的实例，不能杀）：
+#   后端 8091（`-c .workbuddy/e2e-sim.yaml`）· 前端 5276（**不注入** VITE_AUTO_CONNECT）· CDP 9334
+#   ★ 三者必须在**同一次 shell 调用**内起（后台进程随本次调用结束而终止）
+#   ★ vite 用 `node node_modules/vite/bin/vite.js`（`.bin/vite` 的 shim 在本机会踩沙箱黑名单）
+BACKEND_HTTP=http://127.0.0.1:8091 BACKEND_WS=ws://127.0.0.1:8091/ws/joint \
+  node tests/e2e/ui-smoke.mjs http://localhost:5276 9334  # ⇒ 84 / 84 PASS
+
+# ── ③ Python（Sim2Sim 矩阵 + 仿真）─────────────────────────────────────
+<python> -m pytest tests/sim -q                          # 161 passed（含 14 项矩阵）
+<python> -m pytest tests/sim2sim -q                      # 9 passed
+
+# ── ④ MeArm-V1 未被改动的证明 ──────────────────────────────────────────
+<python> tools/freeze_baseline.py                        # 运动学/物理真值与冻结基线一致
+<python> tools/gen_mearm_v1_baseline.py --check          # 4 份黄金数据逐位一致
+<python> tools/gen_so_arm101_robot_yaml.py --check       # SO-101 配置 ↔ 官方模型同步
+<python> tools/inspect_so101_physics.py --check          # SO-101 物理快照 ↔ 官方 MJCF（46 项）
+```
+
+> 说明：③ 里的 `--check` 类工具**只读**，它们失败只说明"今天的实现与冻结时不一致"，
+> 唯一正确的处理是**查清差异**，而不是重跑 `--update` 把差异抹掉。
 
 **★ 三条必须在文档里声明的诚实边界（spec「不伪造」）**
 
@@ -408,10 +467,33 @@ curl http://localhost:8090/healthz              # {"device":"mujoco","linked":tr
    ArmPilot 侧若要复现"臂↔台面"碰撞，只能**在运行期另挂**碰撞体 —— 这属于"改造官方模型"，
    待 Phase 6 单独裁决（官方文件本身保持逐字节原样）。
 
-★ **FK ↔ MuJoCo 实测残差：位置 2.0~2.3 µm、旋转矩阵 ≤ 1.0e-5**（黄金值取自 `mj_forward()`
-读 `gripperframe` site ⇒ 两个独立实现**互证**而非自证）。该残差**有根因、不是换算错误**：
-官方 URDF 把 `<origin rpy>` 截断到 6 位有效数字（`1.5708` ≠ π/2），而 MJCF 的四元数归一化后
-恰好是 90° ⇒ 两份官方文件自身就有 ~2 µm 系统差。详见 ADR **D75/D76**。
+★ **FK ↔ MuJoCo 实测残差（已冻结）**：MeArm **7.7e-14 mm**、SO-101 **3.3e-3 mm**
+（黄金值取自 `mj_forward()` 读各机器人的 TCP site ⇒ 两个独立实现**互证**而非自证）。
+SO-101 的残差**有根因、不是换算错误**：官方 URDF 把 `<origin rpy>` 截断到 6 位有效数字
+（`1.5708` ≠ π/2），而 MJCF 的四元数归一化后恰好是 90° ⇒ 两份官方文件自身就有 ~3 µm 系统差。
+⇒ **容差按机器人登记且必须写明理由**（`FK_TOL_MM`：`mearm-v1` 1e-6 / `so-arm101` 5e-2，
+未登记一律报错，不给缺省值）——理由见 ADR **D77** 与 **D75/D76**。
+
+**多机器人轨实测汇总（P0–P8，2026-09-14）**
+
+| 项 | 结果 |
+|---|---|
+| `pytest tests/sim` | **161 passed**（15 文件；含统一矩阵 14 项） |
+| `pytest tests/sim2sim` | **9 passed**（MeArm 黄金基线回归） |
+| `go build` / `go vet` / `go test` | 0 问题 / 0 问题 / **75 passed・0 FAIL** |
+| `tsc -b --force` | **0 error** |
+| `vitest run` | **409 passed**（29 文件；含切换压力 13 项 + SO-101 基线 12 项） |
+| `vite build` | OK（13 个 SO-101 STL 进产物；`.js` 产物 `__armPilot` **0 命中**） |
+| `ui-smoke.mjs`（**隔离端口** 后端 8091 / 前端 5276 / CDP 9334） | **84 / 84 PASS · 0 FAIL**（含 Phase 8 真实 WS 往返 21 项；Phase 9 真机段为 opt-in，按设计跳过） |
+| 真值冻结 `freeze_baseline.py` | ✅ 运动学与物理真值与冻结基线一致 |
+| 黄金数据 `gen_mearm_v1_baseline.py --check` | ✅ **4 份逐位一致** |
+| SO-101 两项 `--check` | ✅ 配置 ↔ 官方模型同步 · 物理快照 ↔ 官方 MJCF（46 项） |
+| 统一矩阵 | `mearm-v1` 前端↔参考 `5.1e-14` / 参考↔MuJoCo `7.7e-14` mm · IK 25/28 解出 · 闭环 `1.0e-13` mm<br>`so-arm101` 前端↔参考 `3.8e-13` / 参考↔MuJoCo `3.3e-3` mm（容差 `5e-2`）· **IK 未提供（solverKind=none）** |
+
+★ **一句话结论**：**MeArm-V1 的核心模型一个字节都没有改**（真值冻结 + 4 份黄金数据逐位一致 +
+既有断言逐条通过），而第二台机器人（官方 SO-ARM101，6 铰链 / 13 网格 / 完全不同的关节名与限位）
+已经能只靠 `config/robots.yaml` 被三端加载，并跑通同一套 **3D / FK / MuJoCo / Sim2Sim** 判据。
+**它的 IK 与工作空间是"声明为不存在"，不是"跑不出来"。**
 
 ### 本阶段明确**不实现**
 
@@ -434,7 +516,7 @@ AI · 机器学习 · 强化学习（PPO/SAC）· 自训练 · 视觉识别 · �
 **状态 · STATUS** → **链路误差 · LINK ERROR**（Phase 11：Command→Actual 逐关节偏差条 +
 误差趋势 sparkline + 健康结论）→ **模型 · ROBOT MODEL**。</sub>
 
-## 6. 当前验收数据（Phase 1–15 + MuJoCo 轨 M1–M10）
+## 6. 当前验收数据（Phase 1–15 + MuJoCo 轨 M1–M10 + 多机器人轨 P0–P8）
 ```
 类型检查      tsc -b                    0 error
 单元测试      vitest run                351 / 351 PASS（26 文件；含 13 项几何回归 · 24 项 IK · 19 项拖动平面 ·
@@ -829,6 +911,9 @@ $PY tools/fit_pose.py .workbuddy/captures/w2_S7 --sweep both --anchor .workbuddy
 | 为什么 IK 验收必须加载真实 `ik.ts` | `docs/decisions.md` **D53** · `frontend/tests/tools/kinematics-bridge.mjs` |
 | 改了几何后要做什么 | 重跑 `python simulation/mujoco/gen_model.py`（**MJCF 是产物，禁手改**） |
 | 三个只在特定调用方式下暴露的静默错误 | `docs/decisions.md` **D54** |
+| **统一 Sim2Sim 入口（跑哪台机器人、判据在哪）** | `simulation/mujoco/sim2sim.py` · `tools/run_sim2sim.py` · `docs/decisions.md` **D77** |
+| **FK 容差为什么按机器人分表（两个数量级的差别从哪来）** | `simulation/mujoco/sim2sim.py:FK_TOL_MM` · **D77** |
+| **第二台机器人（SO-ARM101）怎么加载、它没有什么** | `config/robots.yaml` · `assets/models/so-arm101/official/SOURCE.md` · **D75/D76** |
 
 ## 11. 真值冻结与视觉层边界
 
@@ -856,6 +941,13 @@ $PY tools/freeze_baseline.py --show     # 打印当前核心摘要
 
 **推论（这是做视觉建模的前提）**：外观层自此完全自由 —— 几何 primitive、颜色、
 以及未来的**照片纹理 / 重建网格**都可以随便迭代，而运动学与物理被钉死在基线上。
+
+> **多机器人轨在这一节上的补充（重要）**：冻结只覆盖 MeArm-V1。
+> SO-101 的**物理量真值在官方 MJCF**（`assets/models/so-arm101/official/so101_new_calib.xml`），
+> `config/robots/so-arm101/physics.yaml` **一个数值都不复制**（只放驱动参数 + 审计快照 + 官方未声明项）。
+> 它的副本守卫是 `tools/inspect_so101_physics.py --check`（46 项，且做过 5 组变异反验证）。
+> 同时新增 `tests/baseline/so-arm101/sim2sim.json` 与 `tests/baseline/mearm-v1/sim2sim.json`
+> —— 两者由 `tools/run_sim2sim.py --freeze` 采集，判据见 ADR **D77**。
 
 ## 12. 照片纹理贴图（进行中）—— 让数字孪生更像真机
 

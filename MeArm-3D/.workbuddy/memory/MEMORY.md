@@ -1,7 +1,7 @@
 # MeArm-3D · 项目长期记忆（索引）
 
 > **本文件只是索引**：铁律 + 验收命令 + 去哪找细节。明细在同目录 `playbook.md`，
-> 决策理由在 `docs/decisions.md`（D1–D74），验收数据在 `README.md` §6，每日过程在 `YYYY-MM-DD.md`。
+> 决策理由在 `docs/decisions.md`（D1–D79），验收数据在 `README.md` §6，每日过程在 `YYYY-MM-DD.md`。
 > ★ 注入阈值实测 ≈6.3k 字符，超出会被**静默截断**（2026-09-14 从单文件 10.6k 拆成「索引 + playbook」）。
 
 ## 一、唯一真值源（铁律）
@@ -19,12 +19,15 @@
 - `mode`（simulation/real）**不是 UI 开关**：它决定"要不要发给真实机械臂"，取值须校验全通过才改，
   失败要 pushLog 说明原因与修法（D41/D43）。
 - **机器人相关状态一律进 store**，组件不持局部副本（含 `teachTrack`）。
-- **多机器人轨（2026-09-14 起）**：`config/robots.yaml` 选择器（**只放 id/name/config**）
-  → `loadRobotModel(id?)` → `RobotRegistry`（唯一分派表，禁止业务代码 `if robot == ...`）。
+- **多机器人轨（2026-09-14，P0–P8 已完成）**：`config/robots.yaml` 选择器（**只放指针**：`name/config/
+  physics/simulation.mjcf/tcpSite`，白名单 schema 断言盯着）→ 三端各自解析**同一份**（前端 `import.meta.glob`
+  / Go `LoadSelector` / Python `robotcfg.py`）→ `RobotRegistry`（唯一分派表，禁止 `if robot == ...`）。
   第二台 = 官方 SO-ARM101，资产 `assets/models/so-arm101/official/`（**逐字节原样，禁止改**）。
-  ★ 它的**物理量真值 = 官方 MJCF**（`config/robots/so-arm101/physics.yaml` **不复制任何数值**）；
-  限位与 TCP 帧朝向均取 **MJCF**（URDF 那两份都不可信 —— 截断 / 差 90°）。
-  能力：`solverKind: 'none'`，`inverse()` 诚实返回 `NOT_IMPLEMENTED`（**禁止伪造 IK**）。
+  ★ **注册表 id ≠ 模型 id**（`mearm-v1` vs `robot.id = mearm`）⇒ 只按**路径**反查。
+  ★ `physics.yaml` 两种形态：**顶层有无 `driver:` 段** = `legacy`(MeArm) / `driver`(SO-101，真值在官方 MJCF)。
+  ★ 物理量真值 = **官方 MJCF**；限位与 TCP 帧朝向也取 MJCF（URDF 那两份不可信 —— 截断 / 差 90°）。
+  能力 `solverKind:'none'` ⇒ `moveTo` 在**下发层**返回 `NO_SOLVER`（与"试过不行"并列）。
+  统一验收只有一份：`run_sim2sim(robot_id)` / `tools/run_sim2sim.py --all`，**不为第二台另写一套**。
 
 ## 二、验收七件套
 
@@ -36,6 +39,7 @@ cd frontend
 node tests/e2e/ui-smoke.mjs                   # 必须隔离端口
 $PY -m pytest tests/sim -q                    # ★ 跨端改动（config / geometry 类型）必跑
 $PY -m pytest tests/sim2sim -q                # Sim2Sim 基线回归（D71–D73）
+$PY tools/run_sim2sim.py --all                # ★ 统一 Sim2Sim 矩阵（选择器全部机器人，D77）
 $PY tools/gen_mearm_v1_baseline.py --check    # 黄金数据逐位复现（改过运动学/物理必跑）
 $PY tools/gen_so_arm101_robot_yaml.py --check # SO-101 配置 ↔ 官方模型同步（改生成器/模型必跑）
 $PY tools/inspect_so101_physics.py --check    # SO-101 物理快照 ↔ 官方 MJCF（46 项）
@@ -46,6 +50,8 @@ $PY tools/inspect_so101_physics.py --check    # SO-101 物理快照 ↔ 官方 M
   （文件内**不含任何限位/角度常量**，位姿由调用方给）。⚠️ **限位端点不可精确到达**——舵机整数度量化
   后可能落到限位外被后端如实拒绝（`ERR JOINT …`）⇒ 取**限额内部**的值。
 - 环境硬约束（明细见 `playbook.md` §5）：`npx <tool>` 触发 WSL 黑名单 ⇒ 一律 `./node_modules/.bin/<tool>`；
+  ★ **裸名 `bash` 也会触发**（本机 PATH 首项 `/tmp/system32/bash` = `C:\Windows\System32\bash.exe`）
+  ⇒ 跑脚本用 **`/usr/bin/bash x.sh`**（shebang 别写 `/usr/bin/env bash`）；vite 用 `node node_modules/vite/bin/vite.js`；
   `(cmd &)` 后台进程只活到本次工具调用结束 ⇒ 起服务与跑 e2e 必须**在同一次调用里**；
   `/tmp/*.log` 重定向被沙箱拦 ⇒ 日志落 `.workbuddy/captures/`；e2e **必须隔离端口**（5276 + 8091）；
   Python 用 `~/.workbuddy/binaries/python/envs/default/Scripts/python.exe` + `PYTHONIOENCODING=utf-8`。
@@ -62,5 +68,6 @@ $PY tools/inspect_so101_physics.py --check    # SO-101 物理快照 ↔ 官方 M
 | 协作约定与真机链路（COM16 / DTR 复位 / `--home`） | `playbook.md` §6 |
 | **多机器人轨（选择器 / 注册表 / mesh / SO-101 陷阱）** | `playbook.md` §7 |
 | 冻结与基线决策理由 | `docs/decisions.md` D55 / D71–D73 |
+| **多机器人统一验收 / 运行期切换的原因**（D77–D79） | ADR D77（统一 Sim2Sim + 容差登记）/ D78（能力门落 `moveTo`）/ D79（活动机器人是 store 状态） |
 | **首帧"重影" / 幽灵臂类渲染问题**（D74） | ADR **D74** · `tools/park_sim_pose.mjs` + `tools/first_load_probe.mjs` · 跨项目 skill `webgl-first-frame-forensics` |
 | 未修的无关问题 F1–F9 | `docs/architecture/mearm-v1-followups.md` |

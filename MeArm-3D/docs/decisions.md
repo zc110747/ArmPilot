@@ -3,7 +3,123 @@
 记录"为什么这么做"，尤其是**与原 spec 示例不一致**的地方，方便后续复盘与修改。
 每条都有编号，代码注释会引用编号（如 `D2`）。
 
-> 本文**最新条目在前**（D76 在最上，D1 在最下）。
+> 本文**最新条目在前**（D79 在最上，D1 在最下）。
+
+## D79 · 活动机器人是 **store 状态**（不是模块常量）：初值来自配置、切换有**守卫**、`hello` **只互检不静默切换**
+
+**背景**：引入第二台机器人后，"当前是哪一台"这件事原先写在 `robotStore.ts` 的**模块级常量**
+`const model = loadRobotModel('mearm-v1')` 里 —— 它有 50 处消费点（`clipJointState` /
+`deriveVirtual` / `moveTo` / 六个 action / 四个派生选择器）。于是"能加载第二台"
+与"能**切到**第二台"是两件事：前者靠 `loadRobotModel(id)` 就够了，后者必须让整份状态跟着换。
+
+**决策**：
+
+1. **`robotId` + `model` 进 store 状态**，模块常量降级为"仅用于构造初始 state"（改名 `initialModel`
+   并加注释：运行期一律 `get().model`，把常量当"当前模型"用等于限位/标定整体错位且**不报错**）。
+2. 所有纯函数（`clipJointState` / `deriveVirtual`）**显式收 `model` 参数**；四个派生选择器
+   （`jointLabel` / `positioningJointIds` / `gripperJointId` / `targetGapMm`）的 `model` 是
+   **可选参数、缺省取当前活动模型** —— 既保住既有调用点与既有测试，又让多机器人语境能显式传入。
+3. **初值来自 `config/robots.yaml → default`**（`defaultRobotId()`）。这与 spec「只通过后端
+   配置文件选择模型」一致：网页端没有模型选择器，它只**跟随**配置；后端 `robot.model_id` 默认留空
+   ⇒ 三端在默认情况下天然一致。
+4. `setRobot(id)` 的**守卫**：`transportDriven === true`（已接入传输）时**拒绝**，并给出一条说明
+   "为什么 + 怎么修"（先断开）的日志。同 `setMode` 的哲学：**校验通过才改状态**。
+5. 切换时**整体复位**模型相关派生状态（joints / target / ikStatus / alignmentError / teachTrack）。
+   示教轨迹是**用户数据** ⇒ 清空时必须单独记一条 `warn`，说明原有几帧、以及为什么
+   （它记录的是旧模型的关节空间，换模型后回放会驱动语义不同的关节）。
+6. `hello` 带 `robotId` 做**在线互检**，但**不做静默切换**：渲染一台、驱动另一台是真实危险，
+   静默换掉会把"配置不一致"藏起来。
+
+**后果**
+- ✅ `tests/acceptance/robot-switch.test.ts` 13 项：往返 **200 轮**后回到 MeArm 的状态与初始
+  **逐位相同**（无漂移）；切换后关节键集合恰好是新模型的；已连接时拒绝且状态一位不变；
+  未知 id 拒绝且**不回退**（回退会把"id 写错一个字"变成"静默加载了另一台"）。
+- ⚠️ 发现并记录了一条**真隐患**：`gripper` 是两台**同名但不同义**的关节（MeArm `0..90` vs
+  SO-101 `-10..100`）⇒ **"键集合相等"不能当模型一致的判据**，只有限位能兜住。已写成显式断言。
+- ✅ MeArm 行为**零变化**：既有 384 条前端断言逐条不变（改造后 409 条，新增 25 条）。
+
+---
+
+## D78 · 能力门必须落在 `moveTo` 上：`NO_SOLVER` 是**第三种**结果，不是"不可达"
+
+**背景**：`store.moveTo()` 直接调 `solveIk(model, xyz, …)` —— 那是 MeArm 的**平面 2R 解析解**。
+把它对着 6 铰链的 SO-101 跑，会发生本项目最危险的一类失败：**它会成功返回**。
+
+```text
+  solveIk(soArmModel, [200, 0, 150])
+    └─ 取 base/shoulder/elbow 三个"角色"，按 2R 几何解出一组角
+    └─ success: true, joints: {...}, residual: 一个很小的数（因为残差是它自己 FK 算的）
+```
+
+调用方若只看 `success`，就会把机械臂派到一个**语义完全错误**的位姿，而界面上一切正常。
+
+**决策**：
+
+1. `moveTo` 先读**能力声明**：`loadRobot(current.robotId).kinematics.capability.solverKind`。
+   `!== 'analytic'` ⇒ **一次都不调用求解器**，直接返回
+   `{ success:false, reason:'NO_SOLVER', message, candidates:[] }`。
+2. 在 `IkReason` 里新增 `'NO_SOLVER'`，**刻意与 `'OUT_OF_WORKSPACE'` / `'JOINT_LIMIT'` 并列而不合并**：
+   后两者是"试过、算出来了、不行"，前者是"**没算**"。合并会让用户以为要调目标点，而真相是
+   这台机器人压根没有逆解器。
+3. 拒绝时**仍然写 `target` 与 `ikStatus`**（与"目标越界也保留 target"同一取向）：界面必须显示
+   "我想去哪"和"为什么没动"，不能什么都不做。
+4. 日志**每个机器人只记一次**（`warnedNoSolver`）—— 拖动时 `moveTo` 是高频调用，
+   否则日志面板会被同一句话刷满（与 `SoArm101Kinematics.warnNotImplementedOnce` 同一考量）。
+5. **判据取自数据（`capability`）而不是 `if (robotId === 'so-arm101')`（逻辑）**：
+   将来 SO-101 加了数值 IK，只需要改它自己的 `capability`，`moveTo` 一个字都不用动。
+
+**后果**
+- ✅ 前端断言：SO-101 上 `moveTo` 返回 `NO_SOLVER` 且 `commandJoints` **一位都不动**；
+  MeArm 上 `moveTo` 仍走解析解（**能力门没有误伤 Golden Baseline**）。
+- ⚠️ 这条门**只挡住了 store**。任何绕过 store 直接调 `solveIk(model, …)` 的新代码都不受保护
+  ⇒ 新代码请走 `RobotRegistry` 的 `kinematics.inverse()`（它自己带能力声明）。
+
+---
+
+## D77 · 统一 Sim2Sim：判据只有**一份**；容差**按机器人登记且必须写明理由**
+
+**背景**：Sim2Sim（同一组关节角 / 同一个目标点，前端与 MuJoCo 两侧是否落在同一处）原本是
+**为 MeArm 写的**：判据在 `tests/sim2sim/`，采集入口在 `tools/gen_mearm_v1_baseline.py`。
+引入第二台机器人后有两条路：
+
+| | 做法 | 后果 |
+|---|---|---|
+| ✗ | 照抄一份 SO-101 的 | 两台机器人各有一套验收标准，**两套各自都能自己绿** ⇒ "用同一套判据"就只是说法 |
+| ✅ | 抽出 `runSim2Sim(robot)` | 判据只有一份，两台跑同一份代码；新增机器人自动进入矩阵 |
+
+**决策**：
+
+1. 唯一入口 `simulation/mujoco/sim2sim.py:run_sim2sim(robot_id)` + CLI `tools/run_sim2sim.py`。
+   **三侧面**（前端桥 / Python 参考实现 / MuJoCo `MjModel`）一个不少 —— 把参考实现换成
+   "再调一次前端"会把三侧面退化成**一条自证链**。
+2. **IK 段由 `capability.solverKind` 决定，不是 `if robot == …`**。没有逆解器时：
+   **不做任何求解**，但**仍然发几个探测目标过去**，把"前端确实拒绝了、理由是 `NOT_IMPLEMENTED`"
+   记录下来。一条拒绝记录是**证据**，"我们没测"是空白 —— 两者完全不同。
+3. 没有的东西**不做基线、不写字段**：报告里没有 `workspace` / `geometry`，
+   快照里也没有（`test_no_robot_fabricates_ik` 与前端基线测试都盯着这一条）。
+4. **容差按机器人登记，且必须写明理由；未登记一律报错**（`FK_TOL_MM`，**不设缺省值**）：
+
+   | robotId | 容差 | 理由 |
+   |---|---|---|
+   | `mearm-v1` | `1e-6 mm` | `robot.yaml` 与 `fkref.py` 同源（都是本项目写的），实测 `~1e-13` |
+   | `so-arm101` | `5e-2 mm` | 官方 URDF 的 `<origin rpy>` 截断到 6 位有效数字（`1.5708 ≠ π/2`），官方 MJCF 用四元数归一化后恰好 90° ⇒ **两份官方文件自身**差 µm 级，实测 `~3.3e-3` |
+
+   悄悄给个"够大"的缺省，等于把"新增机器人时没人想过它的精度来源"这件事藏起来；
+   而那正是"为了让它通过而放宽阈值"的开端。
+5. **两批独立采集的产物必须互相对照**：MeArm 的 `sim2sim.json`（本工具采集）与 4 份
+   `tests/baseline/mearm-v1/*.json`（`gen_mearm_v1_baseline.py` 采集）在**同名用例**上
+   FK 必须逐位相同 ⇒ 抽出统一框架时**顺手改掉 MeArm 期望值**这条风险被钉住
+   （`test_mearm_sim2sim_agrees_with_the_four_file_golden_baseline`）。
+
+**后果**
+- ✅ `tools/run_sim2sim.py --all` 一条命令输出两行矩阵；`pytest tests/sim` **161 passed**
+  （新增 14 项矩阵用例）；前端新增 12 项读**同一批**冻结文件。
+- ✅ MeArm 侧数值与抽框架前一致（`1e-13` 量级），4 份黄金数据**逐位未变**。
+- ⚠️ 唯一新增的"两个标准"是**故意的**：`tests/sim2sim/`（MeArm 黄金基线回归）与
+  `sim2sim.json`（统一框架快照）是**两种用途**——前者锚"与冻结时一致"，后者锚"两台机器人在
+  同一套判据下的表现"。前者只 MeArm 有，后者每台都有；交叉一致性判据把两者连起来。
+
+---
 
 ## D76 · SO-101 的三条真值取舍：**能读到"引擎实际用的值"就绝不读文本**；官方没声明的必须写出来
 

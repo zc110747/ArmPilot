@@ -1,42 +1,37 @@
+# MeArm-3D · 项目 playbook（长期记忆明细）
 
-## §7 多机器人轨（SO-ARM101）· 速查（2026-09-14 起）
+> 由 `MEMORY.md`（索引）按需引用的明细。跨会话长期有效，改这里要同步 `MEMORY.md` 的入口表。
 
-**通用层**（与具体机器人无关，MeArm / SO-101 共用）：
+## §1 测试与探针纪律
 
-- 选择链：`config/robots.yaml`（**只**放 id/name/config，禁止放参数）
-  → `model/robotConfigRegistry.ts`（`import.meta.glob` 构建期登记 yaml 原文）
-  → `model/loadRobotModel(id?)`（按 id 缓存；未知 id **抛错不回退**）
-  → `registry/RobotRegistry.ts`（**唯一**分派表：工厂表 + `assertRegistryCoverage()`）。
-- 业务代码**禁止** `if robot === ...`；"谁有 IK"由 `kinematics.capability` **声明**（数据）。
-- 叶子模块（防循环导入）：`model/configError.ts`（`RobotConfigError`，`source` 可传文件标签）、
-  `model/robotIds.ts`（`MEARM_V1_ROBOT_ID` / `SO_ARM101_ROBOT_ID`）。
-- `Actuator.unit`：`'deg'`（缺省，0..180 舵机行程）/ `'joint'`（关节空间，ctrlrange ≡ 关节 range）。
-  `ACTUATOR_LIMIT_180` 只在**非**关节空间生效。
-- `RotationConvention`：`'xyz'`（缺省，intrinsic，`Rx·Ry·Rz`）/ `'rpy'`（URDF `<origin rpy>`，
-  fixed-axis，`Rz·Ry·Rx`；three.js 侧用 Euler order `'ZYX'`，**数值原样只换 order**）。
-- mesh：`model/meshRegistry.ts` 只登记 **URL**（`?url` + eager）；渲染在
-  `RobotScene/meshObject.ts`，两条守卫（无 DOM 不加载 / key 未登记则 warnOnce + 回退）。
+- **探针只准用 `matrixWorld` / DOM 真实现象做证据，不许把数学再算一遍**（用 `FK(actual)` 证明"渲染了"
+  是自证：挂错树 / 可见性误关 / 全透明都会让断言全绿）。
+- **探针（含 `delete window.__xxx`）必须 `import.meta.env.DEV` 守卫**，否则字面量进生产包。
+- ★ **位置型读取（`rows[i].children[j]`）必须限定到同一容器**（D67 一）：`.sidebar table.grid tbody tr`
+  会同时命中 `ConnectionControl` 的"指标/值"表（排在 `StatusPanel` **前**）⇒ 一旦渲染，`rows[1]`
+  静默漂移到"丢帧/拒绝"行。用 `cardByTitle('状态 · Status')` 先限定。**"读到值" ≠ "读到想读的对象"。**
+  ⚠️ 这类探针**必须写成函数**（模块级模板字面量在 import 时求值 ⇒ `cardByTitle` 还在 TDZ ⇒ ReferenceError）。
+- **时间相关的多个读数必须合并在同一次 `cdp.evaluate`**（分两次 CDP 往返会让快收敛量读到归零值 ⇒ 间歇失败）。
+- ★ **端口预检不许用「分组 + `\b`」**（D65）：本机 GNU grep 3.0 里 `\b` 紧跟 `)` 失效，且**漏 `-E` 时
+  `(` `|` `)` 是字面字符** ⇒ 两缺陷叠加让预检**恒返回"干净"**。用字段级比较
+  `netstat -ano | tr -d '\r' | awk '$4=="LISTENING"{n=split($2,p,":"); if (p[n]==8090) print $5}'`；
+  `taskkill //PID` 亦**报错并静默失败** ⇒ 用 `taskkill -F -PID`（单横线）或 `Stop-Process`。
+- **`start.bat` 起的是"一对"进程**（D67 三）：真机后端（8090）+ 带 `VITE_AUTO_CONNECT=ws` 的 vite（5273），
+  只清一个还会踩。症状：e2e 读到 `Command 列跟随滑杆 — 0 / 0`、滞后类断言读到已收敛值。
+- **不许用推导量当独立判据**（D44：`TransportStats.moving = lagDeg > eps` 判"卡死"永远无结论）；
+  **没有正面证据不下断言**，宁可停在保守态（`tracking`）。
+- **e2e 有 SKIP 语义**（D65）：复用既有实例且 `device=serial` 时，「末端非 serial ⇒ 拒绝切换」前提不成立
+  ⇒ 走 `skip()` 而非 `check()`，**不许把环境差异伪造成代码回归**。
+- 断言语义要分清：`defineRobot()` 是**视图**（`toBe` 钉同一对象）；`forwardKinematics()` 每次调用都
+  **新构造**结果 ⇒ 只能逐位比数值（`toContain`/`toBe` 会假失败）。
+- ★ **逐帧记录器记得"是谁先跑"**（D74）：`useFrame` 回调**先于** `gl.render` ⇒ 读到的矩阵是
+  **上一帧画出去的**；首帧读到的空对象是**仪器伪影，不是 bug**（主臂那帧正确只因它每 0.25 s 显式
+  `updateMatrixWorld`）。**改探针前先分辨"真现象"与"采样时刻"**。
 
-**SO-ARM101 专属**：
+## §2 机制与关节判定速查
 
-- 官方资产 `assets/models/so-arm101/official/`（**逐字节原样，禁止改**）；配置在
-  `config/robots/so-arm101/{robot.yaml,physics.yaml}`；生成器 `tools/gen_so_arm101_robot_yaml.py`。
-- ★ **物理量真值 = 官方 MJCF** ⇒ `physics.yaml` **不复制任何数值**，只放
-  真值声明 + 驱动参数 + 审计快照 + **官方未声明项**。
-  `tools/inspect_so101_physics.py --check` 从 **MjModel** 读生效值（**不是读 XML 文本** ——
-  XML 里 class 写的 `forcerange` 是 ±2.94，被 6 个 `<position>` 逐个覆盖成 ±3.35）。
-- ★ **两条 90° / 精度陷阱**：TCP 帧朝向取 **MJCF**（URDF `rpy=[0,π,0]` vs MJCF `quat=Ry(π/2)`）；
-  关节限位取 **MJCF 满精度**（URDF 截断到 6 位小数）。理由见 `SOURCE.md §4.2`。
-- ★ **FK↔MuJoCo 残差 2.0~2.3 µm / 旋转矩阵 1.0e-5** 的根因是**官方两份文件自身的精度差**
-  （URDF `rpy` 截断到 6 位有效数字 `1.5708`≠π/2；MJCF 四元数归一化后恰好 90°），
-  不是换算错误 ⇒ 测试容差 10 µm / 1e-4。
-- **能力声明**：`{positioningDof: 5, supportsOrientation: false, solverKind: 'none'}`；
-  `inverse()` → `ikFailure('NOT_IMPLEMENTED')`（`success:false` / `joints:{}` /
-  `positionError:null`）。**禁止**抄 MeArm 的平面 2R 解或塞数值解 —— 见 spec「不伪造」。
-- 官方**未声明**（别以为有）：无 floor/table、**无 `<contact><exclude>`**（相邻连杆会互相碰撞）、
-  无关节速度上限、无独立标定段、质量来自 CAD 非称重。
-- 执行器：官方 6 个 `<position>`、`gear=1` ⇒ **无 offset/scale/reverse 标定**（`unit: joint`）。
-环）。**唯一例外 = 首次接管那一帧**（D74）：
+- 命令下发：store `commandJoints` → `transportBridge` **尾沿合并 30~33Hz** → `RobotTransport`；
+  **回推只写 `actualJoints`**（回写 command 即无限回环）。**唯一例外 = 首次接管那一帧**（D74）：
   `commandJoints` 初值是对机器现状的**假设**（= `homePose`）⇒ 首次 `connected` 置 `attachPending`，
   由第一帧回推消费 → `attachToActual()` 对齐、**不下发**、**让位于用户意图**
   （`commandAuthoredSinceConnect`）；重连仍走 D32「补发命令」。
@@ -113,6 +108,14 @@
   （注意 `*.mod` / `*.mod*` 都必然匹配 `go.mod`，只能靠负向规则救）。**`MeArm-RemoteControl` 是同一个坑**
   （其 `go.mod` 至今未入库，followups **F1**）⇒ 见 `cannot find main module`，先跑
   `git check-ignore -v <path>/go.mod`，别急着 `go mod init`。
+- ★★ **裸名 `bash` 解析到 WSL 启动器，会被沙箱拦**（2026-09-14 实测）：`which -a bash` 首项是
+  `/tmp/system32/bash` = `C:\Windows\System32\bash.exe` ⇒ `bash x.sh` 直接报
+  `PROGRAM BLOCKED BY SECURITY POLICY … wsl.exe`，**且 stdout 被整段丢弃**（表现为"脚本什么都没输出"，
+  极易误判成脚本自身的问题）。**跑脚本一律 `/usr/bin/bash x.sh` 或 `sh x.sh`。**
+  ⚠️ 脚本 shebang 写 `#!/usr/bin/env bash` 也会踩同一个坑 ⇒ 写 `#!/usr/bin/bash`。
+- ★★ **`./node_modules/.bin/vite` 同样会被拦**（npm 生成的 shim 先 `cygpath -w "$basedir"`，
+  再 `exec node "D:\…\node_modules\.bin/../vite/bin/vite.js"`，反斜杠路径走歪）⇒
+  **`node node_modules/vite/bin/vite.js …`**。`vitest` 的 shim 不受影响（同上位脚本实测可用）。
 - ★★ **本机 `sort` 解析到 Windows `System32\sort.exe`**（不认 `-u`）⇒ `... | sort -u` **静默返回空**，
   表现为"按 PID 清理进程"的循环一个都没杀。去重用 `awk '!seen[$0]++'`，或走 `/usr/bin/sort`。
   **与 §1 的 `grep \b`、`taskkill //PID` 是同一类坑：工具语义没验证。**
@@ -147,3 +150,83 @@
     会让状态**跨实验累积** ⇒ 对比实验必须先 `--home`。
   - ★ 打开串口会拉低 DTR 复位 ATmega328P（舵机弹回 90°）⇒ 实测脚本必须在**单次连接**内完成
     `[set → 稳定 → 抓拍]`。
+
+---
+
+## §7 多机器人轨（SO-ARM101）· 速查（2026-09-14 起）
+
+**通用层**（与具体机器人无关，MeArm / SO-101 共用）：
+
+- 选择链：`config/robots.yaml`（**只**放 id/name/config，禁止放参数）
+  → `model/robotConfigRegistry.ts`（`import.meta.glob` 构建期登记 yaml 原文）
+  → `model/loadRobotModel(id?)`（按 id 缓存；未知 id **抛错不回退**）
+  → `registry/RobotRegistry.ts`（**唯一**分派表：工厂表 + `assertRegistryCoverage()`）。
+- 业务代码**禁止** `if robot === ...`；"谁有 IK"由 `kinematics.capability` **声明**（数据）。
+- 叶子模块（防循环导入）：`model/configError.ts`（`RobotConfigError`，`source` 可传文件标签）、
+  `model/robotIds.ts`（`MEARM_V1_ROBOT_ID` / `SO_ARM101_ROBOT_ID`）。
+- `Actuator.unit`：`'deg'`（缺省，0..180 舵机行程）/ `'joint'`（关节空间，ctrlrange ≡ 关节 range）。
+  `ACTUATOR_LIMIT_180` 只在**非**关节空间生效。
+- `RotationConvention`：`'xyz'`（缺省，intrinsic，`Rx·Ry·Rz`）/ `'rpy'`（URDF `<origin rpy>`，
+  fixed-axis，`Rz·Ry·Rx`；three.js 侧用 Euler order `'ZYX'`，**数值原样只换 order**）。
+- mesh：`model/meshRegistry.ts` 只登记 **URL**（`?url` + eager）；渲染在
+  `RobotScene/meshObject.ts`，两条守卫（无 DOM 不加载 / key 未登记则 warnOnce + 回退）。
+
+**SO-ARM101 专属**：
+
+- 官方资产 `assets/models/so-arm101/official/`（**逐字节原样，禁止改**）；配置在
+  `config/robots/so-arm101/{robot.yaml,physics.yaml}`；生成器 `tools/gen_so_arm101_robot_yaml.py`。
+- ★ **物理量真值 = 官方 MJCF** ⇒ `physics.yaml` **不复制任何数值**，只放
+  真值声明 + 驱动参数 + 审计快照 + **官方未声明项**。
+  `tools/inspect_so101_physics.py --check` 从 **MjModel** 读生效值（**不是读 XML 文本** ——
+  XML 里 class 写的 `forcerange` 是 ±2.94，被 6 个 `<position>` 逐个覆盖成 ±3.35）。
+- ★ **两条 90° / 精度陷阱**：TCP 帧朝向取 **MJCF**（URDF `rpy=[0,π,0]` vs MJCF `quat=Ry(π/2)`）；
+  关节限位取 **MJCF 满精度**（URDF 截断到 6 位小数）。理由见 `SOURCE.md §4.2`。
+- ★ **FK↔MuJoCo 残差**的根因是**官方两份文件自身的精度差**（URDF `rpy` 截断到 6 位有效数字
+  `1.5708`≠π/2；MJCF 四元数归一化后恰好 90°），**不是换算错误**。
+  实测冻结值：MeArm **7.7e-14 mm** / SO-101 **3.3e-3 mm**。
+- **能力声明**：`{positioningDof: 5, supportsOrientation: false, solverKind: 'none'}`；
+  `inverse()` → `ikFailure('NOT_IMPLEMENTED')`（`success:false` / `joints:{}` /
+  `positionError:null`）。**禁止**抄 MeArm 的平面 2R 解或塞数值解 —— 见 spec「不伪造」。
+- 官方**未声明**（别以为有）：无 floor/table、**无 `<contact><exclude>`**（相邻连杆会互相碰撞）、
+  无关节速度上限、无独立标定段、质量来自 CAD 非称重。
+- 执行器：官方 6 个 `<position>`、`gear=1` ⇒ **无 offset/scale/reverse 标定**（`unit: joint`）。
+
+**P3'–P8 落地事实**（2026-09-14 完成，实测数据见 `README.md` §6）：
+
+- **三端同源**：`config/robots.yaml` 由**前端**（`import.meta.glob`）、**Go**（`internal/robot.LoadSelector`
+  /`LoadByID`）、**Python**（`robotcfg.py`）**各自解析同一份文件** —— 三端都有 `resolve_robot_entry_by_config()`。
+- ★★ **选择器只放"指针"**：允许 `name` / `config` / `physics` / `simulation.mjcf` / `simulation.tcpSite`，
+  顶层只允许 `version` / `default` / `robots`；**尺寸、限位、标定、物理量、TCP 偏移一律禁止**。
+  用**白名单 schema 断言**守（Go `TestSelectorSchemaAllowsPointersOnly`），不是靠自觉。
+- ★★ **注册表 id ≠ 模型 id**：选择器 key `mearm-v1`，而 `robot.yaml → robot.id` 是 `mearm`
+  ⇒ **不能用 `robot.id` 反查注册表**；`SO_ARM101_ROBOT_ID = 'so-arm101'`（注意是 `so-arm101` 不是 `so-arm101-*`）。
+- ★ **`physics.yaml` 两种形态，判据是"顶层有没有 `driver:` 段"**（刻意不加配置项）：
+  `legacy`（MeArm，顶层即驱动参数）/ `driver`（SO-101，物理量真值在官方 MJCF）。
+  Go 侧告警**必须按 `physics_kind` 分支** —— 对官方模型说"惯量是估算值"是**错的告警**，
+  比没有告警更糟（`backend/main.go`）。
+- ★★ **`max_velocity` 优先级 = `rad_per_s` 先**：MeArm 同时写了 `deg_per_s: 573` 与 `rad_per_s: 10`，
+  573°/s 换算回来 = 10.000737 rad/s ⇒ **取 `rad_per_s` 才是改前行为**。写反会静默改变运动速度。
+- ★★ **timestep 不一致是静默错误**：物理时间只由 `model.opt.timestep` 决定（MeArm `0.001` / SO-101 `0.002`）
+  ⇒ `RobotSim` 构造时硬自检，`server.run()` 再对 `--phys-hz` 告警"以 MJCF 为准"。
+- **能力门必须落在真正下发命令的层**（D78）：`store.moveTo` 在 `solverKind !== 'analytic'` 时
+  **不调求解器**，返回 `NO_SOLVER`。它与 `OUT_OF_WORKSPACE` / `JOINT_LIMIT` **并列而不合并** ——
+  前者是"**没算**"，后两者是"**试过不行**"。合并会让用户以为要去调目标点。
+  拒绝时仍写入 `target`，UI 才能说清"我想去哪"和"为什么没动"。
+- **统一 Sim2Sim 只有一份判据**（D77）：`run_sim2sim(robot_id)`（`simulation/mujoco/sim2sim.py`）
+  + CLI `tools/run_sim2sim.py --all` + `sim2sim_matrix()`（默认取选择器**全部**机器人）。
+  **绝不**为第二台机器人另写一套验收（两套标准各自都会绿）。
+- ★★ **容差按机器人登记、必须写明理由、未登记一律 `raise`**（不给缺省值）：
+  `FK_TOL_MM = {mearm-v1: 1e-6(实测 7.7e-14，留 7 个数量级), so-arm101: 5e-2(实测 3.3e-3，留 1 个数量级)}`。
+  悄悄给个"够大"的缺省 = 把"没人想过它的精度来源"藏起来，而那正是放宽阈值以通过测试的开端。
+- ★ **交叉一致性**：统一框架的快照（`run_sim2sim.py` 采）与旧黄金基线（`gen_mearm_v1_baseline.py` 采）
+  在两批**独立采集**产物的**同名用例**上必须逐位相同 —— 否则抽象过程会把基准期望值悄悄改掉。
+- ★ **同名关节会骗人**：两台机器人**都有** `gripper`（MeArm `0..90` vs SO-101 `-10..100`）
+  ⇒ "键集合相等"**不是**模型一致的判据，只有**限位**能兜住。切换后的断言应写
+  "MeArm 独有键 `not.toHaveProperty`" + 专节声明同名不同义。
+- **活动机器人是 store 状态**（D79）：初值取选择器 `default`；`setRobot` 有守卫
+  （`transportDriven` 时拒切并说明"请先断开"）+ 未知 id **拒绝不回退**；
+  `hello` 只做**在线互检**、**不静默切换**。★ 它**不是** `model.id`（见上）。
+  运行期一律用 `get().model`，**不要再引用模块级 `initialModel`**。
+- **测试落点**：`tests/sim`（161）· `tests/sim2sim`（9）· `backend/internal/robot` `go test`（75）
+  · 前端 `vitest`（409，含 `tests/acceptance/robot-switch.test.ts` 13 项 + `tests/sim2sim/so-arm101-baseline.test.ts` 12 项）。
+  基线快照：`tests/baseline/{mearm-v1,so-arm101}/sim2sim.json`（`--freeze`，`--n-random 24` 冻结）。

@@ -31,7 +31,7 @@ go build -o bin/armpilot-backend.exe .
 ```
 
 > ⚠️ **真机模式会真的动舵机。** 两个配置的差别只有 `device.mode` / `device.serial.*`；
-> **关节限位、标定（offset/scale/reverse）、HOME 位一律仍来自 `../config/robot.yaml`**
+> **关节限位、标定（offset/scale/reverse）、HOME 位一律仍来自 `../robot-package/mearm-v1/model/robot.yaml`**
 > —— 这是"标定只有一份"铁律在配置层的体现，真机模式不允许有自己的第二份标定。
 
 启动后：
@@ -51,16 +51,16 @@ curl -s http://127.0.0.1:8090/healthz
 # {"clients":0,"device":"sim","linked":true,"ok":true,"state":{"base":0,"elbow":112.6185771989,...}}
 ```
 
-## 2. 唯一真值：`config/robot.yaml`
+## 2. 唯一真值：`robot-package/mearm-v1/model/robot.yaml`
 
-本服务**不存任何限位或标定数值**。启动时读 `../config/robot.yaml`（前端、固件共用同一份），
+本服务**不存任何限位或标定数值**。启动时读 `../robot-package/mearm-v1/model/robot.yaml`（前端、固件共用同一份），
 派生：
 
 - 关节顺序 `JointOrder()` = `JR` 四元组的位次（`base shoulder elbow gripper`；`tool` 是**被动腕** `passive`，没有独立输入、角度由 coupling 派生，跳过）
 - 限位校验（越界返回 `ERR JOINT <id> <v> (limit <min>..<max>)`，文案与固件一致）
 - 标定换算 `servo = reverse ? (-θ·scale + offset) : (θ·scale + offset)` 及其逆
 
-> 路径支持回退：`../config/robot.yaml` → `config/robot.yaml` → `../MeArm-3D/config/robot.yaml`，
+> 路径支持回退：`../robot-package/mearm-v1/model/robot.yaml` → `robot-package/mearm-v1/model/robot.yaml` → `../MeArm-3D/robot-package/mearm-v1/model/robot.yaml`，
 > 因此从 `backend/` 或 `MeArm-3D/` 启动都能找到。全部失败时会**列出所有尝试过的绝对路径**。
 >
 > 为什么强调这点：实测已证明"按固件命名推定舵机角色"会得到反着动的机械臂
@@ -179,7 +179,7 @@ meArm 固件**没有编码器、没有电位器回读**。`arm_get_angle()` 返�
 | 固件 `OK SET` / `OK JR` | "我把目标设成了 X" | ❌ |
 | 固件 `STATE` | "我记得我应该在 X" | ❌ |
 | 后端 `joint_state` 回推 | 上面这条的转发 | ❌ |
-| **`tools/verify_pose.py` 相机反解** | 它**实际上**在哪 | ✅ **唯一途径** |
+| **`robot-package/mearm-v1/tools/verify_pose.py` 相机反解** | 它**实际上**在哪 | ✅ **唯一途径** |
 
 **机械臂卡死在桌面上，上面四条回执依然一字不差。** 所以本后端的 `joint_state`
 在验收口径里**只作链路自洽性参考**（证明命令确实穿过了整条链路），
@@ -187,7 +187,7 @@ meArm 固件**没有编码器、没有电位器回读**。`arm_get_angle()` 返�
 
 ```bash
 # 真机端到端闭环（会真的驱动机械臂 + 调用相机抓帧）
-node MeArm-3D/tools/verify_serial_e2e.mjs
+node MeArm-3D/core/tools/verify_serial_e2e.mjs
 ```
 
 它串起 `WebSocket → 本服务 → 串口 → 固件 → 舵机 → ffmpeg 抓帧 → verify_pose.py 反解比对`。
@@ -197,7 +197,7 @@ node MeArm-3D/tools/verify_serial_e2e.mjs
 | 项 | 值 |
 |----|-----|
 | 链路末端 | `hello` → `device=serial`（真机） |
-| 标定单一真值 | `homePose` 与 `config/robot.yaml` **逐位一致**（容差 `1e-6`） |
+| 标定单一真值 | `homePose` 与 `robot-package/mearm-v1/model/robot.yaml` **逐位一致**（容差 `1e-6`） |
 | 开机就绪门 | Uno DTR 复位静默窗口 2.7s；不等待会报 `DEVICE_UNAVAILABLE: 串口未就绪` |
 | 链路回推 | 7 步 JR `max\|Δ\| ≤ 0.004°`（**纯链路自洽，不含物理**） |
 | 相机重复性 | 同位姿两帧反解差 肩 `0.26°` / 肘 `0.01°` |
@@ -208,7 +208,7 @@ node MeArm-3D/tools/verify_serial_e2e.mjs
 ### 6.3 固件侧仍待办
 
 - 固件 `core/cmd.c` 实现 `JR` / `STATE` 解析与回执（`protocol/serial-v1.md` §4）
-- 固件内置标定表**由 `config/robot.yaml` 生成**，避免手抄造成双份真值
+- 固件内置标定表**由 `robot-package/mearm-v1/model/robot.yaml` 生成**，避免手抄造成双份真值
 
 决策记录：`docs/decisions.md` **D34**（相机是唯一真值）· **D35**（帧间差为锐利判据）·
 **D36**（自动曝光是主导误差源 ⇒ 必须锁死曝光）。

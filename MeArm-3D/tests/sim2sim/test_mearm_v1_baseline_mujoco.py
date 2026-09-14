@@ -6,7 +6,7 @@
 > 「抽象之后，MeArm-V1 的行为必须与抽象之前一致。」（spec §19）
 
 判据不是"新架构自己测试通过"，而是 **旧基线 VS 新实现**：
-期望值来自 `tests/baseline/mearm-v1/*.json`（由 `tools/gen_mearm_v1_baseline.py`
+期望值来自 `robot-package/mearm-v1/tests/cases/*.json`（由 `tools/gen_mearm_v1_baseline.py`
 在冻结时**实跑采集**），这里拿今天的实现去对。
 
 ## 与前端那个文件的分工
@@ -14,7 +14,7 @@
 |                     | `frontend/tests/sim2sim/mearm-v1-baseline.test.ts` | 本文件 |
 |---|---|---|
 | 参考面              | `fk.ts` / `ik.ts` / Three.js `matrixWorld`         | MuJoCo 编译后的 body 树 |
-| 基线文件            | 同一批 `tests/baseline/mearm-v1/*.json`            | 同一批 |
+| 基线文件            | 同一批 `robot-package/mearm-v1/tests/cases/*.json`  | 同一批 |
 | IK 由谁解           | 前端 `ik.ts`（被测即参考）                          | 前端 `ik.ts`（经桥，Python 侧不解释语义） |
 
 两边**必须读同一批基线文件**：否则「一致」会被拆成两套互不相干的标准，
@@ -50,6 +50,25 @@ from harness import (
 )
 from mearmV1Baseline import SEED as BASELINE_SEED
 from mearmV1Baseline import load_cases, load_doc, tolerance
+
+#: 本文件盯的是 **MeArm-V1**（显式写 id，不读选择器 default）。
+MEARM_V1 = "mearm-v1"
+
+
+def _declared_generator() -> str:
+    """期望的 `generator` 字段 = 本包 manifest 的 `tests.tools` 里**声明**的那个采集器。
+
+    刻意不写死字符串：工具一搬位置，写死版会红在"生成器名字不对"上（假警报），
+    而事实是"包声明与产物不一致"（真问题）。两者必须能被区分开。
+    """
+    from robopkg import load_manifest
+
+    hits = [t for t in load_manifest(MEARM_V1).tests.tools
+            if t.endswith("gen_mearm_v1_baseline.py")]
+    assert len(hits) == 1, (
+        f"{MEARM_V1} 的 manifest `tests.tools` 里应当**恰好**声明一个采集器，实得 {hits}")
+    return hits[0]
+
 
 #: 基线记录值 ↔ 今天复算值的容差（基线自带 1e-9）
 TOL_RECORDED_MM = tolerance(load_doc("fk"), "frontend_vs_recorded_mm", 1e-9)
@@ -87,7 +106,7 @@ def test_baseline_is_for_this_model(robot):
         assert doc["modelVersion"] == "1.0.0", f"{name}: modelVersion"
         assert doc["robotId"] == robot.id, f"{name}: robotId"
         assert doc["seed"] == BASELINE_SEED, f"{name}: seed"
-        assert doc["generator"] == "tools/gen_mearm_v1_baseline.py", f"{name}: generator"
+        assert doc["generator"] == _declared_generator(), f"{name}: generator"
 
     assert robot.model == "MeArm-V1", "config/robot.yaml 缺少 model 标识"
     assert robot.model_version == "1.0.0", "config/robot.yaml 的 version 不是 1.0.0"

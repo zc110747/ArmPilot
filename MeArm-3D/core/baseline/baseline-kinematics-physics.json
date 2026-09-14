@@ -1,0 +1,586 @@
+{
+  "note": "本文件是「运动学 + 物理」真值的冻结基线。判据是 *_core_sha256（语义核心），整文件 sha256 仅作记录。改外观几何（links[].geometry / details）不会触发失败；改 length / 限位 / 耦合 / 标定 / 质量 / 摩擦会。重新冻结：python tools/freeze_baseline.py --update\n（robot/robot_id 与 files 的键 = 该包 manifest 里声明的真值路径；robot_id=mearm-v1，robot.yaml=robot-package/mearm-v1/model/robot.yaml，physics.yaml=robot-package/mearm-v1/physics/physics.yaml）",
+  "frozen_at": "2026-09-14 14:43:08 +0800",
+  "robot_id": "mearm-v1",
+  "files": {
+    "robot-package/mearm-v1/model/robot.yaml": {
+      "sha256": "d03551929ea98b035a1853f498f92e25acba23e1180c4cfe749dd999a22c81bf",
+      "kinematic_core_sha256": "f64e49ce56a50e90afab7f84394a1a091c57238e095f6b26c1f75d942fe06ee1",
+      "frozen_fields": {
+        "robot": [
+          "id",
+          "name",
+          "units",
+          "tcp",
+          "homePose"
+        ],
+        "links": [
+          "id",
+          "parent",
+          "length"
+        ],
+        "joints": [
+          "id",
+          "role",
+          "type",
+          "parentLink",
+          "childLink",
+          "axis",
+          "origin",
+          "limit",
+          "coupling"
+        ],
+        "actuators": [
+          "id",
+          "jointId",
+          "channel",
+          "offset",
+          "scale",
+          "reverse",
+          "limits"
+        ]
+      },
+      "excluded_from_freeze": [
+        "links[].geometry",
+        "links[].details",
+        "robot.yaml 全部注释（注释里确实有信息，但它属于文档而非真值）"
+      ]
+    },
+    "robot-package/mearm-v1/physics/physics.yaml": {
+      "sha256": "ea0c01f5a746ee88ad2a597a12900a5c451ede61393b8dca51ac5743f09d6487",
+      "physics_core_sha256": "cd1e167d3a7ace46ce9f46bdef8289f67a9031dec8d8c05a46be8300dcb1b70d",
+      "frozen_sections": [
+        "timestep",
+        "solver",
+        "gravity",
+        "servo",
+        "inertia",
+        "contact",
+        "limits",
+        "calibration"
+      ],
+      "excluded_from_freeze": [
+        "recording",
+        "deterministic"
+      ]
+    }
+  },
+  "kinematic_summary": {
+    "robot": {
+      "id": "mearm",
+      "name": "mARM",
+      "units": "mm",
+      "tcp": {
+        "joint": "tool",
+        "offset": [
+          0,
+          0,
+          40
+        ]
+      },
+      "homePose": {
+        "base": 0,
+        "shoulder": 0.8498937633,
+        "elbow": 112.6185771989,
+        "gripper": 50
+      }
+    },
+    "links": [
+      {
+        "id": "base_link",
+        "parent": null,
+        "length": 0
+      },
+      {
+        "id": "column_link",
+        "parent": "base_link",
+        "length": 60
+      },
+      {
+        "id": "upper_arm_link",
+        "parent": "column_link",
+        "length": 80
+      },
+      {
+        "id": "forearm_link",
+        "parent": "upper_arm_link",
+        "length": 80
+      },
+      {
+        "id": "tool_link",
+        "parent": "forearm_link",
+        "length": 40
+      },
+      {
+        "id": "jaw_link",
+        "parent": "tool_link",
+        "length": 0
+      }
+    ],
+    "joints": [
+      {
+        "id": "base",
+        "role": "base",
+        "type": "revolute",
+        "parentLink": "base_link",
+        "childLink": "column_link",
+        "axis": [
+          0,
+          0,
+          1
+        ],
+        "origin": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ]
+        },
+        "limit": {
+          "min": -60,
+          "max": 60
+        }
+      },
+      {
+        "id": "shoulder",
+        "role": "shoulder",
+        "type": "revolute",
+        "parentLink": "column_link",
+        "childLink": "upper_arm_link",
+        "axis": [
+          0,
+          1,
+          0
+        ],
+        "origin": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ]
+        },
+        "limit": {
+          "min": -6.0936827341,
+          "max": 49.454929245
+        }
+      },
+      {
+        "id": "elbow",
+        "role": "elbow",
+        "type": "revolute",
+        "parentLink": "upper_arm_link",
+        "childLink": "forearm_link",
+        "axis": [
+          0,
+          1,
+          0
+        ],
+        "origin": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ]
+        },
+        "limit": {
+          "min": 108.4414852068,
+          "max": 141.8582211436
+        },
+        "coupling": {
+          "joint": "shoulder",
+          "gain": -1
+        }
+      },
+      {
+        "id": "tool",
+        "role": "tool",
+        "type": "passive",
+        "parentLink": "forearm_link",
+        "childLink": "tool_link",
+        "axis": [
+          0,
+          1,
+          0
+        ],
+        "origin": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ]
+        },
+        "limit": {
+          "min": 90,
+          "max": 90
+        },
+        "coupling": {
+          "joint": "elbow",
+          "gain": -1
+        }
+      },
+      {
+        "id": "gripper",
+        "role": "gripper",
+        "type": "revolute",
+        "parentLink": "tool_link",
+        "childLink": "jaw_link",
+        "axis": [
+          1,
+          0,
+          0
+        ],
+        "origin": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ]
+        },
+        "limit": {
+          "min": 0,
+          "max": 90
+        }
+      }
+    ],
+    "actuators": [
+      {
+        "id": "servo_9",
+        "jointId": "base",
+        "channel": 9,
+        "offset": 90,
+        "scale": 1,
+        "reverse": false,
+        "limits": {
+          "min": 30,
+          "max": 150
+        }
+      },
+      {
+        "id": "servo_7",
+        "jointId": "shoulder",
+        "channel": 7,
+        "offset": 88.776,
+        "scale": 1.44018,
+        "reverse": false,
+        "limits": {
+          "min": 80,
+          "max": 160
+        }
+      },
+      {
+        "id": "servo_8",
+        "jointId": "elbow",
+        "channel": 8,
+        "offset": 359.61,
+        "scale": 2.39401,
+        "reverse": true,
+        "limits": {
+          "min": 20,
+          "max": 100
+        }
+      },
+      {
+        "id": "servo_6",
+        "jointId": "gripper",
+        "channel": 6,
+        "offset": 40,
+        "scale": 1,
+        "reverse": false,
+        "limits": {
+          "min": 40,
+          "max": 130
+        }
+      }
+    ]
+  },
+  "physics_summary": {
+    "timestep": {
+      "physics": 0.001,
+      "control": 0.01,
+      "render": 0.0333
+    },
+    "solver": {
+      "integrator": "implicitfast",
+      "solver": "Newton",
+      "iterations": 80,
+      "tolerance": 1e-10,
+      "max_vel": 0.0
+    },
+    "gravity": [
+      0.0,
+      0.0,
+      -9.81
+    ],
+    "servo": {
+      "max_torque_nm": 0.1765,
+      "stall_torque_nm": 0.2158,
+      "kp": 5.0,
+      "kv": 0.5,
+      "max_velocity": {
+        "deg_per_s": 573.0,
+        "rad_per_s": 10.0
+      },
+      "damping": 0.01,
+      "frictionloss": 0.005,
+      "armature": 0.0005
+    },
+    "inertia": {
+      "mode": "explicit",
+      "materials": {
+        "acrylic": 1190.0,
+        "servo_body": 1500.0
+      },
+      "bodies": {
+        "base_link": {
+          "mass": 0.08,
+          "com": [
+            0.0,
+            0.0,
+            0.006
+          ],
+          "shape": "box",
+          "size": [
+            0.094,
+            0.082,
+            0.02
+          ]
+        },
+        "column_link": {
+          "mass": 0.056,
+          "com": [
+            0.0,
+            0.0,
+            0.03
+          ],
+          "shape": "rod",
+          "length": 0.06
+        },
+        "upper_arm_link": {
+          "mass": 0.037,
+          "com": [
+            0.0,
+            0.0,
+            0.04
+          ],
+          "shape": "rod",
+          "length": 0.08
+        },
+        "forearm_link": {
+          "mass": 0.019,
+          "com": [
+            0.0,
+            0.0,
+            0.04
+          ],
+          "shape": "rod",
+          "length": 0.08
+        },
+        "tool_link": {
+          "mass": 0.022,
+          "com": [
+            0.0,
+            0.0,
+            0.02
+          ],
+          "shape": "rod",
+          "length": 0.04
+        },
+        "jaw_link": {
+          "mass": 0.0033,
+          "com": [
+            0.0,
+            0.0,
+            0.017
+          ],
+          "shape": "point"
+        }
+      }
+    },
+    "contact": {
+      "friction": [
+        1.0,
+        0.005,
+        0.0001
+      ],
+      "solref": [
+        0.02,
+        1.0
+      ],
+      "solimp": [
+        0.9,
+        0.95,
+        0.001
+      ],
+      "margin": 0.001,
+      "condim": 3,
+      "groups": {
+        "world": 1,
+        "arm": 2
+      },
+      "exclude_pairs": [
+        [
+          "base_link",
+          "column_link"
+        ],
+        [
+          "column_link",
+          "upper_arm_link"
+        ],
+        [
+          "upper_arm_link",
+          "forearm_link"
+        ],
+        [
+          "forearm_link",
+          "tool_link"
+        ],
+        [
+          "tool_link",
+          "jaw_link"
+        ]
+      ],
+      "shapes": {
+        "base_link": {
+          "type": "box",
+          "size": [
+            0.047,
+            0.041,
+            0.01
+          ],
+          "pos": [
+            0.0,
+            0.0,
+            0.01
+          ]
+        },
+        "column_link": {
+          "type": "capsule",
+          "size": [
+            0.014,
+            0.006
+          ],
+          "pos": [
+            0.0,
+            0.0,
+            0.04
+          ]
+        },
+        "upper_arm_link": {
+          "type": "capsule",
+          "size": [
+            0.013,
+            0.027
+          ],
+          "pos": [
+            0.0,
+            0.0,
+            0.04
+          ]
+        },
+        "forearm_link": {
+          "type": "capsule",
+          "size": [
+            0.011,
+            0.029
+          ],
+          "pos": [
+            0.0,
+            0.0,
+            0.04
+          ]
+        },
+        "tool_link": {
+          "type": "capsule",
+          "size": [
+            0.012,
+            0.008
+          ],
+          "pos": [
+            0.0,
+            0.0,
+            0.02
+          ]
+        },
+        "jaw_link": {
+          "type": "capsule",
+          "size": [
+            0.005,
+            0.01
+          ],
+          "pos": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "quat": [
+            0.70710678,
+            0.0,
+            0.70710678,
+            0.0
+          ]
+        }
+      },
+      "floor": {
+        "enabled": true,
+        "size": [
+          0.6,
+          0.6,
+          0.01
+        ],
+        "z": 0.0
+      },
+      "table": {
+        "enabled": true,
+        "size": [
+          0.11,
+          0.11,
+          0.015
+        ],
+        "pos": [
+          0.17,
+          0.0,
+          0.031
+        ]
+      }
+    },
+    "limits": {
+      "source": "robot.yaml",
+      "range_padding_deg": 2.0
+    },
+    "calibration": {
+      "calibrated": false,
+      "servo_offset": {},
+      "joint_scale": {},
+      "joint_zero": {},
+      "max_velocity": {},
+      "max_torque": {},
+      "damping": {},
+      "friction": {}
+    }
+  }
+}

@@ -2,7 +2,7 @@
 # ArmPilot 后端（关节级 WebSocket 服务）运行配置
 # -----------------------------------------------------------------------------
 # ⚠️ 本文件**只放运行参数**。关节限位、标定（offset/scale/reverse）、HOME 位
-#    一律来自 ../config/robot.yaml —— 那是前后端共用的唯一真值。
+#    一律来自 ../robot-package/mearm-v1/model/robot.yaml —— 那是前后端共用的唯一真值。
 #    在这里再抄一份限位，必然漂移（实测已证明按固件命名推定角色会得到反向机构）。
 # =============================================================================
 
@@ -38,8 +38,8 @@ device:
     enforce_limits: true   # 越界回 ERR JOINT 且位置保持不动（复刻固件行为）
     boot_ms: 0             # 开机静默窗口：模拟 Uno bootloader 交权期（0 = 关闭）
   mujoco:
-    # ⚠️ 这里**只有运行参数**。质量/惯量/摩擦/增益在 config/physics.yaml，
-    #    限位与标定在 config/robot.yaml —— 一个都不许抄到这里来。
+    # ⚠️ 这里**只有运行参数**。质量/惯量/摩擦/增益在 robot-package/mearm-v1/physics/physics.yaml，
+    #    限位与标定在 robot-package/mearm-v1/model/robot.yaml —— 一个都不许抄到这里来。
     #
     # Python 解释器：必须指向**装了 mujoco 包**的那一个，否则启动握手会失败
     # （错误信息里会直接提示，不会表现为"设备可用但没有回执"）。
@@ -55,7 +55,7 @@ device:
     no_realtime: false     # true = 不做实时对齐（离线回归 / 压测）
     start_timeout_ms: 20000  # 启动握手超时（首次 import mujoco 较慢）
   serial:
-    # ⚠️ 运行参数在这里；**标定/限位不在这里**（全在 config/robot.yaml）
+    # ⚠️ 运行参数在这里；**标定/限位不在这里**（全在 robot-package/mearm-v1/model/robot.yaml）
     port: "COM16"          # 本机实测：USB-SERIAL CH340 = 机械臂
     baud: 115200
     data_bits: 8

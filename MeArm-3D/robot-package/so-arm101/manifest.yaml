@@ -27,12 +27,12 @@ robot:
   type: robotic_arm
 
 model:
-  # ⚠️ 生成物：由 tools/gen_so_arm101_robot_yaml.py 从官方模型派生 ⇒ **禁手改**。
-  #    它因此不进内容哈希；它的**上游**（官方 URDF + 网格）由 package.hash_sources 纳入。
-  config: config/robots/so-arm101/robot.yaml
-  generated_by: tools/gen_so_arm101_robot_yaml.py
+  # ⚠️ 生成物：由 robot-package/so-arm101/tools/gen_so_arm101_robot_yaml.py 从官方模型派生
+  #    ⇒ **禁手改**。它因此不进内容哈希；它的**上游**（官方 URDF + 网格）由 package.hash_sources 纳入。
+  config: robot-package/so-arm101/model/robot.yaml
+  generated_by: robot-package/so-arm101/tools/gen_so_arm101_robot_yaml.py
   # 驱动参数是我们的（`driver:` 段），但物理量真值在官方 MJCF ⇒ 这份文件算**源**
-  physics: config/robots/so-arm101/physics.yaml
+  physics: robot-package/so-arm101/physics/physics.yaml
 
 simulation:
   # 官方 MJCF **原样**（meshdir="assets" 指向同目录，故官方模型零修改即可加载）。
@@ -42,6 +42,9 @@ simulation:
   tcp_site: gripperframe
 
 kinematics:
+  # 包内运动学引擎实现（前端 Registry 用 import.meta.glob 自动发现 + 与本声明对账）
+  engine:
+    entry: robot-package/so-arm101/kinematics/engine.ts
   fk:
     type: engine
   ik:
@@ -63,7 +66,7 @@ capabilities:
   hardware: false
 
 tests:
-  cases: tests/baseline/so-arm101
+  cases: robot-package/so-arm101/tests/cases
   tools:
-    - tools/gen_so_arm101_robot_yaml.py
-    - tools/inspect_so101_physics.py
+    - robot-package/so-arm101/tools/gen_so_arm101_robot_yaml.py
+    - robot-package/so-arm101/tools/inspect_so101_physics.py

@@ -17,8 +17,10 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[2]          # tests/sim -> tests -> MeArm-3D
 SIM_DIR = ROOT / "simulation" / "mujoco"
-if str(SIM_DIR) not in sys.path:
-    sys.path.insert(0, str(SIM_DIR))
+CORE_PY = ROOT / "core" / "python"
+for _p in (SIM_DIR, CORE_PY):
+    if str(_p) not in sys.path:
+        sys.path.insert(0, str(_p))
 
 from robotcfg import (  # noqa: E402
     PhysicsCfg,

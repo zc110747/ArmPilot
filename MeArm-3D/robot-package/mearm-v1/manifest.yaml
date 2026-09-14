@@ -26,19 +26,26 @@ robot:
 
 model:
   # 运动学 / 标定 / 限位真值（**唯一**真值源，三端共用）
-  config: config/robot.yaml
+  # ★ Phase 2 起随包走：路径只在 manifest 声明，解析只在 robopkg.declared_path()。
+  config: robot-package/mearm-v1/model/robot.yaml
   # 物理量真值：本机为我们自己估算 ⇒ 这份文件本身即真值（顶层形态，无 driver 段）
-  physics: config/physics.yaml
+  physics: robot-package/mearm-v1/physics/physics.yaml
 
 simulation:
   # MeArm 的 MJCF 是**产物**：由 gen_model.py 从 robot.yaml 派生。
   # 它不是源 ⇒ 不进内容哈希（spec §19 要求忽略 generated）。
   mjcf: simulation/mujoco/mearm.xml
-  generated_by: simulation/mujoco/gen_model.py
+  generated_by: robot-package/mearm-v1/tools/gen_model.py
   # TCP site 名（mearm.xml 里就是 tcp）
   tcp_site: tcp
 
 kinematics:
+  # 包内**运动学引擎**实现（`KinematicsEngine` 接口的落地）。
+  # ★ 前端 `RobotRegistry` 用 `import.meta.glob('robot-package/*/kinematics/engine.ts')`
+  #   自动发现它；声明在这里的作用是**对账** —— 见
+  #   `core/tests/test_package_contract.py::test_engine_entry_agrees_with_frontend_discovery`。
+  engine:
+    entry: robot-package/mearm-v1/kinematics/engine.ts
   fk:
     # engine = 用 Core 的通用链式 FK（读 RobotModel 的几何）。
     # 证据：SO-ARM101 的 forward() 也纯委托同一份 fk.ts ⇒ 它确实是通用的。
@@ -47,7 +54,7 @@ kinematics:
     # MeArm 的逆解是**它自己的**：平面 2R + 偏航的解析解，
     # 且带 assertPlanar2R / assertPlanarWrist 适用性断言（不满足就直接拒绝）。
     type: custom
-    entry: frontend/src/robot/kinematics/ik.ts
+    entry: robot-package/mearm-v1/kinematics/ik.ts
 
 capabilities:
   # position = 支持**位置目标**（需要逆解）
@@ -61,10 +68,41 @@ capabilities:
   hardware: true
 
 tests:
-  # 机器人**专属测试数据**（测试执行框架在 Core，spec §10）
-  cases: tests/baseline/mearm-v1
+  # 机器人**专属测试数据**（测试执行框架在 Core，spec §10）。
+  # ★ 路径只声明在这里：三端（pytest / vitest / 工具）都通过
+  #   `core/python/robopkg/declared_path(id, "tests.cases")` 解析，不再各自拼路径。
+  cases: robot-package/mearm-v1/tests/cases
+  # ★ Phase 2 步⑤：包自带的**包内测试**（pytest 收集；`pytest.ini` 的 testpaths 覆盖）。
+  #
+  #   判据是"这条断言换台机器人还成立吗"：不成立 ⇒ 属于包。
+  #   当前内容是 MeArm 的**构造事实**：连杆命名下的零位几何、被动腕 90° 锁定、
+  #   `elbow` 绝对角 + 平行四连杆耦合、由被动腕派生出约 2° 的反例窗口…
+  #   机制（随机位形 FK 对比 / 角点扫描 / 校验格式契约）留在 `tests/sim/`。
+  #
+  #   ★ 声明它的意义：契约测试会核对"目录存在 + 里面真的有 test_*.py"，
+  #     于是"测试随包走"有机器判据，而不是 manifest 里一句没人看的注释。
+  local: robot-package/mearm-v1/tests
   # 冻结真值文件：语义核心哈希的来源（改运动学/物理会被它拦下，改外观放行）
-  frozen: config/baseline-kinematics-physics.json
-  # 本包自带的校验/生成脚本
+  # ★ 它盯的是"真值没被偷改"这个**机制**，不属于任何一台机器人 ⇒ 住 Core。
+  frozen: core/baseline/baseline-kinematics-physics.json
+  # 本包自带的工具（**完整清单**）：
+  #   · 前两个是"生成/校验"类（产物与上游同步；黄金数据逐位复现）
+  #   · 其余是 MeArm 的相机标定 / 纹理重投影 / 真机操作工具 —— 它们只服务这一台机器人，
+  #     所以它们必须住在包里（Core 里出现 MeArm 的路径 = 架构已经破了）。
+  # ★ 这份清单是**可执行契约**：core/tests/test_package_contract.py 会逐个断言"文件存在"，
+  #   于是"工具搬走了但清单没改"会立刻报错，而不是等人去猜。
   tools:
-    - tools/gen_mearm_v1_baseline.py
+    - robot-package/mearm-v1/tools/gen_model.py
+    - robot-package/mearm-v1/tools/gen_mearm_v1_baseline.py
+    - robot-package/mearm-v1/tools/mearm_hw.py
+    - robot-package/mearm-v1/tools/capture_texture.py
+    - robot-package/mearm-v1/tools/make_texture.py
+    - robot-package/mearm-v1/tools/measure_roi.py
+    - robot-package/mearm-v1/tools/fit_pivot.py
+    - robot-package/mearm-v1/tools/fit_pose.py
+    - robot-package/mearm-v1/tools/analyze_sweep.py
+    - robot-package/mearm-v1/tools/segment_arm.py
+    - robot-package/mearm-v1/tools/project_plates.py
+    - robot-package/mearm-v1/tools/cam_stability.py
+    - robot-package/mearm-v1/tools/verify_calib_repro.py
+    - robot-package/mearm-v1/tools/verify_pose.py

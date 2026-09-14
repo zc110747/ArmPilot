@@ -7,8 +7,10 @@
  *                 + loadRobotModel（配置 → 模型）/ robotConfigRegistry（id → 配置）
  *   kinematics/   coordinate（坐标系转换层）/ transform（矩阵）/ fk / ik
  *                 + KinematicsEngine（统一调用面）/ IKResult（统一结果）
- *                 + mearm/（MeArm-V1 实现）/ soarm101/（SO-ARM101 实现）
- *   registry/     RobotRegistry（id → 定义 + 引擎的**唯一**分派表）
+ *                 ⚠️ 各型号的实现（`ik.ts` / `engine.ts`）**住在各自的包**
+ *                    `robot-package/<id>/kinematics/`，不在本目录。
+ *   registry/     RobotRegistry（id → 定义 + 引擎的**唯一**分派表；
+ *                 表由 `import.meta.glob` 从包内自动发现，不手写）
  *   calibration/  关节角 ↔ 舵机角 标定
  *   transport/    RobotTransport 抽象 + Mock / WebSocket 实现
  */
@@ -30,15 +32,18 @@ export * from './model/linkFeedback';
 export * from './kinematics/transform';
 export * from './kinematics/coordinate';
 export * from './kinematics/fk';
-export * from './kinematics/ik';
-// ⚠️ 注意命名：`IkResult`（ik.ts，MeArm 原生判别联合）与
-//    `IKResult`（IKResult.ts，统一结果形状）**只差一个字母大小写**。
-//    前者是算法实现细节，后者是给上层用的稳定契约；两者同时存在是刻意的
-//    （替换原生返回会破坏现有 2000 组闭环验收）。新代码请用 `IKResult`。
+// ⚠️ `ik.ts`（MeArm 的解析解）与两台机器人的引擎实现**已搬进各自的包**
+//    （Phase 2 步④）：`robot-package/<id>/kinematics/`。
+//    它们**刻意不从本出口再导出** —— 一旦从 Core 的出口导出，Core 就有了
+//    "MeArm 的解"这个概念，而 `Core 里不得出现任何型号名` 是本项目的铁律。
+//    上层要解算请走 `RobotRegistry.loadRobot(id).kinematics`（统一 `IKResult` 形状）。
+//
+// ⚠️ 命名陷阱（搬走之后依然存在）：`IkResult`（包的 `ik.ts`，MeArm 原生判别联合）
+//    与 `IKResult`（本目录，统一结果形状）**只差一个字母大小写**。
+//    前者是算法实现细节、住在包里；后者是给上层用的稳定契约、住在 Core。
+//    两者同时存在是刻意的（替换原生返回会破坏现有 2000 组闭环验收）。
 export * from './kinematics/IKResult';
 export * from './kinematics/KinematicsEngine';
-export * from './kinematics/mearm/MeArmKinematics';
-export * from './kinematics/soarm101/SoArm101Kinematics';
 
 export * from './registry/RobotRegistry';
 

@@ -27,7 +27,7 @@ import (
 //	RESET                              全部 -> 90°
 //
 // 若把关节级 JR 下沉到固件，关节↔舵机的**标定真值就会同时存在于固件与
-// config/robot.yaml 两处**，违反"标定表只有一份"这条铁律（除非再加一层 codegen）。
+// robot-package/mearm-v1/model/robot.yaml 两处**，违反"标定表只有一份"这条铁律（除非再加一层 codegen）。
 // 因此 JR → SET 的翻译留在本层：本层对外**仍是关节级设备**，
 // controller / wsserver / 前端 / sim 都不需要知道固件讲的是舵机角。
 //
@@ -39,7 +39,7 @@ import (
 //   - 本层合成的 STATE 同样只表示"命令已被接受并钳位到 X"，
 //     **不代表机械臂已物理到位**；
 //   - 真机是否真的动了、动到哪，唯一的外部真值是**相机**
-//     （tools/verify_pose.py + tests/e2e/ui-smoke.mjs 的 Phase 9 段落）。
+//     （robot-package/mearm-v1/tools/verify_pose.py + tests/e2e/ui-smoke.mjs 的 Phase 9 段落）。
 //
 // 这一点在 API 上无法掩盖，只能如实标注（见 docs/decisions.md 对应 ADR）。
 

@@ -22,8 +22,13 @@ import numpy as np
 import pytest
 from PIL import Image
 
+from robopkg import package_dir_of
+
 ROOT = Path(__file__).resolve().parents[2]
-SCRIPT = ROOT / "tools" / "make_texture.py"
+#: 被测脚本住在**包内**（Phase 2：MeArm 的相机/纹理工具随包走）——
+#: 路径由包的**位置**推导，不写死字符串（包一改位置，这里跟着走）。
+MEARM_TOOLS = package_dir_of("mearm-v1") / "tools"
+SCRIPT = MEARM_TOOLS / "make_texture.py"
 GUIDE = ROOT / "docs" / "texture-capture-guide.md"
 
 

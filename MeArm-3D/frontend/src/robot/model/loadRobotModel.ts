@@ -23,7 +23,6 @@
  *   - 模型级：拓扑 / 限位 / 标定自洽性 → 抛 `RobotModelError`（携带完整 issue 列表）
  */
 import { parse as parseYaml } from 'yaml';
-import robotYamlText from '@config/robot.yaml?raw';
 import type { Actuator, ActuatorLimits, ActuatorUnit } from './Actuator';
 import { RobotConfigError } from './configError';
 import type { Joint, JointCoupling, JointLimits, JointOrigin, JointRole, JointType } from './Joint';
@@ -42,6 +41,7 @@ import {
   DEFAULT_SERVO_SIZE,
 } from './Link';
 import type { EulerDeg, JointState, RotationConvention, Vec3 } from './Pose';
+import { MEARM_V1_ROBOT_ID } from './robotIds';
 import {
   defaultRobotId,
   resetRobotSelectorCache,
@@ -62,8 +62,18 @@ import {
  * 用途：① 缺省加载路径的历史兼容；② `tests/unit/robotModel.test.ts` 对它做
  * 字符串级改写以构造"坏配置"用例。**它不是"通用内置配置"** ——
  * 要拿某一台机器人的原文，请用 `robotYamlTextById(id)`。
+ *
+ * ★ Phase 2：这里**不再有**自己的静态导入。原先写的是
+ *   `import robotYamlText from '@config/robot.yaml?raw'`
+ *   —— 真值随包搬走后那条路径已不存在，而 Vite 的 `?raw` 又**必须**是静态的，
+ *   于是它成了唯一一个"绕开 Registry 自己拼路径"的读者。现在改为向
+ *   `robotConfigRegistry` 要 mearm-v1 的原文（与全项目其余读者同一条链路）。
+ *
+ * ⚠️ 这仍是一个 **MeArm-specific 的过渡导出**（fixture 级）：按 Phase 2 步⑤
+ *   "包内测试代码（期望值随包）" 的拆分，对它做字符串改写的用例会搬进
+ *   `robot-package/mearm-v1/`，届时本常量一并随之走。
  */
-export const BUNDLED_ROBOT_YAML: string = robotYamlText;
+export const BUNDLED_ROBOT_YAML: string = robotYamlTextById(MEARM_V1_ROBOT_ID);
 
 export { RobotConfigError };
 

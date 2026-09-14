@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  ⚠️ 本文件由 simulation/mujoco/gen_model.py 生成 —— 请勿手工编辑。
-     真值来源: config/robot.yaml (mearm / mARM, 6 连杆 / 4 自由度 + 1 被动关节 / 5 个 qpos 坐标)
-     物理参数: config/physics.yaml (physics.yaml)
-     重新生成: python simulation/mujoco/gen_model.py
+  ⚠️ 本文件由 robot-package/mearm-v1/tools/gen_model.py 生成 —— 请勿手工编辑。
+     真值来源: robot-package/mearm-v1/model/robot.yaml (mearm / mARM, 6 连杆 / 4 自由度 + 1 被动关节 / 5 个 qpos 坐标)
+     物理参数: robot-package/mearm-v1/physics/physics.yaml (physics.yaml)
+     重新生成: python robot-package/mearm-v1/tools/gen_model.py
 -->
 <mujoco model="mearm">
   <compiler angle="radian" autolimits="true"/>

@@ -1,4 +1,4 @@
-// Package robot 解析 config/robot.yaml —— ArmPilot 的**唯一模型/标定真值**。
+// Package robot 解析 robot-package/mearm-v1/model/robot.yaml —— ArmPilot 的**唯一模型/标定真值**。
 //
 // 后端绝不自己存一份关节限位或标定表。原因见 protocol/serial-v1.md §2：
 // 前端、固件、后端各存一份，三份必然漂移；实测已经证明"按固件命名推定角色"

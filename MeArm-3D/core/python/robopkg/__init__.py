@@ -13,7 +13,16 @@
 
 from .errors import PackageError
 from .manifest import Manifest, load_manifest, load_all_manifests
-from .loader import ResolvedRobot, list_package_ids, load_robot
+from .loader import (
+    ResolvedRobot,
+    declared_path,
+    declared_path_list_keys,
+    declared_paths,
+    declared_paths_keys,
+    list_package_ids,
+    load_robot,
+    package_dir_of,
+)
 from .content_hash import compute_content_hash, hash_paths
 from .validator import Issue, ValidationReport, validate_all, validate_package
 
@@ -23,8 +32,13 @@ __all__ = [
     "load_manifest",
     "load_all_manifests",
     "ResolvedRobot",
+    "declared_path",
+    "declared_paths",
+    "declared_path_list_keys",
+    "declared_paths_keys",
     "list_package_ids",
     "load_robot",
+    "package_dir_of",
     "compute_content_hash",
     "hash_paths",
     "Issue",

@@ -180,6 +180,7 @@ def compute_content_hash(manifest: Manifest) -> HashResult:
         is_generated=manifest.simulation.generated_by is not None,
         label="simulation.mjcf",
     )
+    add(manifest.kinematics.engine_entry, is_generated=False, label="kinematics.engine.entry")
     add(manifest.kinematics.fk_entry, is_generated=False, label="kinematics.fk.entry")
     add(manifest.kinematics.ik_entry, is_generated=False, label="kinematics.ik.entry")
     add(manifest.tests.cases, is_generated=False, label="tests.cases")

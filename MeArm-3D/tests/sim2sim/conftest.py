@@ -28,9 +28,10 @@ from types import ModuleType
 _ROOT = Path(__file__).resolve().parents[2]           # tests/sim2sim -> tests -> MeArm-3D
 _SIM_TESTS = _ROOT / "tests" / "sim"
 _SIM_DIR = _ROOT / "simulation" / "mujoco"
+_CORE_PY = _ROOT / "core" / "python"
 
-# 本目录的测试要 import harness / fkref / robotcfg / units / ikbridge / model
-for _p in (_SIM_DIR, _SIM_TESTS):
+# 本目录的测试要 import harness / fkref / robotcfg / units / ikbridge / model / robopkg
+for _p in (_SIM_DIR, _SIM_TESTS, _CORE_PY):
     if str(_p) not in sys.path:
         sys.path.insert(0, str(_p))
 

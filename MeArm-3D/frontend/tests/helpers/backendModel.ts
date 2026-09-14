@@ -1,12 +1,20 @@
 /**
  * 从本地 `RobotModel` 生成一份"与后端一致"的模型元数据。
  *
- * 用途：模拟后端 `hello` 消息（后端读的是同一份 `config/robot.yaml`）。
+ * 用途：模拟后端 `hello` 消息（后端读的是同一份真值 —— 路径由包 manifest 声明）。
  * 测试再按需把某个字段改坏，验证一致性校验真的能测出差异。
+ *
+ * `source` 字段（= 后端 `hello.model.source`，人读的诊断信息，**不参与任何比对**）
+ * 现在从 `declaredPath()` 取，不再手写字符串 —— Phase 2 之前它写死 `config/robot.yaml`。
  */
 import type { BackendModelInfo, RobotModel } from '@robot/index';
+import { MEARM_V1_ROBOT_ID } from '@robot/model/robotIds';
+import { declaredPath } from './robotPackage';
 
-export function backendInfoFromLocal(model: RobotModel): BackendModelInfo {
+export function backendInfoFromLocal(
+  model: RobotModel,
+  robotId: string = MEARM_V1_ROBOT_ID,
+): BackendModelInfo {
   // ⚠️ 判据是 `=== 'revolute'`，**不是** `!== 'fixed'`。
   // 后端 Go 的 `JointOrder()` 只收 revolute（`joints.tool` 是被动腕，没有独立输入、
   // 不进 JR 四元组），前端 `movableJoints()` / `isMovableJoint()` 同一条规则。
@@ -16,7 +24,7 @@ export function backendInfoFromLocal(model: RobotModel): BackendModelInfo {
   return {
     id: model.id,
     name: model.name,
-    source: 'config/robot.yaml',
+    source: declaredPath(robotId, 'model.config'),
     jointOrder: order,
     limits: order.map((id) => {
       const joint = model.joints.find((j) => j.id === id)!;

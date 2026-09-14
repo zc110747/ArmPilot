@@ -14,7 +14,7 @@
  *   config/robots.yaml      ← 运行期：说"现在用哪一个"（见 parseSelector）
  * ```
  *
- * ⇒ 于是「新增一台机器人」= 丢一个 `config/robots/<id>/robot.yaml` + 在
+ * ⇒ 于是「新增一台机器人」= 丢一个 `robot-package/<id>/model/robot.yaml` + 在
  *   `config/robots.yaml` 加一行。**一行代码都不用改**。
  *   （这与 `textureRegistry` / `meshRegistry` 是同一个范式，刻意保持一致。）
  *
@@ -45,17 +45,18 @@ function selectorError(message: string): RobotConfigError {
 /**
  * 所有机器人的 `robot.yaml` 原文，key = **glob 给出的仓库相对路径**。
  *
- * 刻意只列两条明确的模式（而**不是** `config/**` 全收）——
- * 因为 `config/` 下还有 `physics.yaml` / `baseline-*.json` 这些**不是** robot.yaml
- * 的文件，用宽模式会让它们进入解析路径，把一个配置笔误变成启动期崩溃。
+ * ★ Phase 2 起真值**随包走**：模式只指向 `robot-package/<id>/model/robot.yaml`。
+ *   刻意**不用** `robot-package/**` 全收 —— 包里还有 `physics/physics.yaml` 等
+ *   **不是** robot.yaml 的文件，宽模式会让它们进入解析路径，
+ *   把一个配置笔误变成启动期崩溃。
  */
 const CONFIG_TEXTS: Record<string, string> = import.meta.glob(
-  ['../../../../config/robot.yaml', '../../../../config/robots/*/robot.yaml'],
+  ['../../../../robot-package/*/model/robot.yaml'],
   { eager: true, query: '?raw', import: 'default' },
 ) as Record<string, string>;
 
-/** glob key 里用于裁出仓库相对路径的标记 */
-const MARKER = 'config/';
+/** glob key 里用于裁出仓库相对路径的标记 —— 必须与 manifest 里路径的写法同口径 */
+const MARKER = 'robot-package/';
 
 /** `../..//../config/robots/so-arm101/robot.yaml` → `config/robots/so-arm101/robot.yaml` */
 function repoRelativePath(globKey: string): string {
@@ -142,21 +143,22 @@ export function parseSelector(text: string): RobotSelector {
     if (!TEXT_BY_PATH.has(config)) {
       throw selectorError(
         `robots.${id}.config = "${config}" 未在构建期登记。` +
-          `登记模式为 config/robot.yaml 与 config/robots/*/robot.yaml，` +
+          `登记模式为 robot-package/*/model/robot.yaml，` +
           `已登记: ${[...TEXT_BY_PATH.keys()].join(', ') || '（空）'}`,
       );
     }
     // ── 指针字段（同样"只放路径 / 名字，不放数值"） ─────────────────────────
     //
-    // `physics` 缺省按**约定**推导（`config/robots/<id>/physics.yaml`），
+    // `physics` 的兜底约定与 manifest 一致（`robot-package/<id>/physics/physics.yaml`），
     // 但**不校验文件是否存在** —— 前端不需要 physics 原文（那三类真值分别归
     // 各自 robot.yaml / physics.yaml / MJCF，前端只消费 robot.yaml），
     // 在这里做存在性检查会把"后端/Python 才需要的文件"变成前端启动期硬依赖。
-    // 真正需要它的两端（Go / Python）各自有存在性检查，报错更贴近使用现场。
+    // 两个声明了它的读者（Go / Python + `robopkg` 校验器）各自有存在性检查，
+    // 报错更贴近使用现场。
     const physicsRaw = entry['physics'];
     const physics =
       physicsRaw === undefined
-        ? `config/robots/${id}/physics.yaml`
+        ? `robot-package/${id}/physics/physics.yaml`
         : requireString(physicsRaw, `robots.${id}.physics`);
 
     const simRaw = entry['simulation'];

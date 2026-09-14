@@ -227,6 +227,125 @@
   （`transportDriven` 时拒切并说明"请先断开"）+ 未知 id **拒绝不回退**；
   `hello` 只做**在线互检**、**不静默切换**。★ 它**不是** `model.id`（见上）。
   运行期一律用 `get().model`，**不要再引用模块级 `initialModel`**。
-- **测试落点**：`tests/sim`（161）· `tests/sim2sim`（9）· `backend/internal/robot` `go test`（75）
-  · 前端 `vitest`（409，含 `tests/acceptance/robot-switch.test.ts` 13 项 + `tests/sim2sim/so-arm101-baseline.test.ts` 12 项）。
-  基线快照：`tests/baseline/{mearm-v1,so-arm101}/sim2sim.json`（`--freeze`，`--n-random 24` 冻结）。
+- **测试落点**：`tests/sim` · `tests/sim2sim` · `backend/internal/robot` `go test`
+  · 前端 `vitest`（含 `tests/acceptance/robot-switch.test.ts` + `tests/sim2sim/so-arm101-baseline.test.ts`）。
+  基线快照：`robot-package/{mearm-v1,so-arm101}/tests/cases/sim2sim.json`（`--freeze`，`--n-random 24` 冻结）。
+
+## §8 Robot Package 重构（Core / Robot Package / Working Robot，2026-09-14 起）
+
+**目标形态**：`core/`（机制，**不含任何型号名**）· `robot-package/<id>/`（一台机器人的全部：manifest +
+`model/` + `physics/` + `tests/cases/` + `tools/` + 资产）· `working-robot/`（"现在轮到谁"，构建产物，gitignore）。
+spec = `docs/MeArm_3D_Prompter_06.md`（56 节）；只读分析 = `docs/architecture/robot-package-phase0.md`。
+
+**搬迁纪律（不可跳）**：一次只搬一个子系统 → `Build → Test → 验证 → 记录`，**每步交付一次实测**。
+判据按子系统选：
+- **配置真值**：`freeze_baseline.py --update` 后**语义核心哈希逐位不变**（证明"只挪了位置，一个字节没动"）。
+- **黄金数据**：`gen_mearm_v1_baseline.py --check` 四份 `逐位一致`。
+- **包契约**：`core/python/robopkg/cli.py validate --all`（选择器 / manifest / 真值 / 包目录 四方对账）。
+
+### 本轮（Phase 2 步① ②）踩到的坑 —— 全是"静默"类
+
+- ★★ **「编辑成功」≠「改到盘上了」**：`tools/gen_so_arm101_robot_yaml.py` 的 `OUT_PATH` 上一轮改过、
+  **实际没落盘**。它不报"我还在用旧路径"，而是报 `缺少 config\robots\so-arm101\robot.yaml`
+  —— 读起来像"文件丢了"。⇒ **每处编辑后用独立命令核对磁盘**（`grep -n` / `--check` / `Read`），
+  同文件多处编辑尤其要复核。
+- ★★ **`bash` 的 `cat >> file << EOF` 在本沙箱会写坏文件**（2026-09-14 实测）：追加 45 行，
+  结果**文件头部被覆盖**（标题 / §1 / §2 标题丢失、尾部混入半行残片），而字节数**恰好不变**
+  （22156 → 22156），`wc`/`ls` 完全看不出来。**唯一可靠的发现方式是 `Read` + `grep -n "^#"` 看章节**。
+  ⇒ **追加长文本一律用 Edit 工具（带锚点）或 Write（整文件重写），并在写完后立刻读回核对**。
+  ⇒ 记忆文件受 git 跟踪（仓库根在父目录 `ArmPilot/`，故 `git show HEAD:MeArm-3D/.workbuddy/memory/playbook.md`）
+  ⇒ **写坏可直接 `git checkout --` 恢复**（本次即如此救回）。
+- ★★ **"漏改的读者"清单要用全仓 grep 建立，不能靠记忆**：本轮漏掉的是
+  ① 前端 `loadRobotModel.ts` 的 `import robotYamlText from '@config/robot.yaml?raw'`
+  （Vite 的 `?raw` **必须静态** ⇒ 它是唯一绕开 Registry 自己拼路径的读者；一处漏改 →
+  **29 个 vitest 红 + 13 个 pytest 红**，vitest 报 `ENOENT`、ikbridge 报 `Cannot find module`）；
+  ② `tools/{verify_pose,fit_pose,make_texture}.py` 的 `YAML` / `ROBOT_YAML` 常量；
+  ③ `tests/sim/test_simulation.py`（`ROOT/"config"/"physics.yaml"`）；
+  ④ `tests/sim/test_baseline_frozen.py` 的 `fb.BASELINE`（`freeze_baseline` 函数化后属性名变了）。
+  ⇒ **扫描词**：`"config"` · `config/robot.yaml` · `config/physics.yaml` · `config/robots/` ·
+  `tests/baseline` · `baseline-kinematics-physics`。
+- ★ **报错文案决定定位速度**：`freeze_baseline.check()` 原先在路径变更时抛 `KeyError: '…/model/robot.yaml'`
+  —— 读起来像"工具坏了"。改成可读的"**键已过期**"并直接给出修法（`--update`）后，一眼归因。
+- ★ **不要把当时的目录布局写进断言**：`robotRegistry.test.ts` 的 `config.startsWith('config/')`
+  问的是"路径在不在 `config/` 下"，而它**想**问的是"是不是三端都能解析的仓库相对路径"。
+  搬迁时改它**不是放宽判据**，但必须**同时加强** —— 本轮补了"选择器声明的路径 ≡ 该包 manifest 的
+  `model.config` 声明（resolve 后是同一个文件）"，把"两处声明各自漂移"也钉住。
+- ★ **用户可见字符串里的路径同样不许写死**：`backend/main.go` 的物理量告警改为取
+  `entry.PhysicsPath` / `entry.ConfigPath`；`ik.ts` 抛错文案里的 `config/robot.yaml` 是**进生产包**的
+  —— 靠 `grep -ho "config/robot.yaml\|config/physics.yaml" dist/assets/*.js | wc -l`（须为 0）才发现。
+- ★ **Core 里不该留下"像是真值目录"的名字**：`robotcfg.py` 的 `CONFIG_DIR` 已删（它现在只服务选择器，
+  留着这个名字会让人以为真值还在仓库根 `config/` 下）。
+- **`robopkg` 是包不是模块** ⇒ `python -m robopkg` 不可用；入口是
+  `python core/python/robopkg/cli.py {list|show|validate|hash|selftest}`（退出码 0/1，不吞错误）。
+
+### Phase 2 步③ ④ ⑤（2026-09-14 收口）—— 三个真 bug + 两条测试通道
+
+**搬迁结果**：仓库根 `tools/` 消失，24 个工具就位 —— `core/tools/`（8：`freeze_baseline.py` /
+`run_sim2sim.py` / `park_sim_pose.mjs` / `set_joints.mjs` / `ws_probe.mjs` / `first_load_probe.mjs` /
+`lan_e2e_probe.mjs` / `verify_serial_e2e.mjs`）· `robot-package/mearm-v1/tools/`（14）·
+`robot-package/so-arm101/tools/`（2）。前端：`ik.ts` / `MeArmKinematics.ts` → 包内 `kinematics/`，
+`RobotRegistry` 改 `import.meta.glob` **自动发现**。测试：按**断言**拆（机制留 `tests/sim/`，期望值随包）。
+
+**搬迁揭穿的四个真 bug（全是"静默"类）**：
+
+| # | 症状 | 根因 | 修法 |
+|---|---|---|---|
+| 1 | `run_sim2sim.py --help` → `ModuleNotFoundError: No module named 'sim2sim'` | `Path(__file__).resolve().parent.parent` 搬到 `core/tools/` 后指向 `core/` | `_find_repo_root()` |
+| 2 | `freeze_baseline.py` 实跑报"基线文件不存在：`config\baseline-…json`" | 同上 + `BASELINE`/`ROBOT_YAML`/`PHYSICS_YAML` 三条硬编码 | `_find_repo_root()` + 全改 `declared_path()` |
+| 3 | `freeze_baseline.py` 是**半成品迁移**：`snapshot()` 的**键**已是包内路径、**读**的还是 `config/` ⇒ 路径二义 | 键与读取来自两个来源 | 统一为 `repo_relative(declared_path(...))` |
+| 4 | `run_sim2sim.py --freeze` **静默假成功**：退出码 0，真值目录**一字节未变** | 默认目标 `PROJECT_ROOT/tests/baseline` 把旧目录**重新建出来** | 默认目标改 `declared_path(rid,"tests.cases")` + `rm -rf tests/baseline` |
+
+★★ **`_find_repo_root()` = 「向上找标记」**：向上找**同时含 `core/` 与 `robot-package/`** 的那一层。
+它**替代一切 `parents[N]` / `Path(__file__).parent.parent`** —— 后者的层数是**被搬迁改写的隐式契约**，
+写错时**不报错**，只是解析到另一个目录（于是症状伪装成"文件丢了"）。
+
+**两条测试通道 + 两条守卫（"测试存在" ≠ "测试被执行"）**：
+
+- Python：`pytest.ini`（**仓库根**）的 `testpaths = core/tests / tests / robot-package`。
+  ★ 刻意**不**设 `--import-mode=importlib`（现有测试依赖裸模块名导入 + prepend 模式）。
+  ★★ **不要给 pytest 传目录参数** —— 传了就用 args **覆盖** testpaths，包内测试被**静默跳过**
+  （旧记忆里的 `pytest tests/sim tests/sim2sim core/tests -q` 正是这种写法）。
+- 前端：`vite.config.ts` 的 `test.include` 增 `'../robot-package/*/tests/**/*.test.ts'`。
+  包在 `frontend/` **之外** ⇒ 包内 TS 测试的 `import 'vitest'` 向上走不到 node_modules，
+  故 `tsconfig.app.json` 的 `paths` 显式加 `"vitest"` / `"vitest/*"`（否则 tsc 报 `Cannot find module 'vitest'`）。
+- 守卫 A（通道）：`core/tests/test_package_contract.py::test_pytest_testpaths_covers_package_dirs`
+  + `frontend/tests/unit/packageTestChannel.test.ts`（读 `vite.config.ts` 与各包 manifest 的 `tests.local`，
+  断言目录存在 / 在自己包内 / 有 `*.test.ts` / 与 Core 测试不重名）。
+- 守卫 B（边界）：`frontend/tests/unit/corePackageBoundary.test.ts` 扫 `src/**/*.{ts,tsx,vue}`
+  （**先剥注释再匹配 `import`**），白名单**只有** `store/robotStore.ts` 的 IK 类型
+  （`solveIk` / `IkBranch` / `IkPreference` / `IkReason` / `IkResult`），并做逐符号双向核对 +
+  白名单腐烂检测 + 旧路径检测。★ `robotStore` ← 包内 `ik.ts` 的**层次倒置**留到 Phase 3，
+  用 `IKResult.diagnostics` 袋子解。
+
+★★ **`pytest` 只在仓库根成立**（2026-09-14 实测）：从 `frontend/` 跑 `pytest -q` 输出
+**`no tests collected` 且 exit 0** —— 只看退出码的脚本会把它读成"通过"。跑验收前先确认 cwd。
+
+**本轮新踩的本机沙箱坑（三条，都改工作方式）**：
+
+- ★★ **同文件连续 / 并行 `Edit` 会丢写入**：⇒ 改完**立刻用独立 `grep -n` / `Read` 核对落盘**；
+  一处以上修改优先写**一次性脚本**（对每条替换断言"命中次数 == 1"，零命中/多命中都报错）而非连续 Edit。
+- ★★ **`Path.write_text()` 在 Windows 把 `\n` → `\r\n`**，而仓库是 **LF-only + `core.autocrlf=false`**
+  ⇒ 批量改文件必须 `open(..., newline="")`，否则"1 行改动"里混进全文行尾变换
+  （实测 `assets/textures/mearm/README.md` 1276 → 1303 字节、27 处 CRLF）。出锅后 `git checkout --` 回退重做。
+- ★ **在途运行的 pytest 会用旧模块**：后台 pytest 在我改 `manifest.py` **之前**已 import 旧 `_unknown`
+  白名单 ⇒ 拿新字段 `local` 报 10 failed。**不是缺陷** —— 改完代码必须重跑。
+
+**守卫被反向验证过**（"能红"才算守卫）：往 `frontend/src/robot/` 插一个越界 import ⇒
+`corePackageBoundary.test.ts` 报错并**点名** `__boundary_probe.ts`（随后删探针）；
+临时去掉 `vite.config.ts` 的 `include` 项 ⇒ `packageTestChannel.test.ts` 变红并**给出修法**。
+
+**三处重复真值被消除**（second source of truth）：`ORDER` 线序（`tests/sim/test_server.py` →
+`dev.robot.joint_order()`）· 限位文案 `108.44..141.86`（改为**从真值派生** + `re.fullmatch` 钉格式）·
+`sim2sim.json` 的 `generator`（`run_sim2sim.py` 写入目标改 `declared_path(rid,"tests.cases")`，
+不再自带第二份生成器声明）。
+
+**Phase 2 实测验收**：`pytest -q` **204 passed** · `vitest run` **33 文件 / 441 例** ·
+`tsc -b --force` **0 error** · `vite build` 产物中 `__armPilot` / 旧真值路径命中 **0** ·
+`go build/vet/test` **0** · `cli.py validate --all` **2 通过 / 0 问题** ·
+`freeze_baseline.py` **与冻结基线一致** · `run_sim2sim.py --all` **全部机器人 FK 在登记容差内**。
+文档：`docs/architecture/robot-package-phase2.md`（判据 / 真 bug / 纪律 / 验收命令 / 未做清单）。
+
+**已登记未做（Phase 3+）**：资产搬迁（`assets/models/so-arm101/official/**`、`assets/textures/mearm/**`、
+`3d-models/*.STEP`）· `IKResult.diagnostics` 袋子（解 `robotStore` → 包内 `ik.ts` 的层次倒置）·
+C5（`role` 跨端语义分歧）· C6（`project_plates.py` 硬编码板件尺寸）· `test_ik.py` 残留的 MeArm 耦合
+（目前是"把型号当数据键"的可接受形态）。

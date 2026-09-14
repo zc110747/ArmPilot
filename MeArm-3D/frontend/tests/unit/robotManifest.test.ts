@@ -28,6 +28,7 @@ import {
   MEARM_V1_ROBOT_ID,
   SO_ARM101_ROBOT_ID,
   isMovableJoint,
+  listRegisteredEngineFiles,
   listRegisteredRobotIds,
   listRobotIds,
   listRobots,
@@ -44,6 +45,16 @@ interface ManifestLike {
   readonly model: { readonly config: string; readonly physics?: string };
   readonly simulation: { readonly tcp_site: string; readonly mjcf?: string };
   readonly kinematics: {
+    /**
+     * `engine.entry` 是**引擎工厂所在的文件路径**（Phase 2 新增），
+     * 与 `fk` / `ik` 的 `entry` **语义不同**：后者是"算法实现在哪"，
+     * 前者是"实例化这台机器人运动学引擎的那个文件在哪"。
+     *
+     * 前端 `RobotRegistry` 用 `import.meta.glob` 扫描同一批文件，
+     * 因此这里的形状必须建模它 —— 否则 `engine.entry` 被改名/搬走时，
+     * 这份"形状即契约"的断言看不见（它只查顶层键）。
+     */
+    readonly engine: { readonly entry: string };
     readonly fk: { readonly type: string; readonly entry?: string };
     readonly ik: { readonly type: string; readonly entry?: string };
   };
@@ -135,6 +146,26 @@ describe('Robot Package manifest 与选择器/引擎的三方一致性', () => {
     for (const id of PACKAGE_IDS) {
       expect(Object.keys(MANIFESTS[id]!).sort(), `${id} 的顶层键`).toEqual(MANIFEST_TOP_KEYS);
     }
+  });
+
+  /**
+   * ★ Phase 2 新增：`kinematics.engine.entry`（**声明**）≡ glob 发现到的文件（**事实**）。
+   *
+   * 这两者必须对上，因为它们是**两条独立的路径通道**：
+   *   · manifest 的 `engine.entry` → Python 侧 `declared_path()` / 内容哈希读它；
+   *   · `import.meta.glob` 的扫描结果 → 前端 `RobotRegistry` 实际加载它。
+   * 只改一边时两边各自"自洽"（glob 按模式扫，文件搬了照样扫到；哈希那边
+   * 若新路径也恰好存在也不会报），合起来就是"声明说 A、加载的是 B"。
+   *
+   * 断言必须拿**glob 剥出来的真实路径**比，不能拿 id 拼字符串——拼出来的
+   * 字符串永远等于声明值，那就成了同义反复。
+   */
+  it('manifest.kinematics.engine.entry ≡ 前端 glob 实际发现的引擎文件', () => {
+    const discovered = [...listRegisteredEngineFiles()].sort();
+    const declared = PACKAGE_IDS.map((id) => MANIFESTS[id]!.kinematics.engine.entry).sort();
+    expect(declared).toEqual(discovered);
+    // 反向也钉一次"每个包一条"，防止两边同时空掉而"空集通过"
+    expect(discovered.length).toBe(PACKAGE_IDS.length);
   });
 });
 

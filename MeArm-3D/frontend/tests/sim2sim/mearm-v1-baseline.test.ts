@@ -6,7 +6,7 @@
  * > 「抽象之后，MeArm-V1 的行为必须与抽象之前一致。」（spec §19）
  *
  * 判据不是"新架构自己测试通过"，而是 **旧基线 VS 新实现**：
- * 期望值来自 `tests/baseline/mearm-v1/*.json`（由 `tools/gen_mearm_v1_baseline.py`
+ * 期望值来自 `robot-package/mearm-v1/tests/cases/*.json`（由 `tools/gen_mearm_v1_baseline.py`
  * 在冻结时**实跑采集**），这里拿今天的实现去对。
  *
  * ## 覆盖（spec §17）
@@ -32,16 +32,17 @@ import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 import { applyJointState, buildRobotObject3D } from '../../src/components/RobotScene/buildRobotObject3D';
 import {
-  createMeArmKinematics,
   defineRobot,
   endEffectorPosition,
   loadRobotModel,
   movableJoints,
-  solveIk,
   type JointState,
   type RobotModel,
   type Vec3,
 } from '../../src/robot';
+// MeArm 的引擎与解析解住在**包内**（Phase 2 步④）
+import { createMeArmKinematics } from '../../../robot-package/mearm-v1/kinematics/engine';
+import { solveIk } from '../../../robot-package/mearm-v1/kinematics/ik';
 import {
   loadFkCases,
   loadIkCases,

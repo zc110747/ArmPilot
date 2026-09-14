@@ -38,14 +38,9 @@ import {
   loadRobot,
   loadRobotModel,
   movableJoints,
-  solveIk,
   zeroJointState,
   type AppendFrameOptions,
   type DragPlaneMode,
-  type IkBranch,
-  type IkPreference,
-  type IkReason,
-  type IkResult,
   type JointState,
   type RobotModel,
   type TeachTrack,
@@ -53,6 +48,30 @@ import {
   type TransportStats,
   type Vec3,
 } from '@robot/index';
+// ⚠️ **登记的层次倒置（Phase 2 遗留 · 待 Phase 6/7 裁决）**
+//
+// 下面这几个是 **MeArm 解析解**的原生符号（`solveIk` 与它的四种原生类型）。
+// 严格按分层，Core 不该认识它们 —— 上层应当只走 `RobotRegistry.loadRobot(id)
+// .kinematics.inverse()`（统一 `IKResult` 形状）。
+//
+// 之所以**这一轮先不动**：`ikStatus` 现在暴露的是 MeArm 原生诊断
+// （`candidates` / `azimuth` / `relativeAngle` / `joint`），而统一 `IKResult`
+// 刻意不带这些字段。改成走引擎会**减少**界面能显示的信息，属于行为变更 ——
+// 与「MeArm 冻结优先 / 抽象前后逐位一致」冲突，故按 spec 的要求
+// **报告冲突而不是自行扩大范围**。
+//
+// 已登记的处置路径（Phase 6/7）：给 `IKResult` 加一个可选的 `diagnostics` 袋子，
+// 由包内适配器填充，Core 只透传不解释；届时这条 import 才能真正删掉。
+//
+// 这条边**被一条测试盯着**：`frontend/tests/unit/corePackageBoundary.test.ts`
+// 会列出全部"Core → 包"的 import，白名单外的一律失败 —— 于是它不会悄悄繁殖。
+import {
+  solveIk,
+  type IkBranch,
+  type IkPreference,
+  type IkReason,
+  type IkResult,
+} from '../../../robot-package/mearm-v1/kinematics/ik';
 
 export type RobotMode = 'simulation' | 'real';
 export type RobotControlSource = 'virtual' | 'real' | 'command';

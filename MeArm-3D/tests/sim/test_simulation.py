@@ -30,10 +30,19 @@ import pytest
 
 from model import MeArmSim
 from record import FIELD_SOURCE, Recorder, build_row, flatten
+from robopkg import declared_path, package_dir_of
 from robotcfg import load_physics
 
 ROOT = Path(__file__).resolve().parents[2]
 SIM_DIR = ROOT / "simulation" / "mujoco"
+#: 包内工具目录（MeArm 的生成器住在包里）—— 由包**位置**推导，不写死。
+MEARM_TOOLS = package_dir_of("mearm-v1") / "tools"
+
+#: 本文件比对的是 **MeArm-V1** 的真值（显式写 id，不读选择器的 `default`）。
+MEARM_V1 = "mearm-v1"
+#: 物理真值路径 —— 由该包 manifest 的 `model.physics` **声明**。
+#: Phase 2 之前这里写的是 `ROOT / "config" / "physics.yaml"`（真值随包搬走后那条路径已不存在）。
+PHYSICS_YAML = declared_path(MEARM_V1, "model.physics")
 
 
 # ---------------------------------------------------------------------------
@@ -429,15 +438,15 @@ def test_config_truth_is_not_duplicated(physics, robot):
     """
     import yaml
 
-    raw = yaml.safe_load((ROOT / "config" / "physics.yaml").read_text(encoding="utf-8"))
+    raw = yaml.safe_load(PHYSICS_YAML.read_text(encoding="utf-8"))
     for key in ("robot", "links", "joints", "homePose", "tcp", "limits_deg"):
         assert key not in raw, (
-            f"physics.yaml 里出现了运动学段 {key!r} —— 运动学真值只允许在 config/robot.yaml")
+            f"physics.yaml 里出现了运动学段 {key!r} —— 运动学真值只允许在 robot.yaml")
     assert physics.limits["source"] == "robot.yaml", (
         "physics.limits.source 必须显式声明真值来源（人读得懂，测试也检查得了）")
 
     # 关节限位的**字面量**不得出现：角度真值唯一来源是 robot.yaml
-    text = (ROOT / "config" / "physics.yaml").read_text(encoding="utf-8")
+    text = PHYSICS_YAML.read_text(encoding="utf-8")
     for jid in ("elbow", "shoulder"):
         for value in (robot.joint(jid).limit_min, robot.joint(jid).limit_max):
             lit = f"{value:.4f}"
@@ -459,6 +468,8 @@ def test_generated_mjcf_is_in_sync_with_config(robot, physics):
 
     这条测试把这个缺口封死，失败信息直接给出修复命令。
     """
+    if str(MEARM_TOOLS) not in sys.path:
+        sys.path.insert(0, str(MEARM_TOOLS))
     from gen_model import build_xml
 
     committed = (SIM_DIR / "mearm.xml").read_text(encoding="utf-8")
@@ -471,7 +482,7 @@ def test_generated_mjcf_is_in_sync_with_config(robot, physics):
             fromfile="mearm.xml（入库）", tofile="gen_model.py 现算", lineterm="", n=1))
         raise AssertionError(
             "mearm.xml 已过期 —— 改配置后必须重新生成：\n"
-            "    python simulation/mujoco/gen_model.py\n"
+            "    python robot-package/mearm-v1/tools/gen_model.py\n"
             "差异（前 30 行）：\n" + "\n".join(diff[:30]))
     assert fresh.count("<body ") == len(robot.links) + 1, (
         f"MJCF 里 {fresh.count('<body ')} 个 body != robot.yaml 的 {len(robot.links)} 连杆 + 1 场景体")

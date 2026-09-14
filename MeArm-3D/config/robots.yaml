@@ -14,7 +14,14 @@
 #   python    → simulation/mujoco/robotcfg.py:load_robot_selector()
 #
 # ⚠️ 改 `default` 会同时改变三端的行为，且**只影响「未显式指定机器人」的调用**。
-#    所有既有测试都显式传 'mearm-v1'，所以改默认值不会静默改变它们测的对象。
+#
+# ❌ 曾经写在这里的一句话（已被实测证伪，留作反面记录）：
+#    「所有既有测试都显式传 'mearm-v1'，所以改默认值不会静默改变它们测的对象。」
+#    实测：把 default 改成 so-arm101 后 `vitest` **37 处失败**、`pytest` **13 处失败** ——
+#    前端 `robotStore` 的模块初值就是 `loadRobotModel(defaultRobotId())`，
+#    Python 侧的测试夹具虽然显式，但工具/CLI 不传 --robot 时也吃 default。
+#    ⇒ 「切机器人」这件事必须有自己的开关（Phase 3 起由 `working-robot/manifest.yaml` 承担），
+#      而不是让三端所有"未指定"的调用点共同依赖这一行。
 # =============================================================================
 
 version: 1
@@ -27,11 +34,12 @@ robots:
   mearm-v1:
     name: MeArm-V1
     # Golden Baseline：这是被冻结的参考模型，禁止因为"适配抽象"而修改。
-    config: config/robot.yaml
+    # ★ Phase 2 起真值随包走（`robot-package/mearm-v1/model/`），路径与 manifest 逐字一致。
+    config: robot-package/mearm-v1/model/robot.yaml
     # 物理量真值来源 = 我们自己估算 ⇒ 这份文件本身即真值（顶层形态，无 `driver:` 段）。
-    physics: config/physics.yaml
+    physics: robot-package/mearm-v1/physics/physics.yaml
     simulation:
-      # 留空 = MJCF 由 simulation/mujoco/gen_model.py 从 robot.yaml 生成。
+      # 留空 = MJCF 由 gen_model.py 从 robot.yaml 生成。
       # MeArm 走这条路线：几何/惯量/执行器全部从配置派生，产物 mearm.xml 由
       # test_generated_mjcf_is_in_sync_with_config 盯着与配置同步。
       mjcf: simulation/mujoco/mearm.xml
@@ -41,11 +49,11 @@ robots:
   so-arm101:
     name: SO-ARM101
     # 官方模型派生（TheRobotStudio/SO-ARM100 @ eecbe3e0）——
-    # 由 tools/gen_so_arm101_robot_yaml.py 生成，**禁止手改**。
-    config: config/robots/so-arm101/robot.yaml
+    # 由 robot-package/so-arm101/tools/gen_so_arm101_robot_yaml.py 生成，**禁止手改**。
+    config: robot-package/so-arm101/model/robot.yaml
     # 物理量真值 = **官方 MJCF**（顶层带 `driver:` 段 ⇒ 该文件不复制任何物理量，
     # 只放 ArmPilot 自己的驱动参数 + 审计快照）。
-    physics: config/robots/so-arm101/physics.yaml
+    physics: robot-package/so-arm101/physics/physics.yaml
     simulation:
       # 直接吃**官方 MJCF 原样**（不生成、不改一行）——
       # meshdir="assets" 指向同目录的 assets/，故官方模型零修改即可加载。

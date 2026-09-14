@@ -11,7 +11,7 @@
 //	                          JR 文本协议 ──▶ AVR
 //
 // 两条铁律：
-//  1. **模型/标定/限位真值只有一份**，来自 config/robot.yaml（本服务启动时读入）。
+//  1. **模型/标定/限位真值只有一份**，来自 robot-package/mearm-v1/model/robot.yaml（本服务启动时读入）。
 //  2. **WebSocket 层不碰设备**。所有控制意图必须经 controller。
 package main
 
@@ -143,8 +143,8 @@ func run(cfgPath, robotIDFlag string) error {
 				"关节速度上限（→ 速率限制在控制层做）、独立标定段；质量来自 CAD 而非称重。")
 		} else {
 			log.Printf("⚠️ 这是**参数化物理仿真**（Level 3），不是真机标定模型：" +
-				"质量/惯量/摩擦为公开值或估算值（config/physics.yaml），" +
-				"限位与标定仍沿用 config/robot.yaml。跑 calibrate.py 可见哪些项还是猜的。")
+				"质量/惯量/摩擦为公开值或估算值（robot-package/mearm-v1/physics/physics.yaml），" +
+				"限位与标定仍沿用 robot-package/mearm-v1/model/robot.yaml。跑 calibrate.py 可见哪些项还是猜的。")
 		}
 	default:
 		log.Printf("链路末端: %s (%s @ %d %d%s%d · 静默窗口 %dms · 暖机 %v · 单条固件指令超时 %dms)",
@@ -152,7 +152,7 @@ func run(cfgPath, robotIDFlag string) error {
 			c.Device.Serial.DataBits, c.Device.Serial.Parity, c.Device.Serial.StopBits,
 			c.Device.Serial.ConnectSettleMs, c.Device.Serial.WarmupEnabled(), c.Device.Serial.AckTimeoutMs)
 		log.Printf("⚠️ 真机**没有位置反馈**：joint_state 是固件内部目标值（开环），" +
-			"不代表已物理到位；机械臂是否真的动到目标，只能用相机验收（tools/verify_pose.py）")
+			"不代表已物理到位；机械臂是否真的动到目标，只能用相机验收（robot-package/mearm-v1/tools/verify_pose.py）")
 	}
 
 	// ---- 控制器 ------------------------------------------------------------

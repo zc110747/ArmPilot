@@ -22,17 +22,18 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
-  createMeArmKinematics,
   defineRobot,
   endEffectorPosition,
   forwardKinematics,
   isModel,
   loadRobotModel,
   movableJoints,
-  solveIk,
   type JointState,
   type RobotModel,
 } from '../../src/robot';
+// MeArm 的引擎与解析解住在**包内**（Phase 2 步④）
+import { createMeArmKinematics } from '../../../robot-package/mearm-v1/kinematics/engine';
+import { solveIk } from '../../../robot-package/mearm-v1/kinematics/ik';
 import { loadFkCases, loadIkCases } from '../helpers/mearmV1Baseline';
 
 const model = loadRobotModel('mearm-v1');

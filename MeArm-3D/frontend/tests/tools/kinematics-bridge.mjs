@@ -8,10 +8,13 @@
  * 到底落在哪」。如果验收程序用 Python **重写**一份 IK，那只能证明"我又写了一遍
  * 而且它自洽"——证明不了 `ik.ts` 是对的。所以必须加载**同一份源码**。
  *
- * 但 `ik.ts` 不能直接被 Node 加载，有两个硬障碍：
- *   1. `loadRobotModel.ts` 里写的是 `import robotYamlText from '@config/robot.yaml?raw'`
- *      —— `?raw` 与 `@config` 都是 **Vite 专属**语法，Node 的解析器不认；
- *   2. 所有内部导入都是**无扩展名**的（`from './fk'`），Node ESM 无法解析。
+ * 但 `ik.ts` 不能直接被 Node 加载，有三个硬障碍：
+ *   1. `robotConfigRegistry.ts` / `robotPackage.ts` 用 **`import.meta.glob`** 在
+ *      构建期登记包内真值与 manifest —— 那是 **Vite 专属**语法，Node 的解析器不认；
+ *      （Phase 2 之前这里还有一条 `import ... from '@config/robot.yaml?raw'`，
+ *       真值随包搬走后已改为"向 Registry 要原文"，见 `loadRobotModel.ts`。）
+ *   2. 所有内部导入都是**无扩展名**的（`from './fk'`），Node ESM 无法解析；
+ *   3. `?raw` 这类查询后缀同样是 Vite 专属。
  * 结论：只能用 Vite 自己的 SSR 加载器（`server.ssrLoadModule`）来加载 ——
  * 它复用 `frontend/vite.config.ts`，别名、`?raw`、TS 转译全部照旧，
  * 与浏览器里跑的**是同一套解析规则**。
@@ -48,13 +51,51 @@
  * 响应格式：见文件末尾 `run()` 的组装处。
  */
 import { createServer } from 'vite';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { parse as parseYaml } from 'yaml';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 /** `frontend/` 根 —— vite 的 root 与 configFile 都以它为基准 */
 const FRONTEND_DIR = path.resolve(HERE, '..', '..');
+
+/**
+ * 仓库根（`ArmPilot/MeArm-3D`）—— 向上找"同时含 `core/` 与 `robot-package/`"的那层。
+ *
+ * 刻意不用 `path.resolve(HERE, '../../..')`：深度常量在本项目是被实测过会静默错位的写法
+ * （见 `.workbuddy/memory/playbook.md` §8）。标记法在任意深度都成立。
+ */
+function findRepoRoot(start) {
+  for (let d = start; ; d = path.dirname(d)) {
+    if (existsSync(path.join(d, 'core')) && existsSync(path.join(d, 'robot-package'))) return d;
+    if (path.dirname(d) === d) throw new Error(`无法从 ${start} 向上找到仓库根`);
+  }
+}
+const REPO_DIR = findRepoRoot(FRONTEND_DIR);
+
+/**
+ * 读某台机器人的包 manifest（= 桥**唯一**的路径来源）。
+ *
+ * ⚠️ 这就是本轮改造的要点：桥原先直接写死 `/src/robot/kinematics/ik.ts`。
+ * 那个文件 Phase 2 步④ 起住在**包内**，而"写死的读者"不会报错 ——
+ * 它会以一个"模块找不到"的形式失败，看着像环境问题，实际是路径过期。
+ * 现在桥问 manifest：**包在哪、IK 实现在哪**，由包自己声明。
+ */
+function loadManifest(robotId) {
+  const rel = `robot-package/${robotId}/manifest.yaml`;
+  const abs = path.join(REPO_DIR, rel);
+  if (!existsSync(abs)) {
+    throw new Error(`没有名为 ${robotId} 的 Robot Package（缺 ${rel}）`);
+  }
+  return parseYaml(readFileSync(abs, 'utf8'));
+}
+
+/** 把一个仓库相对路径变成 Vite 认得的 `/@fs/` URL（文件在 vite root 之外时的标准写法） */
+function fsUrl(repoRel) {
+  const abs = path.resolve(REPO_DIR, repoRel).split(path.sep).join('/');
+  return `/@fs/${abs}`;
+}
 
 function parseArgs(argv) {
   const out = { in: null, out: null, info: false, robot: null };
@@ -82,7 +123,11 @@ function sanitizeJoints(joints) {
   return out;
 }
 
-async function loadModules() {
+/**
+ * @param robotIdOrNull `--robot` 的值；`null` ⇒ 用选择器的 `default`
+ *   （与 `loadRobot()` 的缺省语义一致 —— 桥不自己发明一个缺省机器人）。
+ */
+async function loadModules(robotIdOrNull) {
   // middlewareMode：不起监听端口，只借用 Vite 的模块图与转译管线。
   // logLevel 收到 'error'：正常路径上不允许有任何输出。
   const server = await createServer({
@@ -98,15 +143,25 @@ async function loadModules() {
     return mod;
   };
 
-  const ik = await load('/src/robot/kinematics/ik.ts');
   const fk = await load('/src/robot/kinematics/fk.ts');
   const robotModel = await load('/src/robot/model/RobotModel.ts');
   // 选择器 + 注册表：让桥能加载**任意**机器人，而不是只会 loadRobotModel() 的那一台。
   // 走注册表（而不是直接 loadRobotModel(id)）是为了让 `capability` 也一并拿到 ——
   // 「这台机器人有没有 IK」必须由数据声明，桥不猜。
   const registry = await load('/src/robot/registry/RobotRegistry.ts');
+  const selectorMod = await load('/src/robot/model/robotConfigRegistry.ts');
 
-  return { server, ik, fk, robotModel, registry };
+  // id 必须在加载"包内 IK"之前定下来；缺省仍由选择器说了算。
+  const robotId = robotIdOrNull ?? selectorMod.defaultRobotId();
+
+  // IK 实现的位置**问包自己的 manifest**（`kinematics.ik.entry`）。
+  // `type: none` 的包没有 entry ⇒ `ik = null`，而这不是错误：
+  // 「没有逆解」是这台机器人**声明过**的能力事实，桥照实报告。
+  const manifest = loadManifest(robotId);
+  const ikEntry = manifest?.kinematics?.ik?.entry;
+  const ik = typeof ikEntry === 'string' && ikEntry.length > 0 ? await load(fsUrl(ikEntry)) : null;
+
+  return { server, ik, fk, robotModel, registry, manifest, robotId };
 }
 
 function describeModel(ik, model, entry) {
@@ -159,8 +214,27 @@ function describeModel(ik, model, entry) {
     /** 解析式 2R 从模型求导出来的几何量（IK 内部用的就是这几个数）。
      *  ⚠️ 只在**确实有解析 IK** 的机器人上才有值 —— 对 `solverKind:'none'` 的机器人，
      *  这里必须是 `null`，绝不为了"字段看起来完整"而编一组数出来。 */
-    geometry: hasIk ? describeGeometry(ik, model) : null,
+    geometry: hasIk ? describeGeometry(requireIkModule(ik, entry), model) : null,
   };
+}
+
+/**
+ * 取包的 IK 模块；**声明了有 IK 却加载不到**必须响亮失败。
+ *
+ * 这一条是本轮改造的护栏：桥现在按 manifest 的 `kinematics.ik.entry` 加载 IK。
+ * 若有人只改了 `capability.solverKind` 却忘了在 manifest 里写 `entry`（或反过来），
+ * 就会走到这里 —— 报错要指出**是声明与实现不一致**，而不是含糊的
+ * "Cannot read properties of null"。
+ */
+function requireIkModule(ik, entry) {
+  if (ik === null) {
+    throw new Error(
+      `${entry.id} 的引擎声明 solverKind='${entry.kinematics.capability.solverKind}'（= 有逆解），` +
+        '但它的 manifest `kinematics.ik.entry` 是空的 ⇒ 声明与实现不一致。\n' +
+        '  修法：要么在 manifest 里补 `kinematics.ik.entry`，要么把它改成 `type: none`。',
+    );
+  }
+  return ik;
 }
 
 function describeGeometry(ik, model) {
@@ -185,12 +259,12 @@ function describeGeometry(ik, model) {
 }
 
 async function run(opts) {
-  const { server, ik, fk, registry } = await loadModules();
+  const { server, ik, fk, registry, robotId } = await loadModules(opts.robot ?? null);
   try {
     // ⚠️ 一律走注册表（`loadRobot(id?)`）：省略 id 时它读选择器的 default，
     //    与 `loadRobotModel()` 的缺省行为一致 —— 但拿到的 definition/engine
     //    是**同一份对象**，于是"引擎算的"与"桥报告的"不可能错配。
-    const entry = registry.loadRobot(opts.robot ?? undefined);
+    const entry = registry.loadRobot(robotId);
     const model = entry.definition.robotModel;
     const capability = entry.kinematics.capability;
     const hasIk = capability.solverKind !== 'none';
@@ -284,7 +358,7 @@ async function run(opts) {
 
       let result;
       try {
-        result = ik.solveIk(model, target, options);
+        result = requireIkModule(ik, entry).solveIk(model, target, options);
       } catch (error) {
         // `IkModelError` 属实现缺陷/配置错误，不是"目标不可达"，必须单独分类
         response.results.push({

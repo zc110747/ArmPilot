@@ -6,15 +6,23 @@ import (
 	"testing"
 )
 
-// robotYAML 从包目录回溯到 MeArm-3D/config/robot.yaml —— 全程相对路径，
-// 不写死本机绝对路径（换机器 / CI 都能跑）。
+// robotYAML 取**选择器声明的** MeArm-V1 的 `robot.yaml` 绝对路径。
+//
+// 刻意不写相对路径常量：Phase 2 把真值搬进了 `robot-package/<id>/model/`，
+// 而"散落在各处自己拼路径的读者"正是那次搬迁最容易漏改的地方 ——
+// 漏改这一处**不会**报"文件缺失"，它会指向另一个**仍然存在**的同名文件。
+// 从选择器出发 ⇒ 连"仓库根在第几层"都不用猜。
 func robotYAML(t *testing.T) string {
 	t.Helper()
-	p, err := filepath.Abs(filepath.Join("..", "..", "..", "config", "robot.yaml"))
+	sel, err := LoadSelector(selectorYAML(t))
 	if err != nil {
-		t.Fatalf("解析 robot.yaml 路径失败: %v", err)
+		t.Fatalf("LoadSelector 失败: %v", err)
 	}
-	return p
+	entry, ok := sel.Robots["mearm-v1"]
+	if !ok {
+		t.Fatalf("选择器里没有 mearm-v1（Golden Baseline 必须可选）")
+	}
+	return entry.ConfigPath
 }
 
 func loadModel(t *testing.T) *Model {

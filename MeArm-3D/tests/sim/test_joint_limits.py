@@ -64,86 +64,21 @@ def test_physical_range_includes_padding(sim, physics):
 # ---------------------------------------------------------------------------
 # 2. ★ 核心：MuJoCo 会放行真机不可能的位形
 # ---------------------------------------------------------------------------
-
-
-def test_arithmetic_legal_region_is_oblique(robot):
-    """★ 算术证明：合法域在**局部角空间是斜的**，单一 range 无法表达。
-
-    这是纯配置算术（不是仿真观测），用于给下面的实测提供理论依据。
-
-    `elbow` 的绝对限位 [108.4415, 141.8582]、`shoulder` 的 [-6.0937, 49.4549]，
-    局部角 L = θ_elbow − θ_shoulder 的外接区间是
-        [108.4415 − 49.4549, 141.8582 + 6.0937] = [58.9866, 147.9519]
-    但取该区间的**下界**配合肩角**下界**，得到的绝对是越界的：
-        θ_elbow = 58.9866 + (−6.0937) = 52.89°  <  108.4415°   ✗
-    ⇒ 外接盒严格大于合法域。反之"内切"是空集（下界 114.5352 > 上界 92.4033）。
-    """
-    e = robot.joint("elbow")
-    s = robot.joint("shoulder")
-    L_lo = e.limit_min - s.limit_max
-    theta_e_illegal = L_lo + s.limit_min
-    assert theta_e_illegal < e.limit_min - 50.0, "反例构造失败"
-
-    inner_lo = e.limit_min - s.limit_min
-    inner_hi = e.limit_max - s.limit_max
-    assert inner_lo > inner_hi, (
-        f"内切区间非空（{inner_lo:.4f} … {inner_hi:.4f}）⇒ 前提变了，"
-        f"请重新检查 ARCHITECTURE_ANALYSIS §6.3"
-    )
-
-
-def test_mujoco_accepts_real_machine_impossible_pose(sim):
-    """★★ 决定性实测：MuJoCo 会执行一个真机**物理上不可能**的位形。
-
-    真机：`elbow` 绝对角低于下限 ⇒ 舵机 S8 结构上转不到；
-    MuJoCo：它只看到肘的**局部角**（= θe − θs），落在外接区间 [56.99, 149.95] 内
-    ⇒ 照常执行。这不是 MuJoCo 的 bug，而是"单一 hinge range 表达不了斜的合法域"
-    的必然结果。本测试把它固定成**已知事实**，防止后来者误以为 hinge range 就是限位真值。
-
-    ⚠️ 反例窗口只有约 **2°**，这是被动腕带来的**副产品**（务必看完再改）：
-    被动腕 `tool` 也是一条 hinge，它的外接区间 [-53.86, −16.44] 由 elbow 的限位派生；
-    与等式约束 `q_shoulder + q_elbow + q_tool = 90°` 联立后，**恰好**把 elbow 的绝对角
-    钳在 ≥ 106.4415°。于是"命令得动、但真机做不到"的区间被压缩成
-
-        [106.4415°, 108.4415°)      ← 下界来自 tool 的 hinge 区间，上界才是真机限位
-
-    也就是说 MuJoCo 现在**部分**挡住了越限位形（拦得住 53° 那种夸张的，拦不住窗口内的）。
-    ⇒ 结论不变、而且更强：限位一致性的唯一把关人**仍然只能是上层**
-      （IK / Go controller / `limits.py`），不能指望物理引擎替我们挡。
-    """
-    truth_min = sim.robot.joint("elbow").limit_min
-    lock = sim.robot.joint("tool").limit_min          # 被动腕的锁定绝对角（= 90°）
-    tool_hi = float(np.degrees(
-        sim.model.jnt_range[sim.joint_ids.index("tool")][1]))    # tool hinge 区间上界
-    window_lo = lock - tool_hi                        # q_t 顶到上界时的 elbow 下界
-
-    elbow_cmd = 0.5 * (window_lo + truth_min)         # 取窗口正中
-    assert window_lo < elbow_cmd < truth_min, (
-        f"反例构造失败：{elbow_cmd:.4f}° 不在真机做不到的窗口 "
-        f"[{window_lo:.4f}, {truth_min:.4f}) 内")
-
-    sim.reset()
-    sim.set_target_joints({"shoulder": -6.0, "elbow": elbow_cmd})
-    sim.settle(8.0)
-    st = sim.state()
-
-    assert st.joint_angles["elbow"] < truth_min, (
-        f"（前提变了）MuJoCo 竟然拦住了 elbow：实测 {st.joint_angles['elbow']:.4f}°，"
-        f"真机下限 {truth_min:.4f}° —— 若它真能拦住，本测试与配套的 "
-        f"test_ik.py::test_geometrically_reachable_but_limits_block 都要重新论证")
-    # 记录实际位形，便于回归时发现物理行为漂移
-    assert st.joint_angles["elbow"] == pytest.approx(elbow_cmd, abs=1.0), (
-        f"MuJoCo 应基本如实执行（只受 hinge range 约束），实测 {st.joint_angles['elbow']:.4f}°")
-    assert st.joint_angles["shoulder"] == pytest.approx(-6.0, abs=3.0)
-
-
-def test_upper_layer_rejects_that_same_pose(sim):
-    """★ 配对测试：同一条命令，上层校验**必须**拒绝（那是限位一致性的唯一保证）。"""
-    cmd = {"shoulder": -6.0, "elbow": 53.0}
-    v = validate_joints(sim.robot, cmd)
-    assert v is not None, "上层竟未拒绝真机不可达的位形"
-    assert v.joint_id == "elbow"
-    assert v.message() == "ERR JOINT elbow 53.00 (limit 108.44..141.86)"
+#
+# ⚠️ Phase 2 步⑤ 迁走（**留指针，不留尸体**）：
+#
+#   test_arithmetic_legal_region_is_oblique
+#   test_mujoco_accepts_real_machine_impossible_pose
+#   test_upper_layer_rejects_that_same_pose
+#       → robot-package/mearm-v1/tests/test_mearm_v1_structure.py
+#
+# 判据：这三条论证的是「合法域在局部角空间是**斜的**」，而"斜"是
+# `elbow.min > shoulder.max`（MeArm 的平行四连杆耦合）造成的构造事实；
+# 反例窗口只有 2° 更是**被动腕**这个 MeArm 特有件的副产品。换台机器人不成立 ⇒ 属于包。
+# 原地迁走时顺手修掉了一处重复真值：期望文案里的 `108.44..141.86`
+# 现在从 `robot.joint("elbow")` 派生。
+#
+# 本节留下的都是**机制**：物理层保护存在、padding 生效、上层校验与 Go 同语义。
 
 
 # ---------------------------------------------------------------------------

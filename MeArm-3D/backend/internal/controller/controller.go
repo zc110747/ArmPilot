@@ -4,7 +4,7 @@
 //
 //	WebSocket Client → Protocol(编解码) → **Robot Controller** → Device → AVR
 //
-//	- 限位校验：以 config/robot.yaml 为唯一真值，越界直接拒（不写设备）
+//	- 限位校验：以 robot-package/mearm-v1/model/robot.yaml 为唯一真值，越界直接拒（不写设备）
 //	- 标定换算：关节角 → 舵机角（编码前）/ 舵机角 → 关节角（回执后）
 //	- ACK 门控：同一时刻只允许 1 条 JR 在途，避免把串口打爆
 //	- latest-wins：在途期间新命令只覆盖"待发槽"，绝不排队
@@ -203,7 +203,7 @@ func (c *Controller) Apply(joints map[string]float64) error {
 		full[k] = v
 	}
 
-	// 限位校验：唯一真值是 model（= config/robot.yaml）
+	// 限位校验：唯一真值是 model（= robot-package/mearm-v1/model/robot.yaml）
 	if v := c.model.Validate(full); v != nil {
 		return &RejectError{Code: protocol.CodeJointLimit, Message: v.Error()}
 	}
@@ -323,7 +323,7 @@ func (c *Controller) tol() float64 {
 // verifyCalibrationEcho 核对设备回执里的舵机角与本地标定算出的值。
 //
 // 这是"标定表只有一份"的**运行期校验**：若固件（或 sim）内置的标定表与
-// config/robot.yaml 漂移，这里会立刻给出偏差量，而不是让机械臂默默走错。
+// robot-package/mearm-v1/model/robot.yaml 漂移，这里会立刻给出偏差量，而不是让机械臂默默走错。
 // 不匹配只报警告、不阻断（真实链路里偶发的采样抖动不该中断控制）。
 func (c *Controller) verifyCalibrationEcho(servoAngles map[int]float64) {
 	c.mu.Lock()

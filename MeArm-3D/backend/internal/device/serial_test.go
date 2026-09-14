@@ -15,7 +15,7 @@ import (
 // 假固件：只做真固件真正会做的事（含它的怪癖）
 // ---------------------------------------------------------------------------
 
-// fakeHardLimits 取自 MeArm-Device/bsp/servo.h，与 config/robot.yaml 的
+// fakeHardLimits 取自 MeArm-Device/bsp/servo.h，与 robot-package/mearm-v1/model/robot.yaml 的
 // actuator.limits 一致（这是"固件与真值同源"的一处可核对点）。
 var fakeHardLimits = map[int][2]int{9: {30, 150}, 7: {80, 160}, 8: {20, 100}, 6: {40, 130}}
 

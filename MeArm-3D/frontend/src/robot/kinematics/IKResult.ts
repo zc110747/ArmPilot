@@ -33,7 +33,6 @@
  * 失败的信息在 `error`（机器可读码）+ `message`（人可读说明）里。
  */
 import type { JointState } from '../model/Pose';
-import type { IkResult as MeArmIkResult } from './ik';
 
 /**
  * 统一的逆解结果。
@@ -123,29 +122,16 @@ export function ikSuccess(
 /**
  * MeArm 的 `solveIk()` 结果 → 统一 `IKResult`。
  *
- * ⚠️ 这是**纯字段搬运**，不含任何计算。任何"顺手修正一下"都会让
- * 「抽象前后逐位一致」的回归失去意义 —— 那正是本阶段要守的判据。
+ * ★ **Phase 2 起已搬进包**：`robot-package/mearm-v1/kinematics/fromMeArmIkResult.ts`。
  *
- * | MeArm `IkSuccess` | → | `IKResult` |
- * |---|---|---|
- * | `joints` | → | `joints` |
- * | `residual` | → | `positionError` |
- * | `branch` | → | `solutionType` |
- * | （无） | → | `orientationError = null`（本机无姿态自由度） |
+ * 为什么搬：字段映射表（`residual` → `positionError` 等）是**这一台机器人**的实现细节，
+ * 换个求解器字段名必然不同。留在 Core 会让"Core 里出现 MeArm 的字段名"这件事
+ * 变成架构上的既成事实。
  *
- * | MeArm `IkFailure` | → | `IKResult` |
- * |---|---|---|
- * | `{}` | → | `joints: {}` |
- * | （无） | → | `positionError = null` |
- * | `reason` | → | `error` |
- * | `message` | → | `message` |
+ * 契约（Core 侧只有形状与构造子）：
+ *   - `IKResult` / `ikFailure` / `ikSuccess` / `positionErrorOf` ← 留在这里
+ *   - `fromMeArmIkResult` ← 在包内
  */
-export function fromMeArmIkResult(result: MeArmIkResult): IKResult {
-  if (result.success) {
-    return ikSuccess(result.joints, result.residual, result.branch, null);
-  }
-  return ikFailure(result.reason, result.message);
-}
 
 /** 供上层断言用的工具：位置误差（`null` ⇒ `Infinity`，便于直接比大小） */
 export function positionErrorOf(result: IKResult): number {

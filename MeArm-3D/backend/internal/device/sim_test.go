@@ -13,7 +13,7 @@ import (
 
 func loadModel(t *testing.T) *robot.Model {
 	t.Helper()
-	p, err := filepath.Abs(filepath.Join("..", "..", "..", "config", "robot.yaml"))
+	p, err := filepath.Abs(filepath.Join("..", "..", "..", "robot-package", "mearm-v1", "model", "robot.yaml"))
 	if err != nil {
 		t.Fatalf("路径解析失败: %v", err)
 	}

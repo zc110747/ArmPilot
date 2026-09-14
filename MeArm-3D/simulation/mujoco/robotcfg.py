@@ -1,10 +1,12 @@
 """读取模型配置真值（**与前端、Go 后端共用同一批文件**）：
 
-    config/robots.yaml           —— 模型**选择器**（只有 id / name / config + 文件指针）
-    config/robot.yaml            —— MeArm-V1 的运动学 / 标定 / 限位
-    config/physics.yaml          —— MeArm-V1 的纯物理量（质量 / 密度 / 摩擦 / 舵机 / 时间步）
-    config/robots/<id>/robot.yaml    —— 其他机器人的运动学（如 SO-ARM101，生成产物）
-    config/robots/<id>/physics.yaml  —— 其他机器人的物理量（真值来源可能是官方 MJCF）
+    config/robots.yaml                        —— 模型**选择器**（只有 id / name / 文件指针）
+    robot-package/<id>/model/robot.yaml       —— 运动学 / 标定 / 限位（**随包走**）
+    robot-package/<id>/physics/physics.yaml   —— 纯物理量（质量/密度/摩擦/舵机/时间步）
+
+★ Phase 2 起真值**随包走**：本模块里**不再出现任何一台机器人的路径**。
+  缺省路径（`load_robot()` / `load_physics()` 不传参时）一律**问选择器要**
+  （`default_robot_config_file()` / `default_physics_config_file()`）。
 
 本模块只做"文件 → 结构化对象"，不做任何推导，也不产生 MuJoCo 依赖，
 因此可以被 `gen_model.py`（生成 XML）与 `model.py`（运行时）共用，也可以单测。
@@ -33,13 +35,33 @@ import yaml
 PKG_DIR = Path(__file__).resolve().parent
 # PKG_DIR = <root>/simulation/mujoco ⇒ parents[0]=simulation, parents[1]=<root>
 PROJECT_ROOT = PKG_DIR.parents[1]
-CONFIG_DIR = PROJECT_ROOT / "config"
 
-SELECTOR_YAML = CONFIG_DIR / "robots.yaml"
-ROBOTS_DIR = CONFIG_DIR / "robots"
+#: 模型**选择器**（三端共用；Phase 3 起"当前机器人"将由 working-robot 承担，
+#: 而它降级为"没有运行实例时的裸运行缺省"）。
+#:
+#: ⚠️ 注意这里**没有** `CONFIG_DIR` 了：Phase 2 把真值搬进包之后，
+#:   仓库根的 `config/` 已**不再存放任何一台机器人的真值**，
+#:   只剩这一个选择器。留一个叫 `CONFIG_DIR` 的常量会让人以为真值还在那儿。
+SELECTOR_YAML = PROJECT_ROOT / "config" / "robots.yaml"
 
-ROBOT_YAML = CONFIG_DIR / "robot.yaml"
-PHYSICS_YAML = CONFIG_DIR / "physics.yaml"
+
+def default_robot_config_file() -> Path:
+    """缺省的运动学真值文件 = **选择器 default 那台**的 `model.config`。
+
+    Phase 2 之前这里是硬编码的 `config/robot.yaml` —— 那是"Core 里写死了
+    MeArm 的路径"，既违反"只放指针不放数值"，也让搬迁必须改代码。
+    现在改成问选择器，于是**没有任何一台机器人的路径出现在 Core 里**。
+    """
+    return resolve_robot_entry(None).config_file
+
+
+def default_physics_config_file() -> Path:
+    """缺省的物理量文件 = 选择器 default 那台的 `model.physics`。"""
+    entry = resolve_robot_entry(None)
+    p = entry.physics_file
+    if p is None:
+        raise ConfigError(f"{entry.id} 的 manifest/选择器没有声明 physics 文件")
+    return p
 
 
 class ConfigError(RuntimeError):
@@ -167,7 +189,7 @@ class RobotCfg:
 
     #: 模型标识（`robot.yaml` 的 `robot.model`，如 `"MeArm-V1"`）。
     #: **只读元数据，不参与任何运动学/物理推导** —— 它唯一的用途是让
-    #: 「抽象前后行为一致」这句验收话可被机器检查（见 tests/baseline/mearm-v1/）。
+    #: 「抽象前后行为一致」这句验收话可被机器检查（见 robot-package/mearm-v1/tests/cases/）。
     model: str | None = None
     #: 模型语义版本（`robot.yaml` 的 `robot.version`）。同上，只读元数据。
     model_version: str | None = None
@@ -247,7 +269,7 @@ class RobotCfg:
 
 
 def load_robot(path: Path | str | None = None) -> RobotCfg:
-    p = Path(path) if path is not None else ROBOT_YAML
+    p = Path(path) if path is not None else default_robot_config_file()
     if not p.is_file():
         raise ConfigError(f"找不到 robot.yaml：{p}")
     raw = yaml.safe_load(p.read_text(encoding="utf-8"))
@@ -648,7 +670,7 @@ class PhysicsCfg:
 
 
 def load_physics(path: Path | str | None = None) -> PhysicsCfg:
-    p = Path(path) if path is not None else PHYSICS_YAML
+    p = Path(path) if path is not None else default_physics_config_file()
     if not p.is_file():
         raise ConfigError(f"找不到 physics.yaml：{p}")
     raw = yaml.safe_load(p.read_text(encoding="utf-8"))

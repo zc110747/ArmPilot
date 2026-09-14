@@ -1,8 +1,8 @@
 // Package cfg 读取后端运行配置（backend/config.yaml）。
 //
-// 注意与 config/robot.yaml 的分工：
+// 注意与 robot-package/mearm-v1/model/robot.yaml 的分工：
 //
-//	config/robot.yaml   —— **模型/标定/限位真值**（前后端共用，唯一来源）
+//	robot-package/mearm-v1/model/robot.yaml   —— **模型/标定/限位真值**（前后端共用，唯一来源）
 //	backend/config.yaml —— 仅本服务的**运行参数**（端口、设备模式、模拟器参数）
 //
 // 运行配置里绝不允许出现关节限位或标定数值：那会立刻造成双份真值。
@@ -63,8 +63,8 @@ type DeviceConfig struct {
 // MujocoConfig MuJoCo 物理后端（`device.Device` 的第三个实现）。
 //
 // ⚠️ 与 SimConfig 一样，这里**只放运行参数**（解释器 / 脚本路径 / 时间尺度）。
-//    质量、惯量、摩擦、增益、关节限位一律来自 config/physics.yaml 与
-//    config/robot.yaml —— 在这里再抄一份，就是第二份真值。
+//    质量、惯量、摩擦、增益、关节限位一律来自 robot-package/mearm-v1/physics/physics.yaml 与
+//    robot-package/mearm-v1/model/robot.yaml —— 在这里再抄一份，就是第二份真值。
 type MujocoConfig struct {
 	// Python 解释器命令。留空 = PATH 里的 "python"。
 	// ⚠️ 必须指向装了 mujoco 包的解释器（本机是隔离环境里的那一个）。
@@ -95,7 +95,7 @@ type SimConfig struct {
 
 // SerialConfig 真串口参数（Phase 9 使用）。
 //
-// ⚠️ 这里**只放运行参数**。关节限位与舵机标定一律来自 config/robot.yaml，
+// ⚠️ 这里**只放运行参数**。关节限位与舵机标定一律来自 robot-package/mearm-v1/model/robot.yaml，
 // 写进运行配置就会立刻造成双份真值。
 type SerialConfig struct {
 	Port     string `yaml:"port"`
@@ -232,7 +232,7 @@ func ResolveRobotSelector(configured string) (string, error) {
 // 但正常的启动路径已经改走 `ResolveRobotSelector` + `robot.LoadByID`
 // —— 后者的好处是"加载哪一台"由**三端共用的那一份配置**决定，而不是各端各写一个路径。
 func ResolveRobotConfig(configured string) (string, error) {
-	candidates := []string{configured, "../config/robot.yaml", "config/robot.yaml", "../MeArm-3D/config/robot.yaml"}
+	candidates := []string{configured, "../robot-package/mearm-v1/model/robot.yaml", "robot-package/mearm-v1/model/robot.yaml", "../MeArm-3D/robot-package/mearm-v1/model/robot.yaml"}
 	seen := map[string]bool{}
 	tried := make([]string, 0, len(candidates))
 	for _, c := range candidates {

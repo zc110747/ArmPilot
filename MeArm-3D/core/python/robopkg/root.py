@@ -48,8 +48,9 @@ def repo_relative(path: Path | str) -> str:
     """绝对路径 → 仓库相对路径（正斜杠，跨平台稳定）。
 
     manifest / 选择器里的路径一律是仓库相对路径，比较时必须先规范化 ——
-    `config\\robot.yaml` 与 `config/robot.yaml` 是同一个文件，
+    `pkg\\sub\\a.yaml` 与 `pkg/sub/a.yaml` 是同一个文件，
     但 `Path(...)` 在 Windows 上会给出反斜杠形式，直接比字符串会得到假差异。
+    （示例刻意用**抽象路径**：写一个真实的真值路径会在随包搬迁后变成过期注释。）
     """
     p = Path(path)
     try:

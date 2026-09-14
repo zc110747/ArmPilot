@@ -15,8 +15,9 @@
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
+# ⚠️ `import pytest` 已随三条结构性断言一并迁走（见上方指针注释）——
+#    本文件现在只剩"机制"，不再需要 `pytest.approx`。
 from fkref import fk_joint_origins_mm, fk_tcp_mm
 from harness import MM_TOL as TOL_MM
 from harness import grid_poses, mujoco_tcp_mm, random_pose
@@ -70,29 +71,21 @@ def mujoco_obj(name: str):
 
 
 # ---------------------------------------------------------------------------
-# 1. 定点核对（独立几何常量）
+# 1. 定点核对
 # ---------------------------------------------------------------------------
-
-
-def test_zero_pose_tcp_is_offset_by_the_wrist(sim, robot):
-    """零位：竖直段只有 column + upper_arm + forearm；`tool_link` 那 40mm 是**水平**的。
-
-    ⚠️ 本轮的改动让这条断言**换了形状**：爪被被动腕锁成水平（绝对倾角 90°），
-    所以零位 TCP 不在正上方，而是落在 `(40, 0, 220)`。
-    老模型（爪固连在小臂上、沿小臂延伸）才会得到 `(0, 0, 260)`。
-
-    它仍然是一个**独立于 FK 实现**的几何常量核对：
-      竖直段 = column + upper_arm + forearm 三个 length 之和
-      水平段 = tool_link.length（锁 90° ⇒ 这 40mm 完全落在 +径向）
-    """
-    zero = {j.id: 0.0 for j in robot.movable_joints()}
-    got = mujoco_tcp_mm(sim, zero)
-    want_z = sum(robot.link(i).length for i in
-                 ("column_link", "upper_arm_link", "forearm_link"))
-    want_x = robot.link("tool_link").length
-    assert got[2] == pytest.approx(want_z, abs=TOL_MM), f"竖直段 {got[2]} vs {want_z}"
-    assert got[0] == pytest.approx(want_x, abs=TOL_MM), f"水平段 {got[0]} vs {want_x}"
-    assert abs(got[1]) < TOL_MM
+#
+# ⚠️ Phase 2 步⑤ 迁走（**留指针，不留尸体**）：
+#
+#   test_zero_pose_tcp_is_offset_by_the_wrist
+#   test_gripper_does_not_move_tcp
+#   test_coupling_heavy_poses_fk_agreement
+#       → robot-package/mearm-v1/tests/test_mearm_v1_structure.py
+#
+# 判据：它们断言的是**这台机器人的构造事实**（连杆命名、被动腕 90° 锁定、
+# `elbow` 绝对角 + 平行四连杆耦合），换一台机器人就不成立 ⇒ 属于包。
+# 本文件留下的都是**机制**：随机/角点批量对比、锚点逐级核对。
+#
+# 这里刻意**不放注释掉的副本** —— 迟早会有人取消注释，然后两处一起漂移。
 
 
 def test_home_pose_fk_matches(sim, robot):
@@ -140,40 +133,6 @@ def test_limit_corner_poses_fk_agreement(sim, robot):
             for js in poses]
     print(f"[FK] 角点 N={len(poses)}  max={max(errs):.3e} mm")
     assert max(errs) < TOL_MM
-
-
-def test_coupling_heavy_poses_fk_agreement(sim, robot):
-    """专打**耦合最重**的区域：shoulder 与 elbow 同时扫到两端。
-
-    elbow 存的是**绝对倾角**、且与 shoulder 通过平行四连杆耦合（gain=-1）。
-    局部角 = θ_elbow − θ_shoulder，所以这一段最容易出现"绝对/局部搞混"的错误 ——
-    一旦搞混，TCP 会偏出几十毫米，而不是几微米。
-    """
-    sh = robot.joint("shoulder")
-    el = robot.joint("elbow")
-    base = robot.joint("base")
-    errs = []
-    for s in np.linspace(sh.limit_min, sh.limit_max, 7):
-        for e in np.linspace(el.limit_min, el.limit_max, 7):
-            js = {"base": 0.0, "shoulder": float(s), "elbow": float(e), "gripper": 0.0}
-            errs.append(float(np.max(np.abs(fk_tcp_mm(robot, js) - mujoco_tcp_mm(sim, js)))))
-            for b in (base.limit_min, 0.0, base.limit_max):
-                js2 = dict(js, base=float(b))
-                errs.append(float(np.max(np.abs(fk_tcp_mm(robot, js2)
-                                                - mujoco_tcp_mm(sim, js2)))))
-    print(f"[FK] 耦合区 N={len(errs)}  max={max(errs):.3e} mm")
-    assert max(errs) < TOL_MM
-
-
-def test_gripper_does_not_move_tcp(sim, robot):
-    """夹爪开合不得影响 TCP（robot.yaml 刻意把 tcp.joint 取为 tool）。"""
-    base = {"base": 0.0, "shoulder": 20.0, "elbow": 125.0, "gripper": 0.0}
-    a = fk_tcp_mm(robot, dict(base, gripper=0.0))
-    b = fk_tcp_mm(robot, dict(base, gripper=90.0))
-    assert np.array_equal(a, b), f"参考 FK 里夹爪影响了 TCP：{a} vs {b}"
-    pa = mujoco_tcp_mm(sim, dict(base, gripper=0.0))
-    pb = mujoco_tcp_mm(sim, dict(base, gripper=90.0))
-    assert np.array_equal(pa, pb), f"MuJoCo 里夹爪影响了 TCP：{pa} vs {pb}"
 
 
 # ---------------------------------------------------------------------------

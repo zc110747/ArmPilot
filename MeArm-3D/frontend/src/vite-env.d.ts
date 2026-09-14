@@ -29,17 +29,21 @@ interface ImportMeta {
   readonly env: ImportMetaEnv;
 }
 
-/** 通过 `?raw` 导入的文本资源（如 config/robot.yaml） */
+/** 通过 `?raw` 导入的文本资源（如 config/robots.yaml） */
 declare module '*?raw' {
   const content: string;
   export default content;
 }
 
 /**
- * config/robot.yaml 位于 vite root（frontend/）之外，由 vite.config.ts 的 `@config` alias 解析。
- * 这里显式声明，使 tsc 类型检查无需真的去解析该文件。
+ * `config/robots.yaml` 位于 vite root（frontend/）之外，由 vite.config.ts 的
+ * `@config` alias 解析。这里显式声明，使 tsc 类型检查无需真的去解析该文件。
+ *
+ * ⚠️ 只剩**选择器**走这条路。各机器人的 `robot.yaml` 真值已随包搬到
+ *   `robot-package/<id>/model/`，由 `robotConfigRegistry` 的
+ *   `import.meta.glob` 在构建期登记（见该文件），**不再**有 `@config/robot.yaml`。
  */
-declare module '@config/robot.yaml?raw' {
+declare module '@config/robots.yaml?raw' {
   const content: string;
   export default content;
 }

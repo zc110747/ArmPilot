@@ -1,0 +1,3521 @@
+{
+  "model": "MeArm-V1",
+  "modelVersion": "1.0.0",
+  "robotId": "mearm",
+  "robotName": "mARM",
+  "seed": 20260914,
+  "generator": "robot-package/mearm-v1/tools/gen_mearm_v1_baseline.py",
+  "note": "本文件是 MeArm-V1 冻结时的**行为快照**（characterization baseline）。全部数值由 robot-package/mearm-v1/tools/gen_mearm_v1_baseline.py 从当时的实现**实跑采集**，不是手算、不是推测。它只作回归判据：抽象/重构前后必须逐位一致；有意改变行为时必须重新生成并说明原因。本文件负责的载荷：工作空间判定（可达性 / 错误码 / 2R 几何）",
+  "cases": [
+    {
+      "id": "target_zero",
+      "label": "可达目标 ← 关节空间原点（全 0°；elbow 超限但 FK 可求值，用于几何常量核对）",
+      "kind": "reachable",
+      "target": [
+        40.0,
+        0.0,
+        220.0
+      ],
+      "sagittalDistance": 160.0,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": false,
+        "reason": "JOINT_LIMIT"
+      }
+    },
+    {
+      "id": "target_home",
+      "label": "可达目标 ← HOME 位（固件 RESET 位）",
+      "kind": "reachable",
+      "target": [
+        115.033477420028,
+        0.0,
+        109.223627883391
+      ],
+      "sagittalDistance": 89.738443689115,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_base_min",
+      "label": "可达目标 ← base = min（其余关节取 HOME）",
+      "kind": "reachable",
+      "target": [
+        57.516738710014,
+        -99.621913731408,
+        109.223627883391
+      ],
+      "sagittalDistance": 89.738443689115,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_base_mid",
+      "label": "可达目标 ← base = mid（其余关节取 HOME）",
+      "kind": "reachable",
+      "target": [
+        115.033477420028,
+        0.0,
+        109.223627883391
+      ],
+      "sagittalDistance": 89.738443689115,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_base_max",
+      "label": "可达目标 ← base = max（其余关节取 HOME）",
+      "kind": "reachable",
+      "target": [
+        57.516738710014,
+        99.621913731408,
+        109.223627883391
+      ],
+      "sagittalDistance": 89.738443689115,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_shoulder_min",
+      "label": "可达目标 ← shoulder = min（其余关节取 HOME）",
+      "kind": "reachable",
+      "target": [
+        105.354490349579,
+        0.0,
+        108.78040132152
+      ],
+      "sagittalDistance": 81.5520506299,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_shoulder_mid",
+      "label": "可达目标 ← shoulder = mid（其余关节取 HOME）",
+      "kind": "reachable",
+      "target": [
+        143.401446552846,
+        0.0,
+        103.573033949928
+      ],
+      "sagittalDistance": 112.207256613923,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_shoulder_max",
+      "label": "可达目标 ← shoulder = max（其余关节取 HOME）",
+      "kind": "reachable",
+      "target": [
+        174.638433626076,
+        0.0,
+        81.236109589959
+      ],
+      "sagittalDistance": 136.302898574462,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_elbow_min",
+      "label": "可达目标 ← elbow = min（其余关节取 HOME）",
+      "kind": "reachable",
+      "target": [
+        117.078409333012,
+        0.0,
+        114.684319630678
+      ],
+      "sagittalDistance": 94.506380730496,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_elbow_mid",
+      "label": "可达目标 ← elbow = mid（其余关节取 HOME）",
+      "kind": "reachable",
+      "target": [
+        106.598559602901,
+        0.0,
+        93.933846275365
+      ],
+      "sagittalDistance": 74.745394936553,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_elbow_max",
+      "label": "可达目标 ← elbow = max（其余关节取 HOME）",
+      "kind": "reachable",
+      "target": [
+        90.595394218202,
+        0.0,
+        77.072408243416
+      ],
+      "sagittalDistance": 53.398137039836,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_gripper_min",
+      "label": "可达目标 ← gripper = min（其余关节取 HOME）",
+      "kind": "reachable",
+      "target": [
+        115.033477420028,
+        0.0,
+        109.223627883391
+      ],
+      "sagittalDistance": 89.738443689115,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_gripper_mid",
+      "label": "可达目标 ← gripper = mid（其余关节取 HOME）",
+      "kind": "reachable",
+      "target": [
+        115.033477420028,
+        0.0,
+        109.223627883391
+      ],
+      "sagittalDistance": 89.738443689115,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_gripper_max",
+      "label": "可达目标 ← gripper = max（其余关节取 HOME）",
+      "kind": "reachable",
+      "target": [
+        115.033477420028,
+        0.0,
+        109.223627883391
+      ],
+      "sagittalDistance": 89.738443689115,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_all_min",
+      "label": "可达目标 ← 全部关节取限位下限",
+      "kind": "reachable",
+      "target": [
+        53.699711131281,
+        -93.010628031151,
+        114.241093068807
+      ],
+      "sagittalDistance": 86.514613208556,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_all_max",
+      "label": "可达目标 ← 全部关节取限位上限",
+      "kind": "reachable",
+      "target": [
+        75.100175212125,
+        130.077319124725,
+        49.084889949984
+      ],
+      "sagittalDistance": 110.739590305506,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_rand_000",
+      "label": "可达目标 ← 合法随机位形 #0（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        101.647796441369,
+        -71.385740685501,
+        79.951875244864
+      ],
+      "sagittalDistance": 86.541619251857,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_rand_001",
+      "label": "可达目标 ← 合法随机位形 #1（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        131.60197012205,
+        38.043029285938,
+        79.049016840899
+      ],
+      "sagittalDistance": 98.843255862843,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_rand_002",
+      "label": "可达目标 ← 合法随机位形 #2（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        95.834300987525,
+        -59.073334835166,
+        84.134088419865
+      ],
+      "sagittalDistance": 76.485703827045,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_rand_003",
+      "label": "可达目标 ← 合法随机位形 #3（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        76.156251615751,
+        122.033760140399,
+        76.039343250812
+      ],
+      "sagittalDistance": 105.078536474545,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_rand_004",
+      "label": "可达目标 ← 合法随机位形 #4（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        149.069306231105,
+        6.03839938548,
+        74.308359548676
+      ],
+      "sagittalDistance": 110.125042632931,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_rand_005",
+      "label": "可达目标 ← 合法随机位形 #5（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        129.944825727865,
+        42.839396893728,
+        62.549628195846
+      ],
+      "sagittalDistance": 96.857799652803,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_rand_006",
+      "label": "可达目标 ← 合法随机位形 #6（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        97.233955797887,
+        112.843998998092,
+        98.37930028471
+      ],
+      "sagittalDistance": 115.518894296725,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_rand_007",
+      "label": "可达目标 ← 合法随机位形 #7（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        134.668113426748,
+        -41.723773681255,
+        68.770567256744
+      ],
+      "sagittalDistance": 101.363747526966,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_rand_008",
+      "label": "可达目标 ← 合法随机位形 #8（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        127.083717962453,
+        -54.289201630824,
+        97.750907111606
+      ],
+      "sagittalDistance": 105.200749538174,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_rand_009",
+      "label": "可达目标 ← 合法随机位形 #9（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        114.115731029456,
+        -14.707104812509,
+        73.254957631923
+      ],
+      "sagittalDistance": 76.220924067888,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_rand_010",
+      "label": "可达目标 ← 合法随机位形 #10（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        103.57422386245,
+        -38.972412292857,
+        112.175193284148
+      ],
+      "sagittalDistance": 87.838592910875,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_rand_011",
+      "label": "可达目标 ← 合法随机位形 #11（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        123.061914171415,
+        117.098515626679,
+        85.599464407587
+      ],
+      "sagittalDistance": 132.370376556015,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_rand_012",
+      "label": "可达目标 ← 合法随机位形 #12（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        115.853002743471,
+        -5.647400589116,
+        73.065810739478
+      ],
+      "sagittalDistance": 77.10565164936,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_rand_013",
+      "label": "可达目标 ← 合法随机位形 #13（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        108.479918677671,
+        79.940391615879,
+        96.035688047412
+      ],
+      "sagittalDistance": 101.374027025191,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_rand_014",
+      "label": "可达目标 ← 合法随机位形 #14（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        132.640955460699,
+        -2.962564533425,
+        89.543397459267
+      ],
+      "sagittalDistance": 97.269159037468,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_rand_015",
+      "label": "可达目标 ← 合法随机位形 #15（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        83.397631378255,
+        3.429907573152,
+        77.907517208552
+      ],
+      "sagittalDistance": 47.012314745252,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_rand_016",
+      "label": "可达目标 ← 合法随机位形 #16（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        88.295052716176,
+        83.777090683933,
+        77.840568058395
+      ],
+      "sagittalDistance": 83.640170607169,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_rand_017",
+      "label": "可达目标 ← 合法随机位形 #17（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        87.42126002779,
+        17.588820085046,
+        78.490929474365
+      ],
+      "sagittalDistance": 52.53483684096,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_rand_018",
+      "label": "可达目标 ← 合法随机位形 #18（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        91.586695314173,
+        -53.341395714321,
+        99.029591559612
+      ],
+      "sagittalDistance": 76.666206214094,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_rand_019",
+      "label": "可达目标 ← 合法随机位形 #19（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        73.359347024302,
+        -69.570570977817,
+        83.6128133908
+      ],
+      "sagittalDistance": 65.506074479775,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_rand_020",
+      "label": "可达目标 ← 合法随机位形 #20（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        62.397336732761,
+        105.707351362157,
+        72.636611830771
+      ],
+      "sagittalDistance": 83.708931960115,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_rand_021",
+      "label": "可达目标 ← 合法随机位形 #21（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        130.647399934979,
+        -60.239845888724,
+        61.729734258372
+      ],
+      "sagittalDistance": 103.880944824421,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_rand_022",
+      "label": "可达目标 ← 合法随机位形 #22（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        124.598069761982,
+        23.636109444064,
+        74.363133637344
+      ],
+      "sagittalDistance": 88.000193701561,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_rand_023",
+      "label": "可达目标 ← 合法随机位形 #23（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        111.330733514799,
+        32.857259645263,
+        90.742390669022
+      ],
+      "sagittalDistance": 82.054714077364,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_rand_024",
+      "label": "可达目标 ← 合法随机位形 #24（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        121.315937191078,
+        56.414536484545,
+        73.622559891011
+      ],
+      "sagittalDistance": 94.775594700362,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_rand_025",
+      "label": "可达目标 ← 合法随机位形 #25（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        143.308159993774,
+        19.400026758031,
+        102.340554965292
+      ],
+      "sagittalDistance": 112.858703854972,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_rand_026",
+      "label": "可达目标 ← 合法随机位形 #26（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        148.099146220194,
+        -1.055074557817,
+        106.834080610036
+      ],
+      "sagittalDistance": 117.812007230102,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_rand_027",
+      "label": "可达目标 ← 合法随机位形 #27（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        124.719695971768,
+        36.785095573283,
+        103.656393367569
+      ],
+      "sagittalDistance": 100.057585406609,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_rand_028",
+      "label": "可达目标 ← 合法随机位形 #28（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        100.895028333826,
+        -77.045976393165,
+        104.924864836177
+      ],
+      "sagittalDistance": 97.868600276945,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_rand_029",
+      "label": "可达目标 ← 合法随机位形 #29（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        133.141943507348,
+        75.005499623874,
+        72.659090924794
+      ],
+      "sagittalDistance": 113.523601597566,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_rand_030",
+      "label": "可达目标 ← 合法随机位形 #30（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        148.442368109528,
+        67.844855944205,
+        93.927644221291
+      ],
+      "sagittalDistance": 127.797533830101,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_rand_031",
+      "label": "可达目标 ← 合法随机位形 #31（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        90.047625908149,
+        114.396638153419,
+        70.596025164954
+      ],
+      "sagittalDistance": 106.115945194823,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_rand_032",
+      "label": "可达目标 ← 合法随机位形 #32（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        78.340271902184,
+        107.085255253417,
+        85.173145604869
+      ],
+      "sagittalDistance": 96.039556203486,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_rand_033",
+      "label": "可达目标 ← 合法随机位形 #33（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        129.930330765979,
+        52.55436954541,
+        59.465948514648
+      ],
+      "sagittalDistance": 100.157952780252,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_rand_034",
+      "label": "可达目标 ← 合法随机位形 #34（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        132.65244970626,
+        92.593008755702,
+        72.703814650096
+      ],
+      "sagittalDistance": 122.432736837255,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_rand_035",
+      "label": "可达目标 ← 合法随机位形 #35（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        110.113236464219,
+        -112.066818769407,
+        70.352614360427
+      ],
+      "sagittalDistance": 117.567791507372,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_rand_036",
+      "label": "可达目标 ← 合法随机位形 #36（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        110.444312469421,
+        -109.339273562973,
+        85.434497998172
+      ],
+      "sagittalDistance": 118.181818892816,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_rand_037",
+      "label": "可达目标 ← 合法随机位形 #37（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        90.166540895474,
+        -110.503229371957,
+        58.36046670456
+      ],
+      "sagittalDistance": 102.634864459032,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_rand_038",
+      "label": "可达目标 ← 合法随机位形 #38（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        68.982886075689,
+        -96.279395095439,
+        80.381130496128
+      ],
+      "sagittalDistance": 81.04591645033,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_rand_039",
+      "label": "可达目标 ← 合法随机位形 #39（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        145.921824529224,
+        67.195041407954,
+        67.769651070134
+      ],
+      "sagittalDistance": 120.899699667685,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_rand_040",
+      "label": "可达目标 ← 合法随机位形 #40（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        134.465748221982,
+        -87.061084241383,
+        62.606341610591
+      ],
+      "sagittalDistance": 120.217737326876,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_rand_041",
+      "label": "可达目标 ← 合法随机位形 #41（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        105.704754125282,
+        4.020465951768,
+        85.113124863097
+      ],
+      "sagittalDistance": 70.411883919387,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_rand_042",
+      "label": "可达目标 ← 合法随机位形 #42（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        88.765994184635,
+        -67.298127018149,
+        103.925491363686
+      ],
+      "sagittalDistance": 83.823829237711,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_rand_043",
+      "label": "可达目标 ← 合法随机位形 #43（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        68.331230848807,
+        -95.899591231012,
+        114.37462599728
+      ],
+      "sagittalDistance": 94.879966268518,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_rand_044",
+      "label": "可达目标 ← 合法随机位形 #44（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        132.852199421824,
+        7.456809679572,
+        68.262986807927
+      ],
+      "sagittalDistance": 93.427423429848,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_rand_045",
+      "label": "可达目标 ← 合法随机位形 #45（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        71.099728588775,
+        -102.718627484805,
+        113.635648915873
+      ],
+      "sagittalDistance": 100.44431471278,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_rand_046",
+      "label": "可达目标 ← 合法随机位形 #46（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        124.823447105662,
+        -22.119417064167,
+        101.615962646349
+      ],
+      "sagittalDistance": 96.232004187783,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_rand_047",
+      "label": "可达目标 ← 合法随机位形 #47（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        116.167584517042,
+        13.525807234375,
+        73.10755192679
+      ],
+      "sagittalDistance": 78.060707471923,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_rand_048",
+      "label": "可达目标 ← 合法随机位形 #48（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        124.483471015495,
+        61.211540398738,
+        65.464677620725
+      ],
+      "sagittalDistance": 98.870229895794,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_rand_049",
+      "label": "可达目标 ← 合法随机位形 #49（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        68.837583542768,
+        -77.49206528691,
+        76.063470675429
+      ],
+      "sagittalDistance": 65.647150130107,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_rand_050",
+      "label": "可达目标 ← 合法随机位形 #50（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        134.828644023996,
+        78.499676489684,
+        64.814713621978
+      ],
+      "sagittalDistance": 116.115767944074,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_rand_051",
+      "label": "可达目标 ← 合法随机位形 #51（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        125.912142654244,
+        59.867112965787,
+        110.947571889332
+      ],
+      "sagittalDistance": 111.71389014703,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_rand_052",
+      "label": "可达目标 ← 合法随机位形 #52（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        105.789790292268,
+        -12.889945780751,
+        101.407574716802
+      ],
+      "sagittalDistance": 78.399253472606,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_rand_053",
+      "label": "可达目标 ← 合法随机位形 #53（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        137.471826518579,
+        61.35449286669,
+        82.900313321584
+      ],
+      "sagittalDistance": 112.889085908955,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_rand_054",
+      "label": "可达目标 ← 合法随机位形 #54（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        83.624217332421,
+        100.496623976314,
+        89.040168398485
+      ],
+      "sagittalDistance": 95.272370865849,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_rand_055",
+      "label": "可达目标 ← 合法随机位形 #55（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        110.467115436084,
+        -110.183012804017,
+        72.725237089537
+      ],
+      "sagittalDistance": 116.719086099999,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_rand_056",
+      "label": "可达目标 ← 合法随机位形 #56（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        132.802848643361,
+        48.928683377934,
+        79.229517653575
+      ],
+      "sagittalDistance": 103.334521127553,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_rand_057",
+      "label": "可达目标 ← 合法随机位形 #57（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        102.326347114565,
+        -12.276885617103,
+        77.943826720908
+      ],
+      "sagittalDistance": 65.563471298302,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_rand_058",
+      "label": "可达目标 ← 合法随机位形 #58（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        115.808980222513,
+        -65.422976205965,
+        111.093155649024
+      ],
+      "sagittalDistance": 106.120348759955,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_rand_059",
+      "label": "可达目标 ← 合法随机位形 #59（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        83.227597748415,
+        143.82197320948,
+        82.360479801723
+      ],
+      "sagittalDistance": 128.133504231433,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_rand_060",
+      "label": "可达目标 ← 合法随机位形 #60（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        115.69907356522,
+        53.95804025022,
+        108.692352009226
+      ],
+      "sagittalDistance": 100.278018049861,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_rand_061",
+      "label": "可达目标 ← 合法随机位形 #61（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        147.209109603378,
+        39.507634026065,
+        70.393057835441
+      ],
+      "sagittalDistance": 112.897816888409,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_rand_062",
+      "label": "可达目标 ← 合法随机位形 #62（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        74.090681740628,
+        -85.318132512076,
+        95.486530417884
+      ],
+      "sagittalDistance": 81.166764998686,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_rand_063",
+      "label": "可达目标 ← 合法随机位形 #63（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        147.449068027655,
+        -42.006608417815,
+        61.002003171746
+      ],
+      "sagittalDistance": 113.320387513708,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_rand_064",
+      "label": "可达目标 ← 合法随机位形 #64（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        141.429205597921,
+        -32.904555295006,
+        89.40995415272
+      ],
+      "sagittalDistance": 109.239895282504,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_rand_065",
+      "label": "可达目标 ← 合法随机位形 #65（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        96.915579561821,
+        -62.255875729945,
+        87.637772432012
+      ],
+      "sagittalDistance": 80.107294287934,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_rand_066",
+      "label": "可达目标 ← 合法随机位形 #66（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        101.103088858269,
+        84.9154814979,
+        96.987206821753
+      ],
+      "sagittalDistance": 99.186489026364,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_rand_067",
+      "label": "可达目标 ← 合法随机位形 #67（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        127.213578395299,
+        -91.63725463684,
+        98.136100815889
+      ],
+      "sagittalDistance": 122.851379121952,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_rand_068",
+      "label": "可达目标 ← 合法随机位形 #68（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        102.496107098112,
+        -66.599520982953,
+        87.877990534408
+      ],
+      "sagittalDistance": 86.830160761505,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_rand_069",
+      "label": "可达目标 ← 合法随机位形 #69（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        124.439759646677,
+        -19.475332327109,
+        104.30557080907
+      ],
+      "sagittalDistance": 96.701416538461,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_rand_070",
+      "label": "可达目标 ← 合法随机位形 #70（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        155.639732090074,
+        62.861193460931,
+        73.219625253785
+      ],
+      "sagittalDistance": 128.536473834791,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_rand_071",
+      "label": "可达目标 ← 合法随机位形 #71（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        158.940043723942,
+        -33.42894592953,
+        87.77210810286
+      ],
+      "sagittalDistance": 125.528183937566,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_rand_072",
+      "label": "可达目标 ← 合法随机位形 #72（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        133.078499408183,
+        -14.729144927407,
+        82.864143547093
+      ],
+      "sagittalDistance": 96.634949001339,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_rand_073",
+      "label": "可达目标 ← 合法随机位形 #73（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        117.511831667382,
+        -85.890510563035,
+        105.431694626935
+      ],
+      "sagittalDistance": 114.916762723297,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_rand_074",
+      "label": "可达目标 ← 合法随机位形 #74（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        147.982077033246,
+        38.772662465939,
+        99.984761579241
+      ],
+      "sagittalDistance": 119.844157358243,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_rand_075",
+      "label": "可达目标 ← 合法随机位形 #75（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        115.769986453158,
+        12.231437748483,
+        101.943427470361
+      ],
+      "sagittalDistance": 87.168813171848,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_rand_076",
+      "label": "可达目标 ← 合法随机位形 #76（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        138.424241082096,
+        -81.208896042691,
+        71.310116142977
+      ],
+      "sagittalDistance": 121.016918509095,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_rand_077",
+      "label": "可达目标 ← 合法随机位形 #77（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        106.659966830411,
+        64.964212156362,
+        73.044431748199
+      ],
+      "sagittalDistance": 85.883150423772,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_rand_078",
+      "label": "可达目标 ← 合法随机位形 #78（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        103.121983822372,
+        109.348886076656,
+        88.424088462242
+      ],
+      "sagittalDistance": 113.907520603593,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_rand_079",
+      "label": "可达目标 ← 合法随机位形 #79（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        125.238778084902,
+        -74.093286089773,
+        88.195883725018
+      ],
+      "sagittalDistance": 109.217158957283,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_rand_080",
+      "label": "可达目标 ← 合法随机位形 #80（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        159.095239295836,
+        -62.181690353619,
+        85.708167991482
+      ],
+      "sagittalDistance": 133.317462378292,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_rand_081",
+      "label": "可达目标 ← 合法随机位形 #81（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        143.857796696021,
+        25.788141218706,
+        62.47205476674
+      ],
+      "sagittalDistance": 106.179709330558,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_rand_082",
+      "label": "可达目标 ← 合法随机位形 #82（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        88.756770961567,
+        57.178808469668,
+        102.519994719844
+      ],
+      "sagittalDistance": 78.158260994138,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_rand_083",
+      "label": "可达目标 ← 合法随机位形 #83（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        97.310421933135,
+        4.930063602124,
+        93.699706982586
+      ],
+      "sagittalDistance": 66.591859249463,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_rand_084",
+      "label": "可达目标 ← 合法随机位形 #84（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        86.032989770003,
+        -51.033976788701,
+        91.721465941043
+      ],
+      "sagittalDistance": 67.896517200589,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_rand_085",
+      "label": "可达目标 ← 合法随机位形 #85（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        116.239298716449,
+        -42.273048534786,
+        104.202862370403
+      ],
+      "sagittalDistance": 94.643976401199,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_rand_086",
+      "label": "可达目标 ← 合法随机位形 #86（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        87.261694929804,
+        53.718789630721,
+        87.917790865439
+      ],
+      "sagittalDistance": 68.425379042868,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_rand_087",
+      "label": "可达目标 ← 合法随机位形 #87（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        103.940226957329,
+        -89.316378789202,
+        78.718110470834
+      ],
+      "sagittalDistance": 98.832458577601,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_rand_088",
+      "label": "可达目标 ← 合法随机位形 #88（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        116.895003048654,
+        -17.130470777977,
+        111.865493750472
+      ],
+      "sagittalDistance": 93.789346096055,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_rand_089",
+      "label": "可达目标 ← 合法随机位形 #89（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        128.272842013915,
+        -24.801394124716,
+        77.661855989391
+      ],
+      "sagittalDistance": 92.353083993911,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_rand_090",
+      "label": "可达目标 ← 合法随机位形 #90（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        157.719169831404,
+        61.168585395298,
+        92.632694855662
+      ],
+      "sagittalDistance": 133.223846172507,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_rand_091",
+      "label": "可达目标 ← 合法随机位形 #91（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        108.711662981608,
+        -79.153455713203,
+        104.007346317659
+      ],
+      "sagittalDistance": 104.221642635699,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_rand_092",
+      "label": "可达目标 ← 合法随机位形 #92（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        140.394198583769,
+        -50.142846116838,
+        97.319947542684
+      ],
+      "sagittalDistance": 115.287541756739,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_rand_093",
+      "label": "可达目标 ← 合法随机位形 #93（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        87.038359315663,
+        62.186685448869,
+        105.881420457011
+      ],
+      "sagittalDistance": 81.180418067305,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_rand_094",
+      "label": "可达目标 ← 合法随机位形 #94（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        126.3080355941,
+        30.228796585328,
+        84.984613455845
+      ],
+      "sagittalDistance": 93.283094507611,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_rand_095",
+      "label": "可达目标 ← 合法随机位形 #95（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        115.437453576247,
+        -71.736866132428,
+        81.139640209403
+      ],
+      "sagittalDistance": 98.213715770573,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_rand_096",
+      "label": "可达目标 ← 合法随机位形 #96（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        121.564964503232,
+        44.680317097859,
+        109.697269341213
+      ],
+      "sagittalDistance": 102.386117178703,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_rand_097",
+      "label": "可达目标 ← 合法随机位形 #97（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        74.910857675311,
+        -68.096969049098,
+        91.385803112294
+      ],
+      "sagittalDistance": 68.811194644752,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_rand_098",
+      "label": "可达目标 ← 合法随机位形 #98（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        119.061493776214,
+        -113.380901655148,
+        90.136577237791
+      ],
+      "sagittalDistance": 128.008702472396,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "target_rand_099",
+      "label": "可达目标 ← 合法随机位形 #99（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        71.721488458251,
+        -78.770096035682,
+        99.082221515777
+      ],
+      "sagittalDistance": 77.160208707738,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": true,
+        "reason": null
+      }
+    },
+    {
+      "id": "far_x",
+      "label": "越界目标：远超连杆总长",
+      "kind": "out_of_workspace",
+      "target": [
+        500.0,
+        0.0,
+        100.0
+      ],
+      "sagittalDistance": 461.735855224608,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": false,
+        "reason": "OUT_OF_WORKSPACE"
+      }
+    },
+    {
+      "id": "far_diagonal",
+      "label": "越界目标：三轴同时远离",
+      "kind": "out_of_workspace",
+      "target": [
+        300.0,
+        300.0,
+        300.0
+      ],
+      "sagittalDistance": 453.055045775947,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": false,
+        "reason": "OUT_OF_WORKSPACE"
+      }
+    },
+    {
+      "id": "below_floor",
+      "label": "越界目标：远低于底座",
+      "kind": "out_of_workspace",
+      "target": [
+        100.0,
+        0.0,
+        -200.0
+      ],
+      "sagittalDistance": 266.833281282527,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": false,
+        "reason": "OUT_OF_WORKSPACE"
+      }
+    },
+    {
+      "id": "azimuth_90",
+      "label": "方位角 90°（超出 base ±60°）",
+      "kind": "joint_limit",
+      "target": [
+        0.0,
+        150.0,
+        100.0
+      ],
+      "sagittalDistance": 117.046999107196,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": false,
+        "reason": "JOINT_LIMIT"
+      }
+    },
+    {
+      "id": "azimuth_180",
+      "label": "方位角 180°（正后方）",
+      "kind": "joint_limit",
+      "target": [
+        -150.0,
+        0.0,
+        100.0
+      ],
+      "sagittalDistance": 117.046999107196,
+      "reach": [
+        0.0,
+        160.0
+      ],
+      "geometry": {
+        "pivotZ": 60.0,
+        "pivotR": 0.0,
+        "l1": 80.0,
+        "l2": 80.0,
+        "toolOffset": [
+          40.0,
+          0.0
+        ]
+      },
+      "expect": {
+        "success": false,
+        "reason": "JOINT_LIMIT"
+      }
+    }
+  ],
+  "generated_at": "2026-09-14 15:13:12 +0800"
+}

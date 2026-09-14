@@ -1,0 +1,3912 @@
+{
+  "model": "MeArm-V1",
+  "modelVersion": "1.0.0",
+  "robotId": "mearm",
+  "robotName": "mARM",
+  "seed": 20260914,
+  "generator": "robot-package/mearm-v1/tools/gen_mearm_v1_baseline.py",
+  "note": "本文件是 MeArm-V1 冻结时的**行为快照**（characterization baseline）。全部数值由 robot-package/mearm-v1/tools/gen_mearm_v1_baseline.py 从当时的实现**实跑采集**，不是手算、不是推测。它只作回归判据：抽象/重构前后必须逐位一致；有意改变行为时必须重新生成并说明原因。本文件负责的载荷：XYZ → IK →（FK / MuJoCo）",
+  "tolerances": {
+    "closed_loop_mm": 1e-09
+  },
+  "cases": [
+    {
+      "id": "target_zero",
+      "label": "可达目标 ← 关节空间原点（全 0°；elbow 超限但 FK 可求值，用于几何常量核对）",
+      "kind": "reachable",
+      "target": [
+        40.0,
+        0.0,
+        220.0
+      ],
+      "expect": {
+        "success": false,
+        "reason": "JOINT_LIMIT",
+        "joint": "elbow",
+        "message": "JOINT elbow 0.000 (limit 108.4414852068..141.8582211436)：几何可达但两支解都越界，最接近的一支（elbow-up）仍差 108.441°",
+        "candidateCount": 2
+      }
+    },
+    {
+      "id": "target_home",
+      "label": "可达目标 ← HOME 位（固件 RESET 位）",
+      "kind": "reachable",
+      "target": [
+        115.033477420028,
+        0.0,
+        109.223627883391
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": 0.0,
+          "shoulder": 0.8498937633,
+          "elbow": 112.6185771989,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": 0.0,
+        "relativeAngle": 111.7686834356,
+        "tcpFrontend": [
+          115.033477420028,
+          0.0,
+          109.223627883391
+        ],
+        "tcpMujoco": [
+          115.033477420028,
+          0.0,
+          109.223627883391
+        ]
+      }
+    },
+    {
+      "id": "target_base_min",
+      "label": "可达目标 ← base = min（其余关节取 HOME）",
+      "kind": "reachable",
+      "target": [
+        57.516738710014,
+        -99.621913731408,
+        109.223627883391
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": -60.0,
+          "shoulder": 0.8498937633,
+          "elbow": 112.6185771989,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": -60.0,
+        "relativeAngle": 111.7686834356,
+        "tcpFrontend": [
+          57.516738710014,
+          -99.621913731408,
+          109.223627883391
+        ],
+        "tcpMujoco": [
+          57.516738710014,
+          -99.621913731408,
+          109.223627883391
+        ]
+      }
+    },
+    {
+      "id": "target_base_mid",
+      "label": "可达目标 ← base = mid（其余关节取 HOME）",
+      "kind": "reachable",
+      "target": [
+        115.033477420028,
+        0.0,
+        109.223627883391
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": 0.0,
+          "shoulder": 0.8498937633,
+          "elbow": 112.6185771989,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": 0.0,
+        "relativeAngle": 111.7686834356,
+        "tcpFrontend": [
+          115.033477420028,
+          0.0,
+          109.223627883391
+        ],
+        "tcpMujoco": [
+          115.033477420028,
+          0.0,
+          109.223627883391
+        ]
+      }
+    },
+    {
+      "id": "target_base_max",
+      "label": "可达目标 ← base = max（其余关节取 HOME）",
+      "kind": "reachable",
+      "target": [
+        57.516738710014,
+        99.621913731408,
+        109.223627883391
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": 60.0,
+          "shoulder": 0.8498937633,
+          "elbow": 112.6185771989,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": 60.0,
+        "relativeAngle": 111.7686834356,
+        "tcpFrontend": [
+          57.516738710014,
+          99.621913731408,
+          109.223627883391
+        ],
+        "tcpMujoco": [
+          57.516738710014,
+          99.621913731408,
+          109.223627883391
+        ]
+      }
+    },
+    {
+      "id": "target_shoulder_min",
+      "label": "可达目标 ← shoulder = min（其余关节取 HOME）",
+      "kind": "reachable",
+      "target": [
+        105.354490349579,
+        0.0,
+        108.78040132152
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": 0.0,
+          "shoulder": -6.0936827341,
+          "elbow": 112.6185771989,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": 0.0,
+        "relativeAngle": 118.712259933,
+        "tcpFrontend": [
+          105.354490349579,
+          0.0,
+          108.78040132152
+        ],
+        "tcpMujoco": [
+          105.354490349579,
+          0.0,
+          108.78040132152
+        ]
+      }
+    },
+    {
+      "id": "target_shoulder_mid",
+      "label": "可达目标 ← shoulder = mid（其余关节取 HOME）",
+      "kind": "reachable",
+      "target": [
+        143.401446552846,
+        0.0,
+        103.573033949928
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": 0.0,
+          "shoulder": 21.68062325545,
+          "elbow": 112.6185771989,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": 0.0,
+        "relativeAngle": 90.93795394345,
+        "tcpFrontend": [
+          143.401446552846,
+          0.0,
+          103.573033949928
+        ],
+        "tcpMujoco": [
+          143.401446552846,
+          0.0,
+          103.573033949928
+        ]
+      }
+    },
+    {
+      "id": "target_shoulder_max",
+      "label": "可达目标 ← shoulder = max（其余关节取 HOME）",
+      "kind": "reachable",
+      "target": [
+        174.638433626076,
+        0.0,
+        81.236109589959
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": 0.0,
+          "shoulder": 49.454929245,
+          "elbow": 112.6185771989,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": 0.0,
+        "relativeAngle": 63.1636479539,
+        "tcpFrontend": [
+          174.638433626076,
+          0.0,
+          81.236109589959
+        ],
+        "tcpMujoco": [
+          174.638433626076,
+          0.0,
+          81.236109589959
+        ]
+      }
+    },
+    {
+      "id": "target_elbow_min",
+      "label": "可达目标 ← elbow = min（其余关节取 HOME）",
+      "kind": "reachable",
+      "target": [
+        117.078409333012,
+        0.0,
+        114.684319630678
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": 0.0,
+          "shoulder": 0.8498937633,
+          "elbow": 108.4414852068,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": 0.0,
+        "relativeAngle": 107.5915914435,
+        "tcpFrontend": [
+          117.078409333012,
+          0.0,
+          114.684319630678
+        ],
+        "tcpMujoco": [
+          117.078409333012,
+          0.0,
+          114.684319630678
+        ]
+      }
+    },
+    {
+      "id": "target_elbow_mid",
+      "label": "可达目标 ← elbow = mid（其余关节取 HOME）",
+      "kind": "reachable",
+      "target": [
+        106.598559602901,
+        0.0,
+        93.933846275365
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": 0.0,
+          "shoulder": 0.8498937633,
+          "elbow": 125.1498531752,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": 0.0,
+        "relativeAngle": 124.2999594119,
+        "tcpFrontend": [
+          106.598559602901,
+          0.0,
+          93.933846275365
+        ],
+        "tcpMujoco": [
+          106.598559602901,
+          0.0,
+          93.933846275365
+        ]
+      }
+    },
+    {
+      "id": "target_elbow_max",
+      "label": "可达目标 ← elbow = max（其余关节取 HOME）",
+      "kind": "reachable",
+      "target": [
+        90.595394218202,
+        0.0,
+        77.072408243416
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": 0.0,
+          "shoulder": 0.8498937633,
+          "elbow": 141.8582211436,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": 0.0,
+        "relativeAngle": 141.0083273803,
+        "tcpFrontend": [
+          90.595394218202,
+          0.0,
+          77.072408243416
+        ],
+        "tcpMujoco": [
+          90.595394218202,
+          0.0,
+          77.072408243416
+        ]
+      }
+    },
+    {
+      "id": "target_gripper_min",
+      "label": "可达目标 ← gripper = min（其余关节取 HOME）",
+      "kind": "reachable",
+      "target": [
+        115.033477420028,
+        0.0,
+        109.223627883391
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": 0.0,
+          "shoulder": 0.8498937633,
+          "elbow": 112.6185771989,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": 0.0,
+        "relativeAngle": 111.7686834356,
+        "tcpFrontend": [
+          115.033477420028,
+          0.0,
+          109.223627883391
+        ],
+        "tcpMujoco": [
+          115.033477420028,
+          0.0,
+          109.223627883391
+        ]
+      }
+    },
+    {
+      "id": "target_gripper_mid",
+      "label": "可达目标 ← gripper = mid（其余关节取 HOME）",
+      "kind": "reachable",
+      "target": [
+        115.033477420028,
+        0.0,
+        109.223627883391
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": 0.0,
+          "shoulder": 0.8498937633,
+          "elbow": 112.6185771989,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": 0.0,
+        "relativeAngle": 111.7686834356,
+        "tcpFrontend": [
+          115.033477420028,
+          0.0,
+          109.223627883391
+        ],
+        "tcpMujoco": [
+          115.033477420028,
+          0.0,
+          109.223627883391
+        ]
+      }
+    },
+    {
+      "id": "target_gripper_max",
+      "label": "可达目标 ← gripper = max（其余关节取 HOME）",
+      "kind": "reachable",
+      "target": [
+        115.033477420028,
+        0.0,
+        109.223627883391
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": 0.0,
+          "shoulder": 0.8498937633,
+          "elbow": 112.6185771989,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": 0.0,
+        "relativeAngle": 111.7686834356,
+        "tcpFrontend": [
+          115.033477420028,
+          0.0,
+          109.223627883391
+        ],
+        "tcpMujoco": [
+          115.033477420028,
+          0.0,
+          109.223627883391
+        ]
+      }
+    },
+    {
+      "id": "target_all_min",
+      "label": "可达目标 ← 全部关节取限位下限",
+      "kind": "reachable",
+      "target": [
+        53.699711131281,
+        -93.010628031151,
+        114.241093068807
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": -60.0,
+          "shoulder": -6.0936827341,
+          "elbow": 108.4414852068,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": -60.0,
+        "relativeAngle": 114.5351679409,
+        "tcpFrontend": [
+          53.699711131281,
+          -93.010628031151,
+          114.241093068807
+        ],
+        "tcpMujoco": [
+          53.699711131281,
+          -93.010628031151,
+          114.241093068807
+        ]
+      }
+    },
+    {
+      "id": "target_all_max",
+      "label": "可达目标 ← 全部关节取限位上限",
+      "kind": "reachable",
+      "target": [
+        75.100175212125,
+        130.077319124725,
+        49.084889949984
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": 60.0,
+          "shoulder": 49.454929245,
+          "elbow": 141.8582211436,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": 60.0,
+        "relativeAngle": 92.4032918986,
+        "tcpFrontend": [
+          75.100175212125,
+          130.077319124725,
+          49.084889949984
+        ],
+        "tcpMujoco": [
+          75.100175212125,
+          130.077319124725,
+          49.084889949984
+        ]
+      }
+    },
+    {
+      "id": "target_rand_000",
+      "label": "可达目标 ← 合法随机位形 #0（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        101.647796441369,
+        -71.385740685501,
+        79.951875244864
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": -35.079799034194,
+          "shoulder": 19.414659234467,
+          "elbow": 133.9268328976,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": -35.079799034194,
+        "relativeAngle": 114.512173663133,
+        "tcpFrontend": [
+          101.647796441369,
+          -71.385740685501,
+          79.951875244864
+        ],
+        "tcpMujoco": [
+          101.647796441369,
+          -71.385740685501,
+          79.951875244864
+        ]
+      }
+    },
+    {
+      "id": "target_rand_001",
+      "label": "可达目标 ← 合法随机位形 #1（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        131.60197012205,
+        38.043029285938,
+        79.049016840899
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": 16.12333599407,
+          "shoulder": 27.041965470075,
+          "elbow": 130.734973977276,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": 16.12333599407,
+        "relativeAngle": 103.693008507201,
+        "tcpFrontend": [
+          131.60197012205,
+          38.043029285938,
+          79.049016840899
+        ],
+        "tcpMujoco": [
+          131.60197012205,
+          38.043029285938,
+          79.049016840899
+        ]
+      }
+    },
+    {
+      "id": "target_rand_002",
+      "label": "可达目标 ← 合法随机位形 #2（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        95.834300987525,
+        -59.073334835166,
+        84.134088419865
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": -31.650144672315,
+          "shoulder": 10.163935612329,
+          "elbow": 133.049564501539,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": -31.650144672315,
+        "relativeAngle": 122.88562888921,
+        "tcpFrontend": [
+          95.834300987525,
+          -59.073334835166,
+          84.134088419865
+        ],
+        "tcpMujoco": [
+          95.834300987525,
+          -59.073334835166,
+          84.134088419865
+        ]
+      }
+    },
+    {
+      "id": "target_rand_003",
+      "label": "可达目标 ← 合法随机位形 #3（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        76.156251615751,
+        122.033760140399,
+        76.039343250812
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": 58.033408731667,
+          "shoulder": 32.271747510412,
+          "elbow": 130.168181862403,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": 58.033408731667,
+        "relativeAngle": 97.896434351991,
+        "tcpFrontend": [
+          76.156251615751,
+          122.033760140399,
+          76.039343250812
+        ],
+        "tcpMujoco": [
+          76.156251615751,
+          122.033760140399,
+          76.039343250812
+        ]
+      }
+    },
+    {
+      "id": "target_rand_004",
+      "label": "可达目标 ← 合法随机位形 #4（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        149.069306231105,
+        6.03839938548,
+        74.308359548676
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": 2.319630810912,
+          "shoulder": 36.028780427702,
+          "elbow": 129.040321463987,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": 2.319630810912,
+        "relativeAngle": 93.011541036285,
+        "tcpFrontend": [
+          149.069306231105,
+          6.03839938548,
+          74.308359548677
+        ],
+        "tcpMujoco": [
+          149.069306231105,
+          6.03839938548,
+          74.308359548677
+        ]
+      }
+    },
+    {
+      "id": "target_rand_005",
+      "label": "可达目标 ← 合法随机位形 #5（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        129.944825727865,
+        42.839396893728,
+        62.549628195846
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": 18.24603085085,
+          "shoulder": 35.74644657873,
+          "elbow": 141.236763623814,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": 18.24603085085,
+        "relativeAngle": 105.490317045084,
+        "tcpFrontend": [
+          129.944825727865,
+          42.839396893728,
+          62.549628195846
+        ],
+        "tcpMujoco": [
+          129.944825727865,
+          42.839396893728,
+          62.549628195846
+        ]
+      }
+    },
+    {
+      "id": "target_rand_006",
+      "label": "可达目标 ← 合法随机位形 #6（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        97.233955797887,
+        112.843998998092,
+        98.37930028471
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": 49.249607909802,
+          "shoulder": 26.814855407911,
+          "elbow": 114.376296019746,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": 49.249607909802,
+        "relativeAngle": 87.561440611835,
+        "tcpFrontend": [
+          97.233955797887,
+          112.843998998092,
+          98.37930028471
+        ],
+        "tcpMujoco": [
+          97.233955797887,
+          112.843998998092,
+          98.37930028471
+        ]
+      }
+    },
+    {
+      "id": "target_rand_007",
+      "label": "可达目标 ← 合法随机位形 #7（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        134.668113426748,
+        -41.723773681255,
+        68.770567256744
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": -17.21437558246,
+          "shoulder": 34.346792064121,
+          "elbow": 135.725681515281,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": -17.21437558246,
+        "relativeAngle": 101.37888945116,
+        "tcpFrontend": [
+          134.668113426748,
+          -41.723773681255,
+          68.770567256745
+        ],
+        "tcpMujoco": [
+          134.668113426748,
+          -41.723773681255,
+          68.770567256744
+        ]
+      }
+    },
+    {
+      "id": "target_rand_008",
+      "label": "可达目标 ← 合法随机位形 #8（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        127.083717962453,
+        -54.289201630824,
+        97.750907111606
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": -23.131806446118,
+          "shoulder": 20.080477812883,
+          "elbow": 117.860793062004,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": -23.131806446118,
+        "relativeAngle": 97.780315249121,
+        "tcpFrontend": [
+          127.083717962453,
+          -54.289201630824,
+          97.750907111606
+        ],
+        "tcpMujoco": [
+          127.083717962453,
+          -54.289201630824,
+          97.750907111606
+        ]
+      }
+    },
+    {
+      "id": "target_rand_009",
+      "label": "可达目标 ← 合法随机位形 #9（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        114.115731029456,
+        -14.707104812509,
+        73.254957631923
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": -7.34373381327,
+          "shoulder": 18.434532983745,
+          "elbow": 141.535952369332,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": -7.34373381327,
+        "relativeAngle": 123.101419385587,
+        "tcpFrontend": [
+          114.115731029456,
+          -14.707104812509,
+          73.254957631923
+        ],
+        "tcpMujoco": [
+          114.115731029456,
+          -14.707104812509,
+          73.254957631923
+        ]
+      }
+    },
+    {
+      "id": "target_rand_010",
+      "label": "可达目标 ← 合法随机位形 #10（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        103.57422386245,
+        -38.972412292857,
+        112.175193284148
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": -20.62007432832,
+          "shoulder": -3.142789392178,
+          "elbow": 110.261544690653,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": -20.62007432832,
+        "relativeAngle": 113.404334082831,
+        "tcpFrontend": [
+          103.57422386245,
+          -38.972412292857,
+          112.175193284148
+        ],
+        "tcpMujoco": [
+          103.57422386245,
+          -38.972412292857,
+          112.175193284148
+        ]
+      }
+    },
+    {
+      "id": "target_rand_011",
+      "label": "可达目标 ← 合法随机位形 #11（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        123.061914171415,
+        117.098515626679,
+        85.599464407587
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": 43.577586776784,
+          "shoulder": 44.673043675121,
+          "elbow": 113.025266675632,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": 43.577586776784,
+        "relativeAngle": 68.352223000511,
+        "tcpFrontend": [
+          123.061914171415,
+          117.098515626679,
+          85.599464407587
+        ],
+        "tcpMujoco": [
+          123.061914171415,
+          117.098515626679,
+          85.599464407587
+        ]
+      }
+    },
+    {
+      "id": "target_rand_012",
+      "label": "可达目标 ← 合法随机位形 #12（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        115.853002743471,
+        -5.647400589116,
+        73.065810739478
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": -2.790745906975,
+          "shoulder": 19.054205682324,
+          "elbow": 141.433720272179,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": -2.790745906975,
+        "relativeAngle": 122.379514589855,
+        "tcpFrontend": [
+          115.853002743471,
+          -5.647400589116,
+          73.065810739478
+        ],
+        "tcpMujoco": [
+          115.853002743471,
+          -5.647400589116,
+          73.065810739478
+        ]
+      }
+    },
+    {
+      "id": "target_rand_013",
+      "label": "可达目标 ← 合法随机位形 #13（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        108.479918677671,
+        79.940391615879,
+        96.035688047412
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": 36.387028608872,
+          "shoulder": 18.492901880365,
+          "elbow": 119.8622757895,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": 36.387028608872,
+        "relativeAngle": 101.369373909135,
+        "tcpFrontend": [
+          108.479918677671,
+          79.940391615879,
+          96.035688047412
+        ],
+        "tcpMujoco": [
+          108.479918677671,
+          79.940391615879,
+          96.035688047412
+        ]
+      }
+    },
+    {
+      "id": "target_rand_014",
+      "label": "可达目标 ← 合法随机位形 #14（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        132.640955460699,
+        -2.962564533425,
+        89.543397459267
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": -1.279500936513,
+          "shoulder": 19.758467997938,
+          "elbow": 124.878187102142,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": -1.279500936513,
+        "relativeAngle": 105.119719104204,
+        "tcpFrontend": [
+          132.640955460699,
+          -2.962564533425,
+          89.543397459267
+        ],
+        "tcpMujoco": [
+          132.640955460699,
+          -2.962564533425,
+          89.543397459267
+        ]
+      }
+    },
+    {
+      "id": "target_rand_015",
+      "label": "可达目标 ← 合法随机位形 #15（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        83.397631378255,
+        3.429907573152,
+        77.907517208552
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": 2.355085351479,
+          "shoulder": -5.30292536653,
+          "elbow": 140.522653597502,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": 2.355085351479,
+        "relativeAngle": 145.825578964032,
+        "tcpFrontend": [
+          83.397631378255,
+          3.429907573152,
+          77.907517208552
+        ],
+        "tcpMujoco": [
+          83.397631378255,
+          3.429907573152,
+          77.907517208552
+        ]
+      }
+    },
+    {
+      "id": "target_rand_016",
+      "label": "可达目标 ← 合法随机位形 #16（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        88.295052716176,
+        83.777090683933,
+        77.840568058395
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": 43.495975636395,
+          "shoulder": 19.201074125114,
+          "elbow": 136.16713580372,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": 43.495975636395,
+        "relativeAngle": 116.966061678606,
+        "tcpFrontend": [
+          88.295052716176,
+          83.777090683933,
+          77.840568058395
+        ],
+        "tcpMujoco": [
+          88.295052716176,
+          83.777090683933,
+          77.840568058395
+        ]
+      }
+    },
+    {
+      "id": "target_rand_017",
+      "label": "可达目标 ← 合法随机位形 #17（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        87.42126002779,
+        17.588820085046,
+        78.490929474365
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": 11.375815158036,
+          "shoulder": -1.439922831408,
+          "elbow": 140.223643574231,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": 11.375815158036,
+        "relativeAngle": 141.663566405639,
+        "tcpFrontend": [
+          87.42126002779,
+          17.588820085046,
+          78.490929474365
+        ],
+        "tcpMujoco": [
+          87.42126002779,
+          17.588820085046,
+          78.490929474365
+        ]
+      }
+    },
+    {
+      "id": "target_rand_018",
+      "label": "可达目标 ← 合法随机位形 #18（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        91.586695314173,
+        -53.341395714321,
+        99.029591559612
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": -30.217131036512,
+          "shoulder": -1.97207840904,
+          "elbow": 120.766317632704,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": -30.217131036512,
+        "relativeAngle": 122.738396041744,
+        "tcpFrontend": [
+          91.586695314173,
+          -53.341395714321,
+          99.029591559612
+        ],
+        "tcpMujoco": [
+          91.586695314173,
+          -53.341395714321,
+          99.029591559612
+        ]
+      }
+    },
+    {
+      "id": "target_rand_019",
+      "label": "可达目标 ← 合法随机位形 #19（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        73.359347024302,
+        -69.570570977817,
+        83.6128133908
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": -43.481563160345,
+          "shoulder": 3.039051644229,
+          "elbow": 134.703124550555,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": -43.481563160345,
+        "relativeAngle": 131.664072906326,
+        "tcpFrontend": [
+          73.359347024302,
+          -69.570570977817,
+          83.6128133908
+        ],
+        "tcpMujoco": [
+          73.359347024302,
+          -69.570570977817,
+          83.6128133908
+        ]
+      }
+    },
+    {
+      "id": "target_rand_020",
+      "label": "可达目标 ← 合法随机位形 #20（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        62.397336732761,
+        105.707351362157,
+        72.636611830771
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": 59.447334953984,
+          "shoulder": 22.863355066334,
+          "elbow": 139.771639439933,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": 59.447334953984,
+        "relativeAngle": 116.908284373599,
+        "tcpFrontend": [
+          62.397336732761,
+          105.707351362157,
+          72.636611830771
+        ],
+        "tcpMujoco": [
+          62.397336732761,
+          105.707351362157,
+          72.636611830771
+        ]
+      }
+    },
+    {
+      "id": "target_rand_021",
+      "label": "可达目标 ← 合法随机位形 #21（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        130.647399934979,
+        -60.239845888724,
+        61.729734258372
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": -24.75382273206,
+          "shoulder": 39.531440686724,
+          "elbow": 138.560393130717,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": -24.75382273206,
+        "relativeAngle": 99.028952443993,
+        "tcpFrontend": [
+          130.647399934979,
+          -60.239845888724,
+          61.729734258372
+        ],
+        "tcpMujoco": [
+          130.647399934979,
+          -60.239845888724,
+          61.729734258372
+        ]
+      }
+    },
+    {
+      "id": "target_rand_022",
+      "label": "可达目标 ← 合法随机位形 #22（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        124.598069761982,
+        23.636109444064,
+        74.363133637344
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": 10.741312244979,
+          "shoulder": 23.973420040505,
+          "elbow": 137.239227992772,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": 10.741312244979,
+        "relativeAngle": 113.265807952267,
+        "tcpFrontend": [
+          124.598069761982,
+          23.636109444064,
+          74.363133637344
+        ],
+        "tcpMujoco": [
+          124.598069761982,
+          23.636109444064,
+          74.363133637344
+        ]
+      }
+    },
+    {
+      "id": "target_rand_023",
+      "label": "可达目标 ← 合法随机位形 #23（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        111.330733514799,
+        32.857259645263,
+        90.742390669022
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": 16.443015401073,
+          "shoulder": 8.85018934333,
+          "elbow": 127.143554193737,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": 16.443015401073,
+        "relativeAngle": 118.293364850407,
+        "tcpFrontend": [
+          111.330733514799,
+          32.857259645263,
+          90.742390669022
+        ],
+        "tcpMujoco": [
+          111.330733514799,
+          32.857259645263,
+          90.742390669022
+        ]
+      }
+    },
+    {
+      "id": "target_rand_024",
+      "label": "可达目标 ← 合法随机位形 #24（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        121.315937191078,
+        56.414536484545,
+        73.622559891011
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": 24.939447257788,
+          "shoulder": 28.059742667994,
+          "elbow": 135.412204404871,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": 24.939447257788,
+        "relativeAngle": 107.352461736877,
+        "tcpFrontend": [
+          121.315937191078,
+          56.414536484545,
+          73.622559891011
+        ],
+        "tcpMujoco": [
+          121.315937191078,
+          56.414536484545,
+          73.622559891011
+        ]
+      }
+    },
+    {
+      "id": "target_rand_025",
+      "label": "可达目标 ← 合法随机位形 #25（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        143.308159993774,
+        19.400026758031,
+        102.340554965292
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": 7.709424234536,
+          "shoulder": 22.82472586722,
+          "elbow": 113.106340073281,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": 7.709424234536,
+        "relativeAngle": 90.281614206061,
+        "tcpFrontend": [
+          143.308159993774,
+          19.400026758031,
+          102.340554965292
+        ],
+        "tcpMujoco": [
+          143.308159993774,
+          19.400026758031,
+          102.340554965292
+        ]
+      }
+    },
+    {
+      "id": "target_rand_026",
+      "label": "可达目标 ← 合法随机位形 #26（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        148.099146220194,
+        -1.055074557817,
+        106.834080610036
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": -0.40817451089,
+          "shoulder": 23.995297309971,
+          "elbow": 109.156698131674,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": -0.40817451089,
+        "relativeAngle": 85.161400821703,
+        "tcpFrontend": [
+          148.099146220194,
+          -1.055074557817,
+          106.834080610036
+        ],
+        "tcpMujoco": [
+          148.099146220194,
+          -1.055074557817,
+          106.834080610036
+        ]
+      }
+    },
+    {
+      "id": "target_rand_027",
+      "label": "可达目标 ← 合法随机位形 #27（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        124.719695971768,
+        36.785095573283,
+        103.656393367569
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": 16.433010097998,
+          "shoulder": 12.839757403394,
+          "elbow": 115.422540044443,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": 16.433010097998,
+        "relativeAngle": 102.582782641049,
+        "tcpFrontend": [
+          124.719695971768,
+          36.785095573283,
+          103.656393367569
+        ],
+        "tcpMujoco": [
+          124.719695971768,
+          36.785095573283,
+          103.656393367569
+        ]
+      }
+    },
+    {
+      "id": "target_rand_028",
+      "label": "可达目标 ← 合法随机位形 #28（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        100.895028333826,
+        -77.045976393165,
+        104.924864836177
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": -37.366261870688,
+          "shoulder": 10.386295030288,
+          "elbow": 114.964321276693,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": -37.366261870688,
+        "relativeAngle": 104.578026246405,
+        "tcpFrontend": [
+          100.895028333825,
+          -77.045976393165,
+          104.924864836177
+        ],
+        "tcpMujoco": [
+          100.895028333826,
+          -77.045976393165,
+          104.924864836177
+        ]
+      }
+    },
+    {
+      "id": "target_rand_029",
+      "label": "可达目标 ← 合法随机位形 #29（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        133.141943507348,
+        75.005499623874,
+        72.659090924794
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": 29.394731182029,
+          "shoulder": 38.793673287724,
+          "elbow": 128.401515889242,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": 29.394731182029,
+        "relativeAngle": 89.607842601518,
+        "tcpFrontend": [
+          133.141943507348,
+          75.005499623874,
+          72.659090924794
+        ],
+        "tcpMujoco": [
+          133.141943507348,
+          75.005499623874,
+          72.659090924794
+        ]
+      }
+    },
+    {
+      "id": "target_rand_030",
+      "label": "可达目标 ← 合法随机位形 #30（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        148.442368109528,
+        67.844855944205,
+        93.927644221291
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": 24.56253792779,
+          "shoulder": 37.613978129552,
+          "elbow": 111.595110939208,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": 24.56253792779,
+        "relativeAngle": 73.981132809656,
+        "tcpFrontend": [
+          148.442368109528,
+          67.844855944205,
+          93.927644221292
+        ],
+        "tcpMujoco": [
+          148.442368109528,
+          67.844855944205,
+          93.927644221291
+        ]
+      }
+    },
+    {
+      "id": "target_rand_031",
+      "label": "可达目标 ← 合法随机位形 #31（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        90.047625908149,
+        114.396638153419,
+        70.596025164954
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": 51.791851033799,
+          "shoulder": 35.815547939741,
+          "elbow": 132.723008579282,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": 51.791851033799,
+        "relativeAngle": 96.907460639541,
+        "tcpFrontend": [
+          90.047625908149,
+          114.396638153419,
+          70.596025164954
+        ],
+        "tcpMujoco": [
+          90.047625908149,
+          114.396638153419,
+          70.596025164954
+        ]
+      }
+    },
+    {
+      "id": "target_rand_032",
+      "label": "可达目标 ← 合法随机位形 #32（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        78.340271902184,
+        107.085255253417,
+        85.173145604869
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": 53.811948008021,
+          "shoulder": 21.692172509357,
+          "elbow": 127.916960557392,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": 53.811948008021,
+        "relativeAngle": 106.224788048035,
+        "tcpFrontend": [
+          78.340271902184,
+          107.085255253417,
+          85.173145604869
+        ],
+        "tcpMujoco": [
+          78.340271902184,
+          107.085255253417,
+          85.173145604869
+        ]
+      }
+    },
+    {
+      "id": "target_rand_033",
+      "label": "可达目标 ← 合法随机位形 #33（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        129.930330765979,
+        52.55436954541,
+        59.465948514648
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": 22.022403932749,
+          "shoulder": 39.060190257135,
+          "elbow": 141.550825449552,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": 22.022403932749,
+        "relativeAngle": 102.490635192417,
+        "tcpFrontend": [
+          129.930330765979,
+          52.55436954541,
+          59.465948514648
+        ],
+        "tcpMujoco": [
+          129.930330765979,
+          52.55436954541,
+          59.465948514648
+        ]
+      }
+    },
+    {
+      "id": "target_rand_034",
+      "label": "可达目标 ← 合法随机位形 #34（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        132.65244970626,
+        92.593008755702,
+        72.703814650096
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": 34.915505178141,
+          "shoulder": 43.969377251358,
+          "elbow": 124.118981178038,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": 34.915505178141,
+        "relativeAngle": 80.14960392668,
+        "tcpFrontend": [
+          132.65244970626,
+          92.593008755702,
+          72.703814650096
+        ],
+        "tcpMujoco": [
+          132.65244970626,
+          92.593008755702,
+          72.703814650096
+        ]
+      }
+    },
+    {
+      "id": "target_rand_035",
+      "label": "可达目标 ← 合法随机位形 #35（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        110.113236464219,
+        -112.066818769407,
+        70.352614360427
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": -45.503776706823,
+          "shoulder": 42.238397211787,
+          "elbow": 127.657979221419,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": -45.503776706823,
+        "relativeAngle": 85.419582009632,
+        "tcpFrontend": [
+          110.113236464219,
+          -112.066818769407,
+          70.352614360427
+        ],
+        "tcpMujoco": [
+          110.113236464219,
+          -112.066818769407,
+          70.352614360427
+        ]
+      }
+    },
+    {
+      "id": "target_rand_036",
+      "label": "可达目标 ← 合法随机位形 #36（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        110.444312469421,
+        -109.339273562973,
+        85.434497998172
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": -44.711927841487,
+          "shoulder": 35.187244132977,
+          "elbow": 119.956475639171,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": -44.711927841487,
+        "relativeAngle": 84.769231506194,
+        "tcpFrontend": [
+          110.444312469421,
+          -109.339273562973,
+          85.434497998172
+        ],
+        "tcpMujoco": [
+          110.444312469421,
+          -109.339273562973,
+          85.434497998172
+        ]
+      }
+    },
+    {
+      "id": "target_rand_037",
+      "label": "可达目标 ← 合法随机位形 #37（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        90.166540895474,
+        -110.503229371957,
+        58.36046670456
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": -50.786829232478,
+          "shoulder": 40.816670866414,
+          "elbow": 141.0139416528,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": -50.786829232478,
+        "relativeAngle": 100.197270786386,
+        "tcpFrontend": [
+          90.166540895474,
+          -110.503229371957,
+          58.36046670456
+        ],
+        "tcpMujoco": [
+          90.166540895474,
+          -110.503229371957,
+          58.36046670456
+        ]
+      }
+    },
+    {
+      "id": "target_rand_038",
+      "label": "可达目标 ← 合法随机位形 #38（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        68.982886075689,
+        -96.279395095439,
+        80.381130496128
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": -54.378913555508,
+          "shoulder": 15.868541997791,
+          "elbow": 135.00167474756,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": -54.378913555508,
+        "relativeAngle": 119.133132749769,
+        "tcpFrontend": [
+          68.982886075689,
+          -96.279395095439,
+          80.381130496128
+        ],
+        "tcpMujoco": [
+          68.982886075689,
+          -96.279395095439,
+          80.381130496128
+        ]
+      }
+    },
+    {
+      "id": "target_rand_039",
+      "label": "可达目标 ← 合法随机位形 #39（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        145.921824529224,
+        67.195041407954,
+        67.769651070134
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": 24.72543586223,
+          "shoulder": 45.39517905568,
+          "elbow": 127.235485658261,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": 24.72543586223,
+        "relativeAngle": 81.840306602581,
+        "tcpFrontend": [
+          145.921824529224,
+          67.195041407954,
+          67.769651070134
+        ],
+        "tcpMujoco": [
+          145.921824529224,
+          67.195041407954,
+          67.769651070134
+        ]
+      }
+    },
+    {
+      "id": "target_rand_040",
+      "label": "可达目标 ← 合法随机位形 #40（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        134.465748221982,
+        -87.061084241383,
+        62.606341610591
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": -32.921409330254,
+          "shoulder": 47.466117660442,
+          "elbow": 130.049322598187,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": -32.921409330254,
+        "relativeAngle": 82.583204937745,
+        "tcpFrontend": [
+          134.465748221982,
+          -87.061084241383,
+          62.606341610591
+        ],
+        "tcpMujoco": [
+          134.465748221982,
+          -87.061084241383,
+          62.606341610591
+        ]
+      }
+    },
+    {
+      "id": "target_rand_041",
+      "label": "可达目标 ← 合法随机位形 #41（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        105.704754125282,
+        4.020465951768,
+        85.113124863097
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": 2.178187230039,
+          "shoulder": 5.213384482515,
+          "elbow": 132.996144007496,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": 2.178187230039,
+        "relativeAngle": 127.782759524981,
+        "tcpFrontend": [
+          105.704754125282,
+          4.020465951768,
+          85.113124863097
+        ],
+        "tcpMujoco": [
+          105.704754125282,
+          4.020465951768,
+          85.113124863097
+        ]
+      }
+    },
+    {
+      "id": "target_rand_042",
+      "label": "可达目标 ← 合法随机位形 #42（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        88.765994184635,
+        -67.298127018149,
+        103.925491363686
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": -37.167662461688,
+          "shoulder": -0.008247073851,
+          "elbow": 116.80345395979,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": -37.167662461688,
+        "relativeAngle": 116.811701033641,
+        "tcpFrontend": [
+          88.765994184635,
+          -67.298127018149,
+          103.925491363686
+        ],
+        "tcpMujoco": [
+          88.765994184635,
+          -67.298127018149,
+          103.925491363686
+        ]
+      }
+    },
+    {
+      "id": "target_rand_043",
+      "label": "可达目标 ← 合法随机位形 #43（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        68.331230848807,
+        -95.899591231012,
+        114.37462599728
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": -54.529029317607,
+          "shoulder": 1.404288060515,
+          "elbow": 108.663942905947,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": -54.529029317607,
+        "relativeAngle": 107.259654845432,
+        "tcpFrontend": [
+          68.331230848807,
+          -95.899591231012,
+          114.37462599728
+        ],
+        "tcpMujoco": [
+          68.331230848807,
+          -95.899591231012,
+          114.37462599728
+        ]
+      }
+    },
+    {
+      "id": "target_rand_044",
+      "label": "可达目标 ← 合法随机位形 #44（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        132.852199421824,
+        7.456809679572,
+        68.262986807927
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": 3.212561820009,
+          "shoulder": 30.652796880444,
+          "elbow": 139.199140659553,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": 3.212561820009,
+        "relativeAngle": 108.546343779109,
+        "tcpFrontend": [
+          132.852199421824,
+          7.456809679572,
+          68.262986807927
+        ],
+        "tcpMujoco": [
+          132.852199421824,
+          7.456809679572,
+          68.262986807927
+        ]
+      }
+    },
+    {
+      "id": "target_rand_045",
+      "label": "可达目标 ← 合法随机位形 #45（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        71.099728588775,
+        -102.718627484805,
+        113.635648915873
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": -55.309811762646,
+          "shoulder": 6.611271377677,
+          "elbow": 108.838669455314,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": -55.309811762646,
+        "relativeAngle": 102.227398077637,
+        "tcpFrontend": [
+          71.099728588775,
+          -102.718627484805,
+          113.635648915873
+        ],
+        "tcpMujoco": [
+          71.099728588775,
+          -102.718627484805,
+          113.635648915873
+        ]
+      }
+    },
+    {
+      "id": "target_rand_046",
+      "label": "可达目标 ← 合法随机位形 #46（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        124.823447105662,
+        -22.119417064167,
+        101.615962646349
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": -10.048817294023,
+          "shoulder": 11.350389238822,
+          "elbow": 117.402751516699,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": -10.048817294023,
+        "relativeAngle": 106.052362277877,
+        "tcpFrontend": [
+          124.823447105662,
+          -22.119417064167,
+          101.615962646349
+        ],
+        "tcpMujoco": [
+          124.823447105662,
+          -22.119417064167,
+          101.615962646349
+        ]
+      }
+    },
+    {
+      "id": "target_rand_047",
+      "label": "可达目标 ← 合法随机位形 #47（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        116.167584517042,
+        13.525807234375,
+        73.10755192679
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": 6.641248895732,
+          "shoulder": 19.534691101225,
+          "elbow": 141.132096783774,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": 6.641248895732,
+        "relativeAngle": 121.597405682549,
+        "tcpFrontend": [
+          116.167584517042,
+          13.525807234375,
+          73.10755192679
+        ],
+        "tcpMujoco": [
+          116.167584517042,
+          13.525807234375,
+          73.10755192679
+        ]
+      }
+    },
+    {
+      "id": "target_rand_048",
+      "label": "可达目标 ← 合法随机位形 #48（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        124.483471015495,
+        61.211540398738,
+        65.464677620725
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": 26.184464082651,
+          "shoulder": 34.997358557752,
+          "elbow": 138.665797668509,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": 26.184464082651,
+        "relativeAngle": 103.668439110757,
+        "tcpFrontend": [
+          124.483471015495,
+          61.211540398738,
+          65.464677620725
+        ],
+        "tcpMujoco": [
+          124.483471015495,
+          61.211540398738,
+          65.464677620725
+        ]
+      }
+    },
+    {
+      "id": "target_rand_049",
+      "label": "可达目标 ← 合法随机位形 #49（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        68.837583542768,
+        -77.49206528691,
+        76.063470675429
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": -48.384743395556,
+          "shoulder": 10.059590965664,
+          "elbow": 141.612894959432,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": -48.384743395556,
+        "relativeAngle": 131.553303993768,
+        "tcpFrontend": [
+          68.837583542768,
+          -77.49206528691,
+          76.063470675429
+        ],
+        "tcpMujoco": [
+          68.837583542768,
+          -77.49206528691,
+          76.063470675429
+        ]
+      }
+    },
+    {
+      "id": "target_rand_050",
+      "label": "可达目标 ← 合法随机位形 #50（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        134.828644023996,
+        78.499676489684,
+        64.814713621978
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": 30.208738563055,
+          "shoulder": 44.152634319092,
+          "elbow": 131.094490409307,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": 30.208738563055,
+        "relativeAngle": 86.941856090215,
+        "tcpFrontend": [
+          134.828644023996,
+          78.499676489684,
+          64.814713621978
+        ],
+        "tcpMujoco": [
+          134.828644023996,
+          78.499676489684,
+          64.814713621978
+        ]
+      }
+    },
+    {
+      "id": "target_rand_051",
+      "label": "可达目标 ← 合法随机位形 #51（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        125.912142654244,
+        59.867112965787,
+        110.947571889332
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": 25.429561990434,
+          "shoulder": 17.150938921844,
+          "elbow": 108.583512875446,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": 25.429561990434,
+        "relativeAngle": 91.432573953602,
+        "tcpFrontend": [
+          125.912142654244,
+          59.867112965787,
+          110.947571889332
+        ],
+        "tcpMujoco": [
+          125.912142654244,
+          59.867112965787,
+          110.947571889332
+        ]
+      }
+    },
+    {
+      "id": "target_rand_052",
+      "label": "可达目标 ← 合法随机位形 #52（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        105.789790292268,
+        -12.889945780751,
+        101.407574716802
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": -6.946954659626,
+          "shoulder": -2.541136281723,
+          "elbow": 118.77831390573,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": -6.946954659626,
+        "relativeAngle": 121.319450187453,
+        "tcpFrontend": [
+          105.789790292268,
+          -12.889945780751,
+          101.407574716802
+        ],
+        "tcpMujoco": [
+          105.789790292268,
+          -12.889945780751,
+          101.407574716802
+        ]
+      }
+    },
+    {
+      "id": "target_rand_053",
+      "label": "可达目标 ← 合法随机位形 #53（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        137.471826518579,
+        61.35449286669,
+        82.900313321584
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": 24.051490575969,
+          "shoulder": 33.170479540087,
+          "elbow": 123.421392359186,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": 24.051490575969,
+        "relativeAngle": 90.250912819099,
+        "tcpFrontend": [
+          137.471826518579,
+          61.35449286669,
+          82.900313321584
+        ],
+        "tcpMujoco": [
+          137.471826518579,
+          61.35449286669,
+          82.900313321584
+        ]
+      }
+    },
+    {
+      "id": "target_rand_054",
+      "label": "可达目标 ← 合法随机位形 #54（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        83.624217332421,
+        100.496623976314,
+        89.040168398485
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": 50.235829059184,
+          "shoulder": 18.798025701627,
+          "elbow": 125.708258627268,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": 50.235829059184,
+        "relativeAngle": 106.910232925641,
+        "tcpFrontend": [
+          83.624217332421,
+          100.496623976314,
+          89.040168398485
+        ],
+        "tcpMujoco": [
+          83.624217332421,
+          100.496623976314,
+          89.040168398485
+        ]
+      }
+    },
+    {
+      "id": "target_rand_055",
+      "label": "可达目标 ← 合法随机位形 #55（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        110.467115436084,
+        -110.183012804017,
+        72.725237089537
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": -44.926227675912,
+          "shoulder": 40.584931288438,
+          "elbow": 126.896900919908,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": -44.926227675912,
+        "relativeAngle": 86.31196963147,
+        "tcpFrontend": [
+          110.467115436084,
+          -110.183012804017,
+          72.725237089537
+        ],
+        "tcpMujoco": [
+          110.467115436083,
+          -110.183012804017,
+          72.725237089537
+        ]
+      }
+    },
+    {
+      "id": "target_rand_056",
+      "label": "可达目标 ← 合法随机位形 #56（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        132.802848643361,
+        48.928683377934,
+        79.229517653575
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": 20.225360135888,
+          "shoulder": 29.504055355259,
+          "elbow": 129.046571658816,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": 20.225360135888,
+        "relativeAngle": 99.542516303557,
+        "tcpFrontend": [
+          132.802848643361,
+          48.928683377934,
+          79.229517653575
+        ],
+        "tcpMujoco": [
+          132.802848643361,
+          48.928683377934,
+          79.229517653575
+        ]
+      }
+    },
+    {
+      "id": "target_rand_057",
+      "label": "可达目标 ← 合法随机位形 #57（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        102.326347114565,
+        -12.276885617103,
+        77.943826720908
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": -6.841517075158,
+          "shoulder": 8.306749785164,
+          "elbow": 139.925762014628,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": -6.841517075158,
+        "relativeAngle": 131.619012229464,
+        "tcpFrontend": [
+          102.326347114565,
+          -12.276885617103,
+          77.943826720908
+        ],
+        "tcpMujoco": [
+          102.326347114565,
+          -12.276885617103,
+          77.943826720908
+        ]
+      }
+    },
+    {
+      "id": "target_rand_058",
+      "label": "可达目标 ← 合法随机位形 #58（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        115.808980222513,
+        -65.422976205965,
+        111.093155649024
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": -29.463036315249,
+          "shoulder": 12.767297532494,
+          "elbow": 109.670544133083,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": -29.463036315249,
+        "relativeAngle": 96.903246600589,
+        "tcpFrontend": [
+          115.808980222513,
+          -65.422976205965,
+          111.093155649024
+        ],
+        "tcpMujoco": [
+          115.808980222513,
+          -65.422976205965,
+          111.093155649024
+        ]
+      }
+    },
+    {
+      "id": "target_rand_059",
+      "label": "可达目标 ← 合法随机位形 #59（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        83.227597748415,
+        143.82197320948,
+        82.360479801723
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": 59.942683530433,
+          "shoulder": 43.159755966856,
+          "elbow": 116.740044251007,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": 59.942683530433,
+        "relativeAngle": 73.580288284151,
+        "tcpFrontend": [
+          83.227597748415,
+          143.82197320948,
+          82.360479801723
+        ],
+        "tcpMujoco": [
+          83.227597748415,
+          143.82197320948,
+          82.360479801723
+        ]
+      }
+    },
+    {
+      "id": "target_rand_060",
+      "label": "可达目标 ← 合法随机位形 #60（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        115.69907356522,
+        53.95804025022,
+        108.692352009226
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": 25.002715590368,
+          "shoulder": 9.75978167203,
+          "elbow": 112.140106543156,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": 25.002715590368,
+        "relativeAngle": 102.380324871126,
+        "tcpFrontend": [
+          115.69907356522,
+          53.95804025022,
+          108.692352009226
+        ],
+        "tcpMujoco": [
+          115.69907356522,
+          53.95804025022,
+          108.692352009226
+        ]
+      }
+    },
+    {
+      "id": "target_rand_061",
+      "label": "可达目标 ← 合法随机位形 #61（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        147.209109603378,
+        39.507634026065,
+        70.393057835441
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": 15.022901582478,
+          "shoulder": 39.596987860284,
+          "elbow": 129.839076417369,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": 15.022901582478,
+        "relativeAngle": 90.242088557085,
+        "tcpFrontend": [
+          147.209109603378,
+          39.507634026065,
+          70.393057835441
+        ],
+        "tcpMujoco": [
+          147.209109603378,
+          39.507634026065,
+          70.393057835441
+        ]
+      }
+    },
+    {
+      "id": "target_rand_062",
+      "label": "可达目标 ← 合法随机位形 #62（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        74.090681740628,
+        -85.318132512076,
+        95.486530417884
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": -49.028792254582,
+          "shoulder": 4.557941291909,
+          "elbow": 123.590665946463,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": -49.028792254582,
+        "relativeAngle": 119.032724654554,
+        "tcpFrontend": [
+          74.090681740628,
+          -85.318132512076,
+          95.486530417884
+        ],
+        "tcpMujoco": [
+          74.090681740629,
+          -85.318132512076,
+          95.486530417884
+        ]
+      }
+    },
+    {
+      "id": "target_rand_063",
+      "label": "可达目标 ← 合法随机位形 #63（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        147.449068027655,
+        -42.006608417815,
+        61.002003171746
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": -15.901666418248,
+          "shoulder": 44.586276707105,
+          "elbow": 134.400466946165,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": -15.901666418248,
+        "relativeAngle": 89.81419023906,
+        "tcpFrontend": [
+          147.449068027655,
+          -42.006608417815,
+          61.002003171746
+        ],
+        "tcpMujoco": [
+          147.449068027655,
+          -42.006608417815,
+          61.002003171746
+        ]
+      }
+    },
+    {
+      "id": "target_rand_064",
+      "label": "可达目标 ← 合法随机位形 #64（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        141.429205597921,
+        -32.904555295006,
+        89.40995415272
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": -13.09728990199,
+          "shoulder": 27.44079224208,
+          "elbow": 121.323068287244,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": -13.09728990199,
+        "relativeAngle": 93.882276045164,
+        "tcpFrontend": [
+          141.429205597921,
+          -32.904555295006,
+          89.40995415272
+        ],
+        "tcpMujoco": [
+          141.429205597921,
+          -32.904555295006,
+          89.409954152719
+        ]
+      }
+    },
+    {
+      "id": "target_rand_065",
+      "label": "可达目标 ← 合法随机位形 #65（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        96.915579561821,
+        -62.255875729945,
+        87.637772432012
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": -32.715562363995,
+          "shoulder": 9.862003972806,
+          "elbow": 129.773252459013,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": -32.715562363995,
+        "relativeAngle": 119.911248486207,
+        "tcpFrontend": [
+          96.915579561821,
+          -62.255875729945,
+          87.637772432012
+        ],
+        "tcpMujoco": [
+          96.915579561821,
+          -62.255875729945,
+          87.637772432012
+        ]
+      }
+    },
+    {
+      "id": "target_rand_066",
+      "label": "可达目标 ← 合法随机位形 #66（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        101.103088858269,
+        84.9154814979,
+        96.987206821753
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": 40.026566593917,
+          "shoulder": 16.415037080496,
+          "elbow": 119.795100644424,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": 40.026566593917,
+        "relativeAngle": 103.380063563928,
+        "tcpFrontend": [
+          101.103088858269,
+          84.9154814979,
+          96.987206821753
+        ],
+        "tcpMujoco": [
+          101.103088858269,
+          84.9154814979,
+          96.987206821753
+        ]
+      }
+    },
+    {
+      "id": "target_rand_067",
+      "label": "可达目标 ← 合法随机位形 #67（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        127.213578395299,
+        -91.63725463684,
+        98.136100815889
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": -35.766781741233,
+          "shoulder": 32.0738025416,
+          "elbow": 111.756545637326,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": -35.766781741233,
+        "relativeAngle": 79.682743095726,
+        "tcpFrontend": [
+          127.213578395299,
+          -91.63725463684,
+          98.136100815889
+        ],
+        "tcpMujoco": [
+          127.213578395299,
+          -91.63725463684,
+          98.136100815889
+        ]
+      }
+    },
+    {
+      "id": "target_rand_068",
+      "label": "可达目标 ← 合法随机位形 #68（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        102.496107098112,
+        -66.599520982953,
+        87.877990534408
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": -33.014848435147,
+          "shoulder": 14.139595520812,
+          "elbow": 128.405905051525,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": -33.014848435147,
+        "relativeAngle": 114.266309530713,
+        "tcpFrontend": [
+          102.496107098112,
+          -66.599520982953,
+          87.877990534408
+        ],
+        "tcpMujoco": [
+          102.496107098112,
+          -66.599520982953,
+          87.877990534408
+        ]
+      }
+    },
+    {
+      "id": "target_rand_069",
+      "label": "可达目标 ← 合法随机位形 #69（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        124.439759646677,
+        -19.475332327109,
+        104.30557080907
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": -8.894870369978,
+          "shoulder": 9.915511732334,
+          "elbow": 115.5464768233,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": -8.894870369978,
+        "relativeAngle": 105.630965090966,
+        "tcpFrontend": [
+          124.439759646677,
+          -19.475332327109,
+          104.30557080907
+        ],
+        "tcpMujoco": [
+          124.439759646677,
+          -19.475332327109,
+          104.30557080907
+        ]
+      }
+    },
+    {
+      "id": "target_rand_070",
+      "label": "可达目标 ← 合法随机位形 #70（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        155.639732090074,
+        62.861193460931,
+        73.219625253785
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": 21.993246160852,
+          "shoulder": 47.548337493296,
+          "elbow": 120.645357281262,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": 21.993246160852,
+        "relativeAngle": 73.097019787966,
+        "tcpFrontend": [
+          155.639732090074,
+          62.861193460931,
+          73.219625253785
+        ],
+        "tcpMujoco": [
+          155.639732090074,
+          62.861193460931,
+          73.219625253785
+        ]
+      }
+    },
+    {
+      "id": "target_rand_071",
+      "label": "可达目标 ← 合法随机位形 #71（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        158.940043723942,
+        -33.42894592953,
+        87.77210810286
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": -11.877571576055,
+          "shoulder": 38.897191265088,
+          "elbow": 115.538823009761,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": -11.877571576055,
+        "relativeAngle": 76.641631744673,
+        "tcpFrontend": [
+          158.940043723942,
+          -33.42894592953,
+          87.77210810286
+        ],
+        "tcpMujoco": [
+          158.940043723942,
+          -33.42894592953,
+          87.77210810286
+        ]
+      }
+    },
+    {
+      "id": "target_rand_072",
+      "label": "可达目标 ← 合法随机位形 #72（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        133.078499408183,
+        -14.729144927407,
+        82.864143547093
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": -6.315798041471,
+          "shoulder": 23.46849938371,
+          "elbow": 129.159204477045,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": -6.315798041471,
+        "relativeAngle": 105.690705093335,
+        "tcpFrontend": [
+          133.078499408183,
+          -14.729144927407,
+          82.864143547093
+        ],
+        "tcpMujoco": [
+          133.078499408183,
+          -14.729144927407,
+          82.864143547093
+        ]
+      }
+    },
+    {
+      "id": "target_rand_073",
+      "label": "可达目标 ← 合法随机位形 #73（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        117.511831667382,
+        -85.890510563035,
+        105.431694626935
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": -36.16342301213,
+          "shoulder": 22.621066493171,
+          "elbow": 110.804027557645,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": -36.16342301213,
+        "relativeAngle": 88.182961064474,
+        "tcpFrontend": [
+          117.511831667382,
+          -85.890510563035,
+          105.431694626935
+        ],
+        "tcpMujoco": [
+          117.511831667382,
+          -85.890510563035,
+          105.431694626935
+        ]
+      }
+    },
+    {
+      "id": "target_rand_074",
+      "label": "可达目标 ← 合法随机位形 #74（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        147.982077033246,
+        38.772662465939,
+        99.984761579241
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": 14.681991604244,
+          "shoulder": 29.016239470717,
+          "elbow": 112.00408771809,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": 14.681991604244,
+        "relativeAngle": 82.987848247373,
+        "tcpFrontend": [
+          147.982077033246,
+          38.772662465939,
+          99.984761579241
+        ],
+        "tcpMujoco": [
+          147.982077033246,
+          38.772662465939,
+          99.984761579241
+        ]
+      }
+    },
+    {
+      "id": "target_rand_075",
+      "label": "可达目标 ← 合法随机位形 #75（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        115.769986453158,
+        12.231437748483,
+        101.943427470361
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": 6.03109236163,
+          "shoulder": 4.249193029254,
+          "elbow": 118.226503734716,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": 6.03109236163,
+        "relativeAngle": 113.977310705462,
+        "tcpFrontend": [
+          115.769986453158,
+          12.231437748483,
+          101.943427470361
+        ],
+        "tcpMujoco": [
+          115.769986453158,
+          12.231437748483,
+          101.943427470361
+        ]
+      }
+    },
+    {
+      "id": "target_rand_076",
+      "label": "可达目标 ← 合法随机位形 #76（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        138.424241082096,
+        -81.208896042691,
+        71.310116142977
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": -30.398730159508,
+          "shoulder": 43.781342342825,
+          "elbow": 125.493396718043,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": -30.398730159508,
+        "relativeAngle": 81.712054375218,
+        "tcpFrontend": [
+          138.424241082096,
+          -81.208896042691,
+          71.310116142977
+        ],
+        "tcpMujoco": [
+          138.424241082096,
+          -81.208896042691,
+          71.310116142977
+        ]
+      }
+    },
+    {
+      "id": "target_rand_077",
+      "label": "可达目标 ← 合法随机位形 #77（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        106.659966830411,
+        64.964212156362,
+        73.044431748199
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": 31.344664021975,
+          "shoulder": 23.727779447412,
+          "elbow": 138.799765010262,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": 31.344664021975,
+        "relativeAngle": 115.07198556285,
+        "tcpFrontend": [
+          106.659966830411,
+          64.964212156362,
+          73.044431748199
+        ],
+        "tcpMujoco": [
+          106.659966830411,
+          64.964212156362,
+          73.044431748199
+        ]
+      }
+    },
+    {
+      "id": "target_rand_078",
+      "label": "可达目标 ← 合法随机位形 #78（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        103.121983822372,
+        109.348886076656,
+        88.424088462242
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": 46.678691888481,
+          "shoulder": 30.941422121735,
+          "elbow": 120.15840056316,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": 46.678691888481,
+        "relativeAngle": 89.216978441425,
+        "tcpFrontend": [
+          103.121983822372,
+          109.348886076656,
+          88.424088462242
+        ],
+        "tcpMujoco": [
+          103.121983822372,
+          109.348886076656,
+          88.424088462242
+        ]
+      }
+    },
+    {
+      "id": "target_rand_079",
+      "label": "可达目标 ← 合法随机位形 #79（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        125.238778084902,
+        -74.093286089773,
+        88.195883725018
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": -30.609245278396,
+          "shoulder": 28.086601304072,
+          "elbow": 121.991161828211,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": -30.609245278396,
+        "relativeAngle": 93.904560524139,
+        "tcpFrontend": [
+          125.238778084902,
+          -74.093286089773,
+          88.195883725018
+        ],
+        "tcpMujoco": [
+          125.238778084902,
+          -74.093286089773,
+          88.195883725018
+        ]
+      }
+    },
+    {
+      "id": "target_rand_080",
+      "label": "可达目标 ← 合法随机位形 #80（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        159.095239295836,
+        -62.181690353619,
+        85.708167991482
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": -21.347829647399,
+          "shoulder": 45.314177969729,
+          "elbow": 112.449357908956,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": -21.347829647399,
+        "relativeAngle": 67.135179939227,
+        "tcpFrontend": [
+          159.095239295836,
+          -62.181690353619,
+          85.708167991482
+        ],
+        "tcpMujoco": [
+          159.095239295836,
+          -62.181690353619,
+          85.708167991482
+        ]
+      }
+    },
+    {
+      "id": "target_rand_081",
+      "label": "可达目标 ← 合法随机位形 #81（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        143.857796696021,
+        25.788141218706,
+        62.47205476674
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": 10.162974478455,
+          "shoulder": 40.242716849787,
+          "elbow": 137.089144302756,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": 10.162974478455,
+        "relativeAngle": 96.846427452969,
+        "tcpFrontend": [
+          143.857796696021,
+          25.788141218706,
+          62.47205476674
+        ],
+        "tcpMujoco": [
+          143.857796696021,
+          25.788141218706,
+          62.47205476674
+        ]
+      }
+    },
+    {
+      "id": "target_rand_082",
+      "label": "可达目标 ← 合法随机位形 #82（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        88.756770961567,
+        57.178808469668,
+        102.519994719844
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": 32.790408364223,
+          "shoulder": -3.716689361429,
+          "elbow": 117.800660954777,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": 32.790408364223,
+        "relativeAngle": 121.517350316206,
+        "tcpFrontend": [
+          88.756770961567,
+          57.178808469668,
+          102.519994719844
+        ],
+        "tcpMujoco": [
+          88.756770961567,
+          57.178808469668,
+          102.519994719844
+        ]
+      }
+    },
+    {
+      "id": "target_rand_083",
+      "label": "可达目标 ← 合法随机位形 #83（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        97.310421933135,
+        4.930063602124,
+        93.699706982586
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": 2.900311429271,
+          "shoulder": -5.807119440982,
+          "elbow": 125.003173511209,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": 2.900311429271,
+        "relativeAngle": 130.810292952191,
+        "tcpFrontend": [
+          97.310421933134,
+          4.930063602124,
+          93.699706982586
+        ],
+        "tcpMujoco": [
+          97.310421933135,
+          4.930063602124,
+          93.699706982586
+        ]
+      }
+    },
+    {
+      "id": "target_rand_084",
+      "label": "可达目标 ← 合法随机位形 #84（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        86.032989770003,
+        -51.033976788701,
+        91.721465941043
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": -30.676027493199,
+          "shoulder": -2.74316683054,
+          "elbow": 127.037369158204,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": -30.676027493199,
+        "relativeAngle": 129.780535988744,
+        "tcpFrontend": [
+          86.032989770003,
+          -51.033976788701,
+          91.721465941043
+        ],
+        "tcpMujoco": [
+          86.032989770003,
+          -51.033976788701,
+          91.721465941043
+        ]
+      }
+    },
+    {
+      "id": "target_rand_085",
+      "label": "可达目标 ← 合法随机位形 #85（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        116.239298716449,
+        -42.273048534786,
+        104.202862370403
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": -19.984940455171,
+          "shoulder": 8.422731224485,
+          "elbow": 115.892148848933,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": -19.984940455171,
+        "relativeAngle": 107.469417624448,
+        "tcpFrontend": [
+          116.239298716449,
+          -42.273048534786,
+          104.202862370403
+        ],
+        "tcpMujoco": [
+          116.239298716449,
+          -42.273048534786,
+          104.202862370403
+        ]
+      }
+    },
+    {
+      "id": "target_rand_086",
+      "label": "可达目标 ← 合法随机位形 #86（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        87.261694929804,
+        53.718789630721,
+        87.917790865439
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": 31.616685739064,
+          "shoulder": 1.239585387711,
+          "elbow": 130.601461913904,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": 31.616685739064,
+        "relativeAngle": 129.361876526193,
+        "tcpFrontend": [
+          87.261694929804,
+          53.718789630721,
+          87.917790865439
+        ],
+        "tcpMujoco": [
+          87.261694929804,
+          53.718789630721,
+          87.917790865439
+        ]
+      }
+    },
+    {
+      "id": "target_rand_087",
+      "label": "可达目标 ← 合法随机位形 #87（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        103.940226957329,
+        -89.316378789202,
+        78.718110470834
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": -40.672639523963,
+          "shoulder": 27.231255039834,
+          "elbow": 130.934097133913,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": -40.672639523963,
+        "relativeAngle": 103.702842094079,
+        "tcpFrontend": [
+          103.940226957329,
+          -89.316378789202,
+          78.718110470834
+        ],
+        "tcpMujoco": [
+          103.940226957329,
+          -89.316378789202,
+          78.718110470834
+        ]
+      }
+    },
+    {
+      "id": "target_rand_088",
+      "label": "可达目标 ← 合法随机位形 #88（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        116.895003048654,
+        -17.130470777977,
+        111.865493750472
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": -8.337111686672,
+          "shoulder": 2.313577579809,
+          "elbow": 110.540304006334,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": -8.337111686672,
+        "relativeAngle": 108.226726426525,
+        "tcpFrontend": [
+          116.895003048654,
+          -17.130470777977,
+          111.865493750472
+        ],
+        "tcpMujoco": [
+          116.895003048654,
+          -17.130470777977,
+          111.865493750472
+        ]
+      }
+    },
+    {
+      "id": "target_rand_089",
+      "label": "可达目标 ← 合法随机位形 #89（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        128.272842013915,
+        -24.801394124716,
+        77.661855989391
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": -10.943037089029,
+          "shoulder": 24.229003493935,
+          "elbow": 133.720361635624,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": -10.943037089029,
+        "relativeAngle": 109.491358141689,
+        "tcpFrontend": [
+          128.272842013915,
+          -24.801394124716,
+          77.661855989391
+        ],
+        "tcpMujoco": [
+          128.272842013915,
+          -24.801394124716,
+          77.661855989391
+        ]
+      }
+    },
+    {
+      "id": "target_rand_090",
+      "label": "可达目标 ← 合法随机位形 #90（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        157.719169831404,
+        61.168585395298,
+        92.632694855662
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": 21.197900441137,
+          "shoulder": 42.193164581304,
+          "elbow": 109.449509008972,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": 21.197900441137,
+        "relativeAngle": 67.256344427668,
+        "tcpFrontend": [
+          157.719169831404,
+          61.168585395298,
+          92.632694855662
+        ],
+        "tcpMujoco": [
+          157.719169831404,
+          61.168585395298,
+          92.632694855662
+        ]
+      }
+    },
+    {
+      "id": "target_rand_091",
+      "label": "可达目标 ← 合法随机位形 #91（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        108.711662981608,
+        -79.153455713203,
+        104.007346317659
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": -36.058532968738,
+          "shoulder": 15.66955246591,
+          "elbow": 114.37729920341,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": -36.058532968738,
+        "relativeAngle": 98.7077467375,
+        "tcpFrontend": [
+          108.711662981608,
+          -79.153455713203,
+          104.007346317659
+        ],
+        "tcpMujoco": [
+          108.711662981608,
+          -79.153455713203,
+          104.007346317659
+        ]
+      }
+    },
+    {
+      "id": "target_rand_092",
+      "label": "可达目标 ← 合法随机位形 #92（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        140.394198583769,
+        -50.142846116838,
+        97.319947542684
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": -19.654569980931,
+          "shoulder": 27.212118257395,
+          "elbow": 115.012775279582,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": -19.654569980931,
+        "relativeAngle": 87.800657022187,
+        "tcpFrontend": [
+          140.394198583769,
+          -50.142846116838,
+          97.319947542684
+        ],
+        "tcpMujoco": [
+          140.394198583769,
+          -50.142846116838,
+          97.319947542684
+        ]
+      }
+    },
+    {
+      "id": "target_rand_093",
+      "label": "可达目标 ← 合法随机位形 #93（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        87.038359315663,
+        62.186685448869,
+        105.881420457011
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": 35.544838290016,
+          "shoulder": -3.925370875163,
+          "elbow": 115.096006750616,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": 35.544838290016,
+        "relativeAngle": 119.021377625779,
+        "tcpFrontend": [
+          87.038359315663,
+          62.186685448869,
+          105.881420457011
+        ],
+        "tcpMujoco": [
+          87.038359315663,
+          62.186685448869,
+          105.881420457011
+        ]
+      }
+    },
+    {
+      "id": "target_rand_094",
+      "label": "可达目标 ← 合法随机位形 #94（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        126.3080355941,
+        30.228796585328,
+        84.984613455845
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": 13.459213412751,
+          "shoulder": 20.127624546255,
+          "elbow": 128.801247734179,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": 13.459213412751,
+        "relativeAngle": 108.673623187924,
+        "tcpFrontend": [
+          126.3080355941,
+          30.228796585328,
+          84.984613455845
+        ],
+        "tcpMujoco": [
+          126.3080355941,
+          30.228796585328,
+          84.984613455845
+        ]
+      }
+    },
+    {
+      "id": "target_rand_095",
+      "label": "可达目标 ← 合法随机位形 #95（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        115.437453576247,
+        -71.736866132428,
+        81.139640209403
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": -31.858261803804,
+          "shoulder": 25.437690866072,
+          "elbow": 129.702949823433,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": -31.858261803804,
+        "relativeAngle": 104.265258957361,
+        "tcpFrontend": [
+          115.437453576247,
+          -71.736866132428,
+          81.139640209403
+        ],
+        "tcpMujoco": [
+          115.437453576247,
+          -71.736866132428,
+          81.139640209403
+        ]
+      }
+    },
+    {
+      "id": "target_rand_096",
+      "label": "可达目标 ← 合法随机位形 #96（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        121.564964503232,
+        44.680317097859,
+        109.697269341213
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": 20.180536226008,
+          "shoulder": 10.747276418874,
+          "elbow": 111.176576898533,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": 20.180536226008,
+        "relativeAngle": 100.429300479659,
+        "tcpFrontend": [
+          121.564964503232,
+          44.680317097859,
+          109.697269341213
+        ],
+        "tcpMujoco": [
+          121.564964503232,
+          44.680317097859,
+          109.697269341213
+        ]
+      }
+    },
+    {
+      "id": "target_rand_097",
+      "label": "可达目标 ← 合法随机位形 #97（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        74.910857675311,
+        -68.096969049098,
+        91.385803112294
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": -42.2720931943,
+          "shoulder": -1.664683817663,
+          "elbow": 127.391315231511,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": -42.2720931943,
+        "relativeAngle": 129.055999049174,
+        "tcpFrontend": [
+          74.910857675311,
+          -68.096969049098,
+          91.385803112294
+        ],
+        "tcpMujoco": [
+          74.910857675311,
+          -68.096969049098,
+          91.385803112294
+        ]
+      }
+    },
+    {
+      "id": "target_rand_098",
+      "label": "可达目标 ← 合法随机位形 #98（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        119.061493776214,
+        -113.380901655148,
+        90.136577237791
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": -43.600043766614,
+          "shoulder": 39.518561028531,
+          "elbow": 113.247967881111,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": -43.600043766614,
+        "relativeAngle": 73.72940685258,
+        "tcpFrontend": [
+          119.061493776214,
+          -113.380901655148,
+          90.136577237791
+        ],
+        "tcpMujoco": [
+          119.061493776214,
+          -113.380901655148,
+          90.136577237791
+        ]
+      }
+    },
+    {
+      "id": "target_rand_099",
+      "label": "可达目标 ← 合法随机位形 #99（seed=20260914）",
+      "kind": "reachable",
+      "target": [
+        71.721488458251,
+        -78.770096035682,
+        99.082221515777
+      ],
+      "expect": {
+        "success": true,
+        "branch": "elbow-up",
+        "joints": {
+          "base": -47.681615314948,
+          "shoulder": -1.598930532332,
+          "elbow": 120.735985927016,
+          "gripper": 50.0
+        },
+        "residual": 0.0,
+        "azimuth": -47.681615314948,
+        "relativeAngle": 122.334916459348,
+        "tcpFrontend": [
+          71.721488458251,
+          -78.770096035682,
+          99.082221515777
+        ],
+        "tcpMujoco": [
+          71.721488458251,
+          -78.770096035682,
+          99.082221515777
+        ]
+      }
+    },
+    {
+      "id": "far_x",
+      "label": "越界目标：远超连杆总长",
+      "kind": "out_of_workspace",
+      "target": [
+        500.0,
+        0.0,
+        100.0
+      ],
+      "expect": {
+        "success": false,
+        "reason": "OUT_OF_WORKSPACE",
+        "joint": null,
+        "message": "目标 (500.000, 0.000, 100.000) 超出工作空间：腕枢轴到肩枢轴的距离 461.736mm，可达范围 0.000..160.000mm （L1=80.000 + L2=80.000；已扣除腕→TCP 偏移 [40.000, 0.000]）",
+        "candidateCount": 0
+      }
+    },
+    {
+      "id": "far_diagonal",
+      "label": "越界目标：三轴同时远离",
+      "kind": "out_of_workspace",
+      "target": [
+        300.0,
+        300.0,
+        300.0
+      ],
+      "expect": {
+        "success": false,
+        "reason": "OUT_OF_WORKSPACE",
+        "joint": null,
+        "message": "目标 (300.000, 300.000, 300.000) 超出工作空间：腕枢轴到肩枢轴的距离 453.055mm，可达范围 0.000..160.000mm （L1=80.000 + L2=80.000；已扣除腕→TCP 偏移 [40.000, 0.000]）",
+        "candidateCount": 0
+      }
+    },
+    {
+      "id": "below_floor",
+      "label": "越界目标：远低于底座",
+      "kind": "out_of_workspace",
+      "target": [
+        100.0,
+        0.0,
+        -200.0
+      ],
+      "expect": {
+        "success": false,
+        "reason": "OUT_OF_WORKSPACE",
+        "joint": null,
+        "message": "目标 (100.000, 0.000, -200.000) 超出工作空间：腕枢轴到肩枢轴的距离 266.833mm，可达范围 0.000..160.000mm （L1=80.000 + L2=80.000；已扣除腕→TCP 偏移 [40.000, 0.000]）",
+        "candidateCount": 0
+      }
+    },
+    {
+      "id": "azimuth_90",
+      "label": "方位角 90°（超出 base ±60°）",
+      "kind": "joint_limit",
+      "target": [
+        0.0,
+        150.0,
+        100.0
+      ],
+      "expect": {
+        "success": false,
+        "reason": "JOINT_LIMIT",
+        "joint": "base",
+        "message": "JOINT base 90.000 (limit -60..60)：目标方位角超出底座可达范围",
+        "candidateCount": 2
+      }
+    },
+    {
+      "id": "azimuth_180",
+      "label": "方位角 180°（正后方）",
+      "kind": "joint_limit",
+      "target": [
+        -150.0,
+        0.0,
+        100.0
+      ],
+      "expect": {
+        "success": false,
+        "reason": "JOINT_LIMIT",
+        "joint": "base",
+        "message": "JOINT base 180.000 (limit -60..60)：目标方位角超出底座可达范围",
+        "candidateCount": 2
+      }
+    }
+  ],
+  "generated_at": "2026-09-14 15:13:12 +0800"
+}

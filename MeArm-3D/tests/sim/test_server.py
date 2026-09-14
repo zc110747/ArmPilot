@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import io
+import re
 import subprocess
 import sys
 
@@ -24,8 +25,12 @@ import pytest
 from conftest import SIM_DIR
 from server import Emitter, MujocoDevice
 
-# 与 robot.yaml 的 JointOrder 一致（base / shoulder / elbow / gripper）
-ORDER = ("base", "shoulder", "elbow", "gripper")
+# ⚠️ 这里**刻意不再**写 `ORDER = ("base", "shoulder", "elbow", "gripper")`。
+#
+# 曾经有那一行，注释还写着"与 robot.yaml 的 JointOrder 一致" —— 那正是
+# 本项目最忌讳的**第二份真值**：线序的真值只有 `robot.yaml` 一份，
+# 抄到测试里之后，改关节顺序会让这条测试以"解析错位"的面目失败，
+# 而真正的错因是测试自己过期了。现在统一由 `dev.robot.joint_order()` 派生。
 
 
 # ---------------------------------------------------------------------------
@@ -110,10 +115,21 @@ def test_jr_ok_matches_go_encoding(dev):
 
 
 def test_jr_rejects_joint_limit_with_go_error_text(dev):
-    """越限必须回 `ERR JOINT <id> <v> (limit <min>..<max>)` —— 与 Go/固件同文案。"""
-    dev.handle("JR 0 20 90 50")          # elbow 下限 108.44
+    """越限必须回 `ERR JOINT <id> <v> (limit <min>..<max>)` —— 与 Go/固件同文案。
+
+    ⚠️ 期望值**从 robot.yaml 派生**（`dev.robot.joint("elbow")`），不写死字面量。
+    此前这里硬编码 `108.44..141.86`，等于把限位真值抄了第二份 —— 重新标定之后
+    这条会以"文案不对"的面目失败，而真正的错因是**测试自己过期了**。
+
+    用 `fullmatch` 而不是 `startswith`：这样"两位小数"「`..`」这些**格式契约**
+    仍然被钉住（只比数值的话，把格式从 `%.2f` 改成 `%g` 就没人拦得住了）。
+    """
+    el = dev.robot.joint("elbow")
+    dev.handle("JR 0 20 90 50")          # elbow=90 < 下限
     line = last_line(dev)
-    assert line.startswith("ERR JOINT elbow 90.00 (limit 108.44..141.86)"), line
+    assert re.fullmatch(
+        rf"ERR JOINT elbow 90\.00 \(limit {el.limit_min:.2f}\.\.{el.limit_max:.2f}\)", line
+    ), line
 
 
 def test_jr_rejects_wrong_arity(dev):
@@ -240,7 +256,7 @@ def test_state_uses_absolute_elbow_angle(dev):
     assert parts[0] == "STATE"
     vals = [float(x) for x in parts[1:]]
     assert len(vals) == 4
-    joints = dict(zip(ORDER, vals))
+    joints = dict(zip(dev.robot.joint_order(), vals))
     # 若错把局部角报出去，elbow 会变成 125-40=85 左右
     assert joints["elbow"] > 100.0, f"elbow 报成了局部角？{joints}"
     assert joints["elbow"] == pytest.approx(125.0, abs=1.0)

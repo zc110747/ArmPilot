@@ -7,11 +7,11 @@
 # 启动：cd MeArm-3D/backend && ./bin/armpilot-backend.exe -c config.serial.yaml
 #
 # ⚠️ 与 config.yaml 一样，本文件**只放运行参数**。
-#    关节限位、标定（offset/scale/reverse）、HOME 位一律来自 ../config/robot.yaml。
+#    关节限位、标定（offset/scale/reverse）、HOME 位一律来自 ../robot-package/mearm-v1/model/robot.yaml。
 #
 # ⚠️ 真机没有位置反馈（无编码器）：joint_state 是**固件内部目标值**（开环），
 #    不代表机械臂已物理到位。唯一能证明"真的动了、动到哪"的是相机
-#    —— tools/verify_pose.py 与 frontend/tests/e2e/ui-smoke.mjs 的 Phase 9 段落。
+#    —— robot-package/mearm-v1/tools/verify_pose.py 与 frontend/tests/e2e/ui-smoke.mjs 的 Phase 9 段落。
 # =============================================================================
 
 web:
@@ -22,7 +22,7 @@ web:
   client_timeout_ms: 40000
 
 robot:
-  config_path: "../config/robot.yaml"
+  config_path: "../robot-package/mearm-v1/model/robot.yaml"
 
 device:
   mode: "serial"

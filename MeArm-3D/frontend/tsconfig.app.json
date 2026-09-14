@@ -28,8 +28,14 @@
     "baseUrl": ".",
     "paths": {
       "@/*": ["./src/*"],
-      "@robot/*": ["./src/robot/*"]
+      "@robot/*": ["./src/robot/*"],
+      // ★ `robot-package/<id>/tests/` 里的测试位于 `frontend/` 之外，
+      //   TypeScript 的 node_modules 向上查找走不到 `frontend/node_modules`，
+      //   于是 `import { describe } from 'vitest'` 会报 TS2307。
+      //   显式给它一条路（`frontend/tests/` 里的文件本来就能解析，不受影响）。
+      "vitest": ["./node_modules/vitest"],
+      "vitest/*": ["./node_modules/vitest/*"]
     }
   },
-  "include": ["src", "tests", "src/**/*.yaml"]
+  "include": ["src", "tests", "src/**/*.yaml", "../robot-package"]
 }

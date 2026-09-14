@@ -10,12 +10,14 @@
   · 改**外观几何** ⇒ 放行（否则做视觉建模时守卫会被绕过或删掉）
   · 改**运动学/物理** ⇒ 报错
 
-这些变异全部在**内存里**做（`copy.deepcopy` 后改 dict），**不碰** `config/*.yaml` 文件 ——
+这些变异全部在**内存里**做（`copy.deepcopy` 后改 dict），**不碰** 真值 yaml 文件 ——
 测试不该有"跑挂了就把真值改坏"的尾部风险。
 
-判据分级（见 tools/freeze_baseline.py 顶部说明）：
+判据分级（见 core/tools/freeze_baseline.py 顶部说明）：
   L1 整文件 sha256       记录用
   L2 语义核心 sha256     真判据（只覆盖运动学/物理字段，剔除 geometry/details）
+
+Phase 2：真值文件路径**不再硬编码**，一律问 `fb.paths()`（= 该包 manifest 的声明）。
 """
 from __future__ import annotations
 
@@ -27,11 +29,12 @@ import pytest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
-FREEZE_SCRIPT = ROOT / "tools" / "freeze_baseline.py"
+#: 冻结守卫是 **Core 机制**（它盯的是"真值没被偷改"，不属任何一台机器人）⇒ 住 core/tools/。
+FREEZE_SCRIPT = ROOT / "core" / "tools" / "freeze_baseline.py"
 
 
 def _load_freeze():
-    """从文件加载（tools/ 没有 __init__.py，不能当包 import）。"""
+    """从文件加载（core/tools/ 不是 Python 包，不能 import）。"""
     spec = importlib.util.spec_from_file_location("freeze_baseline", FREEZE_SCRIPT)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
@@ -40,14 +43,20 @@ def _load_freeze():
 
 fb = _load_freeze()
 
+#: MeArm-V1 —— 冻结守卫服务的对象（显式写 id，与工具侧、conftest 同一条纪律）
+MEARM_V1 = "mearm-v1"
+ROBOT_YAML, PHYSICS_YAML, BASELINE_JSON = fb.paths(MEARM_V1)
+#: 冻结基线 JSON 里 `files` 的键 = 真值文件的仓库相对路径（不写死）
+ROBOT_REL, PHYSICS_REL = fb._rel_names(MEARM_V1)
+
 
 def _robot_doc() -> dict:
-    with fb.ROBOT_YAML.open("r", encoding="utf-8") as fh:
+    with ROBOT_YAML.open("r", encoding="utf-8") as fh:
         return yaml.safe_load(fh)
 
 
 def _physics_doc() -> dict:
-    with fb.PHYSICS_YAML.open("r", encoding="utf-8") as fh:
+    with PHYSICS_YAML.open("r", encoding="utf-8") as fh:
         return yaml.safe_load(fh)
 
 
@@ -63,13 +72,13 @@ def _link_index(doc: dict) -> int:
 # 1. 核心判据：真值确实等于冻结基线
 # ---------------------------------------------------------------------------
 def test_baseline_file_exists():
-    assert fb.BASELINE.exists(), (
-        f"冻结基线缺失：{fb.BASELINE.relative_to(ROOT)}\n"
+    assert BASELINE_JSON.exists(), (
+        f"冻结基线缺失：{BASELINE_JSON.relative_to(ROOT)}\n"
         "首次使用执行：python tools/freeze_baseline.py --update")
 
 
 def test_kinematics_and_physics_match_frozen_baseline():
-    problems = fb.check()
+    problems = fb.check(MEARM_V1)
     assert not problems, (
         "运动学/物理真值已偏离冻结基线：\n" + "\n".join(problems))
 
@@ -173,7 +182,7 @@ def test_physics_core_ignores_non_physics_sections():
 # 3. 报错必须可读：只说"某个哈希变了"帮不上任何忙
 # ---------------------------------------------------------------------------
 def test_diff_summary_names_the_changed_field():
-    base = fb.snapshot()
+    base = fb.snapshot(MEARM_V1)
     cur = copy.deepcopy(base)
     cur["kinematic_summary"]["links"][_link_index(cur["kinematic_summary"])]["length"] += 1.0
     cur["physics_summary"]["gravity"] = [0.0, 0.0, -9.80]     # 标量列表分支
@@ -188,7 +197,7 @@ def test_diff_summary_names_the_changed_field():
 # 4. 基线确实来自**当前**真值（防"基线是某份陈旧副本造出来的"）
 # ---------------------------------------------------------------------------
 def test_baseline_summary_is_consistent_with_live_config(robot, physics):
-    base = fb._read_baseline()
+    base = fb._read_baseline(MEARM_V1)
     assert base is not None
 
     for jid in robot.joint_order():
@@ -198,7 +207,12 @@ def test_baseline_summary_is_consistent_with_live_config(robot, physics):
         assert entry["limit"]["min"] == pytest.approx(float(joint.limit_min), abs=1e-9)
         assert entry["limit"]["max"] == pytest.approx(float(joint.limit_max), abs=1e-9)
 
-    live_gravity = [float(x) for x in fb._load_yaml(fb.PHYSICS_YAML)["gravity"]]
+    live_gravity = [float(x) for x in fb._load_yaml(PHYSICS_YAML)["gravity"]]
     assert base["physics_summary"]["gravity"] == live_gravity
-    assert base["files"]["config/physics.yaml"]["physics_core_sha256"] == \
-        fb.snapshot()["files"]["config/physics.yaml"]["physics_core_sha256"]
+    # 键名 = 真值文件的仓库相对路径（Phase 2 起随包走），**不写死**：
+    # 写死会在搬迁后变成一个"找不到键"的假故障，或者更糟 —— 读到一份陈旧的同名键。
+    assert base["robot_id"] == MEARM_V1
+    assert base["files"][PHYSICS_REL]["physics_core_sha256"] == \
+        fb.snapshot(MEARM_V1)["files"][PHYSICS_REL]["physics_core_sha256"]
+    assert base["files"][ROBOT_REL]["kinematic_core_sha256"] == \
+        fb.snapshot(MEARM_V1)["files"][ROBOT_REL]["kinematic_core_sha256"]

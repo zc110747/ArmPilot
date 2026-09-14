@@ -213,7 +213,7 @@ type fixture struct {
 
 func newFixture(t *testing.T, tune device.SimTuning) *fixture {
 	t.Helper()
-	p, err := filepath.Abs(filepath.Join("..", "..", "..", "config", "robot.yaml"))
+	p, err := filepath.Abs(filepath.Join("..", "..", "..", "robot-package", "mearm-v1", "model", "robot.yaml"))
 	if err != nil {
 		t.Fatalf("路径解析失败: %v", err)
 	}

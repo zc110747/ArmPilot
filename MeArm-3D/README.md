@@ -8,7 +8,7 @@
 同级仓库 [`MeArm-Device`](../MeArm-Device)（AVR / PlatformIO）与
 [`MeArm-RemoteControl`](../MeArm-RemoteControl)（Go）中。
 
-> **机构参数以真机实测为准**：`config/robot.yaml` 的关节角色、标定（offset/scale/reverse）、
+> **机构参数以真机实测为准**：`robot-package/mearm-v1/model/robot.yaml` 的关节角色、标定（offset/scale/reverse）、
 > 限位与零位均由「相机照片 + 舵机逐度扫描」反解得到（2026-09-12），
 > 推翻了最初按固件 `SERVO_LEFT/RIGHT` 推定肩/肘的假设 —— 详见
 > [`docs/hardware-measurement.md`](docs/hardware-measurement.md) 与 `docs/decisions.md` D15–D17。
@@ -24,7 +24,7 @@
 ```
                       ArmPilot
                          │
-                   RobotModel          ← config/robot.yaml（唯一数据源）
+                   RobotModel          ← robot-package/mearm-v1/model/robot.yaml（唯一数据源）
                          │
              ┌───────────┴───────────┐
              ↓                       ↓
@@ -89,7 +89,7 @@ Go: device.MujocoDevice ──stdio(同一套 JR/OK JR/STATE 文本协议)──
 ```
 
 > ⚠️ **诚实声明（spec §37）**：当前是 **Level 3→4 参数化物理仿真**，
-> `config/physics.yaml` 里的值全部是**公开值 / 估算值**，**不是**对本台 meArm 的标定模型。
+> `robot-package/mearm-v1/physics/physics.yaml` 里的值全部是**公开值 / 估算值**，**不是**对本台 meArm 的标定模型。
 > `calibration.calibrated` 恒为 `false`，且由测试强制（见 `docs/decisions.md` D52）。
 > 详见 [`simulation/README.md`](simulation/README.md) §0。
 
@@ -100,7 +100,7 @@ Go: device.MujocoDevice ──stdio(同一套 JR/OK JR/STATE 文本协议)──
 | 前端 | React 19 · TypeScript · Vite · Three.js · React Three Fiber · @react-three/drei · Zustand |
 | 后端 | **Go 1.21+（自包含 module `armpilot/backend`）· 标准库 RFC6455 WebSocket · HTTP `/healthz`**（Phase 8 ✅） |
 | 真实臂 | AVR (ATmega328P) · 串口 115200 8N1（Phase 9） |
-| **物理仿真** | **MuJoCo 3.13（Python，MJCF 由 `config/robot.yaml` + `config/physics.yaml` 生成）**（MuJoCo 轨 ✅） |
+| **物理仿真** | **MuJoCo 3.13（Python，MJCF 由 `robot-package/mearm-v1/model/robot.yaml` + `robot-package/mearm-v1/physics/physics.yaml` 生成）**（MuJoCo 轨 ✅） |
 | 测试 | Vitest（单元 / 验收）· `go test`（后端）· pytest（物理仿真）· 零依赖 CDP e2e（无头 Edge/Chrome） |
 
 ## 3. 目录结构
@@ -108,21 +108,55 @@ Go: device.MujocoDevice ──stdio(同一套 JR/OK JR/STATE 文本协议)──
 ```
 MeArm-3D/
 ├── config/robots.yaml            # ★ 机器人**选择器**（只放 id/name/config；default: mearm-v1）
-├── config/robots/<id>/           # ★ 其他机器人的配置（so-arm101/{robot,physics}.yaml）
-├── config/robot.yaml             # ★ MeArm-V1 的唯一模型定义（links / joints / actuators / home / tcp）
-├── config/physics.yaml           # ★ MeArm 的 MuJoCo 物理参数（纯物理量，全 SI；**禁写限位与标定**）
-├── config/baseline-kinematics-physics.json  # ★ 真值冻结基线（语义核心哈希；守卫见 D55）
+├── robot-package/                # ★★ 机器人**包**（自包含：真值 + 引擎 + 黄金数据 + 工具 + 测试）
+│   ├── mearm-v1/                 #   Golden Baseline（**最高优先级冻结**：FK/IK/几何/物理/黄金数据）
+│   │   ├── manifest.yaml         #     包契约：能力声明 + **全部路径的唯一声明处**
+│   │   ├── model/robot.yaml      #     ★ 唯一模型定义（links / joints / actuators / home / tcp）
+│   │   ├── physics/physics.yaml  #     ★ MuJoCo 物理参数（纯物理量，全 SI；禁写限位与标定）
+│   │   ├── kinematics/           #     engine.ts（引擎出口）· ik.ts（解析解）· fromMeArmIkResult.ts
+│   │   ├── tests/
+│   │   │   ├── cases/            #     ★ 黄金数据（行为快照；**生成器产出，禁止手写**）116/116/121/121
+│   │   │   └── test_*.py|ts      #     ★ 包内测试：**构造事实**（被动腕 / 平行四连杆耦合 / 零位几何）
+│   │   └── tools/                #     本包专属工具链：
+│   │       ├── gen_model.py      #       robot.yaml + physics.yaml → mearm.xml（MJCF 是产物，禁手改）
+│   │       ├── gen_mearm_v1_baseline.py   # 黄金数据采集器（`--check` 逐位复现）
+│   │       ├── mearm_hw.py       #       串口控制 + 相机抓拍（单进程，避开 DTR 复位陷阱）
+│   │       ├── analyze_sweep.py  #       逐度扫描图 → 白底暗件分割 → 面积/重心/最高点/红绿差分
+│   │       ├── segment_arm.py    #       公共静止区自动分段：底座 / 大臂 / 小臂 + PCA 定方向
+│   │       ├── fit_pivot.py      #       圆拟合枢轴（Kasa）+ 爪尖极角转角 + 不动区质心互证
+│   │       ├── fit_pose.py       #       ★★ FK 骨架 ↔ 实拍照片拟合（对称 Chamfer + Hooke-Jeeves）
+│   │       ├── verify_pose.py    #       ★ 相机反解关节角 + 与期望值比对（`--selftest` 含自检 C）
+│   │       ├── verify_calib_repro.py  #  ★A1 判定：跨批 × 掩膜 × 杆距的增益散布矩阵，极差 ≤5%
+│   │       ├── cam_stability.py  #       相机/台面稳定性抽检
+│   │       ├── make_texture.py   #       ★ 实拍照片 → 板件纹理（PCA 估四角 + homography；--selftest）
+│   │       ├── capture_texture.py#       ★ 采集判定：三态(ok/reject/undecidable) → 给出该往哪动
+│   │       ├── measure_roi.py    #       ROI 量测（标定复现性判据的取样口）
+│   │       └── project_plates.py #       板件几何投影（外观层中间产物）
+│   └── so-arm101/                #   官方 SO-ARM101 派生（FK 纯委托通用链；**IK 诚实留白**）
+│       ├── model · physics · kinematics
+│       ├── tests/cases/          #     46 例 Sim2Sim 快照
+│       └── tools/                #     gen_so_arm101_robot_yaml.py · inspect_so101_physics.py
+├── core/                         # ★★ 跨机器人**共用**（铁律：不得出现任何型号名）
+│   ├── baseline/baseline-kinematics-physics.json  # ★ 真值冻结基线（语义核心哈希；D55）
+│   ├── python/robopkg/           #   包加载 · manifest 校验 · `declared_path()` · 内容哈希 · CLI
+│   ├── tests/                    #   Core 契约测试（包契约 / declared_path / 哈希确定性 / 包内测试通道）
+│   └── tools/                    #   真值冻结 · 统一 Sim2Sim · 真机与链路探针：
+│       ├── freeze_baseline.py    #     ★ 冻结/校验运动学+物理真值（改外观放行，改真值报错）
+│       ├── run_sim2sim.py        #     ★ 统一 Sim2Sim 矩阵（`--all` 覆盖选择器全部机器人）
+│       ├── verify_serial_e2e.mjs #     真机端到端（opt-in）
+│       ├── park_sim_pose.mjs     #     ★ 造前提：把 sim 后端停在**指定位姿**（不含任何限位常量）
+│       ├── first_load_probe.mjs  #     ★ 首帧取证：CDP 取 `window.__armPilotFrames`
+│       └── ws_probe.mjs · lan_e2e_probe.mjs · set_joints.mjs   # WS / 局域网 / 关节设置探针
 ├── assets/models/                # ★ 外部 CAD 资源（so-arm101/official/：官方 URDF+MJCF+13 STL，逐字节原样）
 ├── simulation/                   # ★ MuJoCo 物理仿真后端（device.Device 第三实现）
 │   ├── README.md                 #   ★ 怎么跑 / 判据纪律 / 验收数据 / Level 声明
 │   └── mujoco/
-│       ├── gen_model.py          #   robot.yaml + physics.yaml → mearm.xml（MJCF 是产物，禁手改）
-│       ├── mearm.xml             #   生成的 MJCF（nq=5 njnt=5 nbody=8 ngeom=34 nu=4 neq=1 ntendon=1）
+│       ├── mearm.xml             #   生成的 MJCF（nq=5 njnt=5 nbody=8 ngeom=34 nu=4 neq=1 ntendon=1）★产物，禁手改
 │       ├── units.py              #   单位 + **角度语义**（elbow 绝对角 ↔ hinge 局部角）单点换算
 │       ├── model.py              #   MeArmSim：reset / step / settle / state / gravity_torque
 │       ├── limits.py             #   限位校验（与 Go Validate 同语义、同文案）
 │       ├── server.py             #   无头设备服务（stdio 上跑 arm-device 协议）
-│       ├── run.py                #   独立 Viewer（spec §27：FPS / sim time / 关节角 / TCP / 接触数）
+│       ├── run.py                #   独立 Viewer（FPS / sim time / 关节角 / TCP / 接触数）
 │       ├── record.py             #   JSONL / CSV 记录（spec §34，不落数据库）
 │       ├── calibrate.py          #   标定接口（spec §38）
 │       └── fkref.py              #   参考 FK（独立实现，**仅用于验收**）
@@ -131,68 +165,43 @@ MeArm-3D/
 │   ├── model-structure.md        # ★ 显式几何（plate/servo/details）与运动学的边界
 │   ├── hardware-measurement.md   # ★★ 真机实测记录：角色映射 / 绝对角解耦 / 标定 / 不确定度
 │   ├── ARCHITECTURE_ANALYSIS.md  # ★ MuJoCo 轨 Phase 1：自由度清点 / 五种角度对照 / 接入方案
-│   ├── decisions.md              # 设计决策 ADR（**D1–D76，最新在前**；D48–D54 = MuJoCo 物理轨 · D55 = 真值冻结 · D56/D57 = 纹理校正与采集判定 · D63–D69 = 照片纹理与外观 · D70 = 被动腕关节 · D71–D73 = MeArm-V1 基线冻结 / 最小抽象 / Sim2Sim 回归纪律 · D74 = 首次接管握手（命令起点取机器现状） · **D75 = 配置选模型 + 分派收敛到一张表 · D76 = SO-101 的三条真值取舍**）
-│   ├── texture-capture-guide.md  # ★ 图像采集指南（拍哪块板 / 大面朝向 / 采集闭环 / 四项硬性要求 / 自查清单）
-│   ├── architecture/             # ★★ MeArm-V1 基线冻结三件套（现状分析 / 验收结论 / 无关问题登记）
-│   │                             #   + so-arm101-phase0.md（多机器人轨 P0 只读分析 + D1–D6 决策点）
-│   └── images/                   # 界面截图（armpilot-console.png 由 e2e 自动重出；
-│                                 #   armpilot-phase11-13.png 由 tests/e2e/screenshot.mjs 出）
-├── protocol/serial-v1.md         # ★ 串口 / WS 协议基线（§4 固件侧待 Phase 9；§5 上位机侧 Phase 8 已实现）
-├── tools/                        # ★ 真机实测工具链（Python 3 + numpy，独立于前端）
-│   ├── mearm_hw.py               # 串口控制 + 相机抓拍（单进程，避开 DTR 复位陷阱）
-│   ├── analyze_sweep.py          # 逐度扫描图 → 白底暗件分割 → 面积/重心/最高点/红绿差分
-│   ├── segment_arm.py            # 公共静止区自动分段：底座 / 大臂 / 小臂 + PCA 定方向
-│   ├── fit_pivot.py              # 圆拟合枢轴（Kasa）+ 爪尖极角转角 + 不动区质心互证
-│   ├── fit_pose.py               # ★★ FK 骨架 ↔ 实拍照片拟合（对称 Chamfer + Hooke-Jeeves）
-│   │                             #    `--rod-gap MM` 可切换小臂单折线 / 平行双杆骨架（默认 0，向后兼容）
-│   ├── verify_pose.py            # ★ 相机反解关节角 + 与期望值比对；`--selftest` 含自检 C（双杆模型表达力）
-│   ├── verify_calib_repro.py     # ★A1 判定：跨批 × 底座掩膜 × 骨架杆距的增益散布矩阵 + 极差 ≤5% 判据
-│   ├── verify_serial_e2e.mjs     # Phase 9 真机端到端（opt-in）
-│   ├── cam_stability.py          # 相机/台面稳定性抽检
-│   ├── freeze_baseline.py        # ★ 冻结/校验运动学+物理真值（两级判据；改外观放行，改真值报错）
-│   ├── make_texture.py           # ★ 实拍照片 → 板件纹理（PCA 估四角 + homography 校正 + 归一化；--selftest）
-│   ├── capture_texture.py        # ★ 采集判定：摄像头抓帧 → 三态判定(ok/reject/undecidable) → 给出该往哪动
-│   ├── park_sim_pose.mjs         # ★ 造前提：把后端 sim/mujoco 停在**指定位姿**再断开
-│   │                             #   （复现"机器现状 ≠ 页面假设"类问题；**不含任何限位常量**，位姿由调用方给）
-│   ├── first_load_probe.mjs      # ★ 首帧取证：直连 CDP 取 `window.__armPilotFrames`（逐帧 roots/幽灵位姿）
-│   └── ws_probe.mjs · lan_e2e_probe.mjs   # WS / 局域网链路探针
+│   ├── decisions.md              # 设计决策 ADR（**D1–D79，最新在前**；D55 = 真值冻结 · D63–D69 = 照片纹理与外观 · D70 = 被动腕关节 · D71–D73 = 基线冻结 / 最小抽象 / Sim2Sim 纪律 · D74 = 首次接管握手 · D75 = 配置选模型 + 分派收敛到一张表 · D76 = SO-101 的三条真值取舍 · **D77–D79 = 多机器人统一验收 / 运行期切换**）
+│   ├── texture-capture-guide.md  # ★ 图像采集指南（拍哪块板 / 大面朝向 / 采集闭环 / 自查清单）
+│   ├── architecture/             # ★★ 架构重构轨：MeArm-V1 基线冻结三件套（现状分析 / 验收结论 / 无关问题登记）
+│   │                             #   + so-arm101-phase0.md · robot-package-phase0.md · robot-package-phase1.md · robot-package-phase2.md
+│   └── images/                   # 界面截图（armpilot-console.png 由 e2e 自动重出）
+├── protocol/serial-v1.md         # ★ 串口 / WS 协议基线（§4 固件侧；§5 上位机侧已实现）
+├── pytest.ini                    # ★ Python 测试收集范围（core/tests + tests + robot-package）
 ├── assets/textures/mearm/        # ★ 板件纹理资产（raw/ = 原图 · tiles/ = 校正后的贴图）
 ├── frontend/
-│   ├── src/robot/
-│   │   ├── model/             # RobotModel · Link · Joint · Actuator · Pose · RobotState · RobotCommand
-│   │   │                      # linkFeedback（Phase 11 误差语义：趋势 / 健康判定）· teachTrack（Phase 13 轨迹）
-│   │   ├── kinematics/        # coordinate（转换层）· transform（矩阵）· fk · ik（逆解）
-│   │   ├── interaction/       # dragPlane：拖动平面 + 射线求交（纯数学、零依赖）
-│   │   ├── calibration/       # 关节角 ↔ 舵机角 标定
-│   │   ├── teach/             # TeachPlayer（Phase 13 回放器，可注入时钟；复用 TimerLike 约定）
-│   │   └── transport/         # RobotTransport 抽象 · MockTransport（有限角速度/延迟/丢帧/限位拒绝）
-│   │                          # WebSocketTransport（Phase 8）· wsProtocol（纯函数编解码 + 链路精度）
-│   │                          # socket（SocketLike 可注入）· timer（可注入时钟）
-│   ├── src/components/        # RobotScene（buildRobotObject3D · DragHandle · ActualGhostArm · TestProbe dev探针）
+│   ├── src/robot/             # ★ Core（通用层）：definition · model · kinematics（通用 F/K/变换层）
+│   │                          #   registry（唯一分派表，`import.meta.glob` 自动发现包内引擎）
+│   │                          #   interaction · calibration · teach · transport
+│   │                          #   ⚠️ 型号专属实现（ik.ts / engine.ts）**住在各自的包里**，不在这里
+│   ├── src/components/        # RobotScene（buildRobotObject3D · DragHandle · ActualGhostArm）
 │   │                          # RobotControl（JointControl · TargetControl · TeachPanel · ConnectionControl）
-│   │                          # StatusPanel（StatusPanel · ErrorPanel Phase 11 · LogPanel）
-│   ├── src/store/             # Zustand 唯一状态仓库 · transportBridge（尾沿节流 / 回推落地 / 回环打破 / 重连补发）
-│   └── tests/                 # unit / acceptance / e2e
-│                              #   tools/kinematics-bridge.mjs = ★ 把真实 ik.ts / fk.ts 暴露成 CLI
-│                              #     （Vite SSR 加载器；供 tests/sim/test_ik.py 当独立裁判用，见 D53）
-├── backend/                   # ★ Phase 8：关节级 WebSocket 服务（自包含 Go module）
+│   │                          # StatusPanel（StatusPanel · ErrorPanel · LogPanel）
+│   ├── src/store/             # Zustand 唯一状态仓库 · transportBridge（尾沿节流 / 回推落地 / 回环打破）
+│   ├── tests/                 # unit / acceptance / e2e / sim2sim
+│   │                          #   tools/kinematics-bridge.mjs = ★ 把真实 ik.ts / fk.ts 暴露成 CLI
+│   │                          #     （Vite SSR 加载器；供 tests/sim/test_ik.py 当独立裁判用，见 D53）
+│   └── vite.config.ts         # vitest include 同时覆盖 ../robot-package/*/tests（★ 包内测试通道）
+├── backend/                   # ★ 关节级 WebSocket 服务（自包含 Go module）
 │   ├── main.go                # 组装：cfg → robot.Model → device → controller → wsserver
 │   ├── config.yaml            # **只放运行参数**（端口 / 设备模式 / 模拟器参数），禁写限位与标定
 │   ├── internal/robot/        # 读 robot.yaml；关节↔舵机换算；限位校验（唯一"真值"入口）
 │   ├── internal/protocol/     # JSON / JR / OK JR / STATE / ERR 编解码（不认识机械结构）
-│   │                          #   + simulation_mode（spec §25：只加一个可选字符串，前端零改动）
 │   ├── internal/controller/   # ★ 唯一"懂机械臂"处：ACK 门控 · latest-wins · 标定核对 · 状态发布
 │   ├── internal/device/       # sim.go（假固件）· serial.go（真串口）· mujoco.go（★ Python 子进程）
 │   ├── internal/wsserver/     # 标准库 RFC6455 服务端 · 路由 · 广播 · 两层心跳
 │   └── README.md              # 架构图 · 与 MeArm-RemoteControl 的分工 · 测试矩阵
-├── tests/sim/                 # ★ MuJoCo 轨验收（pytest，147 项 / 12 文件）
-│   ├── harness.py             #   共用采样/求值工具（FK 与 IK 两条判据不各写一份）
-│   ├── ikbridge.py            #   前端运动学 CLI 桥的 Python 门面
-│   └── test_*.py              #   模型 / 重力 / 执行器 / 限位 / 碰撞 / 协议 / FK / IK / 系统级
-├── tests/baseline/mearm-v1/   # ★ MeArm-V1 黄金测试数据（行为快照；**由生成器产出，禁止手写**）
-│   └── {joint,fk,ik,workspace}_cases.json   # 116 / 116 / 121 / 121 例，seed 20260914
-└── tests/sim2sim/             # ★ Sim2Sim 回归 · MuJoCo 侧（9 项；读上面那批 JSON）
-    └── test_mearm_v1_baseline_mujoco.py     # Joint→MuJoCo · XYZ→IK→MuJoCo · 固定 seed 扫描
+└── tests/                     # ★ Core 测试（**机制**；期望值随包走 —— 见 `robot-package/<id>/tests/`）
+    ├── sim/                   #   MuJoCo 轨验收 + 前端运动学独立裁判（12 文件）
+    │   ├── harness.py         #     共用采样/求值工具（FK 与 IK 两条判据不各写一份）
+    │   ├── ikbridge.py        #     前端运动学 CLI 桥的 Python 门面
+    │   └── test_*.py          #     模型 / 重力 / 执行器 / 限位 / 碰撞 / 协议 / FK / IK / 系统级
+    └── sim2sim/               #   Sim2Sim 回归 · MuJoCo 侧（读包内黄金数据）
+        └── test_mearm_v1_baseline_mujoco.py     # Joint→MuJoCo · XYZ→IK→MuJoCo · 固定 seed 扫描
 ```
 
 ## 4. 快速开始
@@ -208,7 +217,7 @@ start.bat --real       :: REAL 模式（config.serial.yaml，会真的动舵机�
 start.bat --help       :: 用法
 ```
 
-它做的事：检查 `backend/bin/armpilot-backend.exe` / `config/robot.yaml` / node 是否存在、
+它做的事：检查 `backend/bin/armpilot-backend.exe` / `robot-package/mearm-v1/model/robot.yaml` / node 是否存在、
 探测并（经你确认后）清理占用 8090 / 5273 的残留进程、按模式起两个窗口、
 打印本机与局域网访问地址。
 
@@ -310,7 +319,7 @@ cd frontend && npm run dev
 | Real 模式下…非真机 / 连接的是 Mock / 末端未知 | 模式选对了但链路不对，检查后端是否用 `config.serial.yaml` 启动 |
 
 > ⚠️ **真机没有位置反馈**（无编码器）：界面上的 `Actual` 是**固件内部目标值反算**，
-> 不代表已物理到位。唯一的外部真值是相机 —— 见下方 Phase 9 验收与 `tools/verify_pose.py`。
+> 不代表已物理到位。唯一的外部真值是相机 —— 见下方 Phase 9 验收与 `robot-package/mearm-v1/tools/verify_pose.py`。
 
 ### 用 MuJoCo 物理仿真作末端（MuJoCo 轨）
 
@@ -331,9 +340,9 @@ curl http://localhost:8090/healthz              # {"device":"mujoco","linked":tr
 <python> simulation/mujoco/run.py --demo
 ```
 
-> ⚠️ **当前是 Level 3→4 参数化物理仿真**，`config/physics.yaml` 的值全是公开值/估算值，
+> ⚠️ **当前是 Level 3→4 参数化物理仿真**，`robot-package/mearm-v1/physics/physics.yaml` 的值全是公开值/估算值，
 > 不是对本台 meArm 的标定模型。详见 [`simulation/README.md`](simulation/README.md) §0。
-> 改 `config/robot.yaml` 的几何后**必须重跑** `python simulation/mujoco/gen_model.py`。
+> 改 `robot-package/mearm-v1/model/robot.yaml` 的几何后**必须重跑** `python robot-package/mearm-v1/tools/gen_model.py`。
 
 ## 5. 阶段进度
 
@@ -343,20 +352,20 @@ curl http://localhost:8090/healthz              # {"device":"mujoco","linked":tr
 | 2 | Three.js 3D 机械臂 | ✅ | 无头浏览器截图 + e2e 渲染断言；**按实物 meArm 参数化重做外观**（件色现为**近黑** + 4 舵机 + 轴销，见 `docs/model-structure.md`；件色于 2026-09-13 由蓝改近黑、视口由深色改灰底，见 ADR **D68**）；**舵机布置按真机实测修正为 S9 底座 / S7 肩 / S8 肘 / S6 夹取** |
 | 3 | FK | ✅ | **FK↔Three.js 最大误差 8.673e-14 mm**（要求 < 0.1） |
 | 4 | Joint Control | ✅ | 单测 7 项 + e2e 滑杆交互 |
-| **4.5** | **真机参数实测（相机反解机构）** | ✅ | 白底分割 + 舵机逐度扫描 + FK 骨架拟合：修正 S7/S8 角色映射、确证**小臂绝对角（平行四连杆，耦合 gain=-1）**、反解标定/限位/零位并写入 `config/robot.yaml`（见 `docs/hardware-measurement.md`、`docs/decisions.md` D15–D17） |
+| **4.5** | **真机参数实测（相机反解机构）** | ✅ | 白底分割 + 舵机逐度扫描 + FK 骨架拟合：修正 S7/S8 角色映射、确证**小臂绝对角（平行四连杆，耦合 gain=-1）**、反解标定/限位/零位并写入 `robot-package/mearm-v1/model/robot.yaml`（见 `docs/hardware-measurement.md`、`docs/decisions.md` D15–D17） |
 | 5 | IK（XYZ → J1/J2/J3） | ✅ | **FK(IK(XYZ)) 2000 组随机位姿最大残差 1.180e-13 mm**；错误码 `OUT_OF_WORKSPACE` / `JOINT_LIMIT`；多解 `elbow-up/elbow-down/nearest`（默认就近）；几何量全部从模型求导（含被动腕的**常量偏移** `toolOffset`，跨 3 姿态逐位验证），改 yaml 即生效（见 `docs/coordinate-system.md` §3.1、D18/D19/D70） |
 | 6 | XYZ / 鼠标拖动末端 | ✅ | XYZ 直输 + **鼠标真实拖拽**（e2e 用 CDP 派发真实鼠标事件命中场景把手，Δ 17.23mm）；三种拖动平面 xy/xz/camera 在 pointerdown **冻结**；**越界不钳位**（关节逐位不变）；400 点轨迹穿越工作空间边界验收（见 `docs/coordinate-system.md` §3.2、D20–D22） |
 | 7 | MockTransport 闭环 | ✅ | 完整双向闭环（命令 → 尾沿节流 → Mock → 回推 → Actual）；Mock **如实模拟舵机有限角速度 / 传输延迟 / 丢帧 / 限位拒绝**（非等值回显）；回推**只写 Actual**（回环打破，400 点轨迹引用从未改变）；Connection 面板可实时调参（见 `docs/coordinate-system.md` §3.3、D23–D26） |
 | 8 | **Go WebSocket** | ✅ | **后端独立 module `backend/`（8090）+ 内置「假固件」sim**：命令走 `JSON → JR 文本 → 舵机角 → 反算关节角 → STATE` 真实往返，非等值回显；`OK JR` **只做标定核对不发布状态**；ACK 门控 + latest-wins；`hello` 带模型真值在线互检；两层心跳；断线指数退避重连**并补发当前命令**。`go test` 56 项 · 前端新增 66 项单测（`wsProtocol` 25 / `WebSocketTransport` 30 / 接线验收 11）· e2e 新增 21 项真实 WS 端到端（见 `docs/coordinate-system.md` §3.4、`protocol/serial-v1.md` §5、D27–D33） |
-| **9** | **Serial（真机）** | ✅ | `internal/device/serial.go` 落地真串口（Windows 非重叠 I/O，**不用 `bufio`**）；Uno DTR 复位静默窗口 `connect_settle_ms=2600` + 暖机包。**真机端到端闭环实测 PASS 18 / FAIL 1**：`hello=serial` · `homePose` 与 `robot.yaml` 逐位一致 · 7 步链路回推 `max\|Δ\| ≤ 0.004°` · 相机反解重复性肩 `0.26°`/肘 `0.01°`。见 `tools/verify_serial_e2e.mjs`、`docs/decisions.md` D34–D36 |
-| 10 | Real Robot | ✅ | 机构角色 / 标定 / 限位 / 零位**已实测就绪**（Phase 4.5 + `config/robot.yaml`）；Serial 已落地 ⇒ 浏览器拖动能**真实驱动物理机械臂**。**2026-09-12 修复 mode↔transport 联动缺口**：`Real Robot` 按钮原先只改 UI 样式、命令照样走当前 transport（"点了真机不动 / 切回仿真仍在动真机"），现补准入校验 + 安全门 + 去向提示（ADR **D41**）。⚠️ 相机验收已测出**肩标定增益偏差 −13.1%**（肘 +1.4% 已证实），需按锁死曝光重布台面后重测 |
+| **9** | **Serial（真机）** | ✅ | `internal/device/serial.go` 落地真串口（Windows 非重叠 I/O，**不用 `bufio`**）；Uno DTR 复位静默窗口 `connect_settle_ms=2600` + 暖机包。**真机端到端闭环实测 PASS 18 / FAIL 1**：`hello=serial` · `homePose` 与 `robot.yaml` 逐位一致 · 7 步链路回推 `max\|Δ\| ≤ 0.004°` · 相机反解重复性肩 `0.26°`/肘 `0.01°`。见 `core/tools/verify_serial_e2e.mjs`、`docs/decisions.md` D34–D36 |
+| 10 | Real Robot | ✅ | 机构角色 / 标定 / 限位 / 零位**已实测就绪**（Phase 4.5 + `robot-package/mearm-v1/model/robot.yaml`）；Serial 已落地 ⇒ 浏览器拖动能**真实驱动物理机械臂**。**2026-09-12 修复 mode↔transport 联动缺口**：`Real Robot` 按钮原先只改 UI 样式、命令照样走当前 transport（"点了真机不动 / 切回仿真仍在动真机"），现补准入校验 + 安全门 + 去向提示（ADR **D41**）。⚠️ 相机验收已测出**肩标定增益偏差 −13.1%**（肘 +1.4% 已证实），需按锁死曝光重布台面后重测 |
 | **10.5** | **一键启动 `start.bat`** | ✅ | 根目录 `start.bat`：前置检查（backend exe / robot.yaml / node）、端口探测+确认清理（8090/5273）、按模式起前后端、打印本机+局域网地址。**关键**：注入 `VITE_AUTO_CONNECT=ws`（+ `--real` 时 `VITE_AUTO_REAL=1`）让页面**自动连后端并切 Real Robot** —— 原先页面默认停在 MockTransport 且不会自动连接，"脚本起好了但只动仿真臂"（ADR **D42**）。`npm run dev` 不注入，手动调试行为不变 |
 | **10.6** | **Real Robot 准入改为"拒绝"** | ✅ | 用户报障「前端显示 Real 模式但后端末端是 sim」。根因：`setMode('real')` 把 `set({ mode })` 写在准入校验**之前**，校验只 pushLog、状态照改（D41 只修了一半，且旧测试还把该行为固化成契约）。现改为**校验全通过才切换**，否则保持 Simulation 并说明原因；`device` 未知（hello 未到）也拒绝，`useAutoConnect` 相应改为等 device 到达再切（ADR **D43**） |
 | 11 | Real Feedback（**链路误差反馈面板**） | ✅ | 逐关节**带符号偏差条** + 误差**趋势 sparkline** + 一句**健康结论**（已到位 / 跟踪中 / 异常）。判据全在 `@robot/linkFeedback`（纯函数，19 项单测）。**关键**：`TransportStats.moving` 是 lag 的同义重写（`moving = lag > eps`），拿它判"是否在追"**永远推不出"卡死"** —— 判据只能从时间序列得出，且趋势用**四分位中位数**（首末值/均值会被单帧尖峰翻面）。纪律：没有正面证据不下"卡死"断言，`unknown`/`shrinking` 一律判 `tracking`（ADR **D44**） |
 | 12 | 虚拟 / 真实同步（**实际臂幽灵**） | ✅ | 场景同时渲染**两条臂**：主臂跟 `commandJoints`（意图）、半透明幽灵跟 `actualJoints`（现状），未被遮挡时露出的就是**滞后量** —— 比读数表更快。幽灵用**半透明**而非醒目色（本项目「无装饰色」，信号是位置分离本身）；`depthWrite=false` 防半透明脏面。e2e **取渲染后 `matrixWorld`** 而非重算 FK —— 挂错父节点/可见性误关/材质全透明都会让画面空掉而断言全绿（ADR **D45**） |
 | **13** | **示教录制 / 回放** | ✅ | `Record / Play / Pause / Stop / Clear / Export / Import`。录的是 **`commandJoints`**（不是 `actual` —— 那会把链路时延焊进轨迹）；回放**复用 `store.setCommandJoints()`**，于是尾沿节流与安全门自动生效，**不另开直发通道**。采样 20Hz + 静止去抖 0.5° + 上限 2000 帧**拒绝新帧**（不丢开头）+ 停录**强制补末帧**（否则轨迹终点 ≠ 臂当前位置）。回放**关节空间线性插值**保证命令连续，但结束时刻**精确取末帧** ⇒ 「回放终点 == 录制终点」是逐值不变量（e2e 以 1e-9 断言，ADR **D46**） |
 | **14** | **被动腕关节（爪被连杆锁平）** | ✅ | 用户报障「爪的角度会随前后移动变化」。**受控实测**（定机位扫 S8、量爪指轴线并画回原图）证明：小臂绝对倾角变 **29.24°** 时爪的画面倾角只变 **7.31°** ⇒ 折角反向补偿 ⇒ **爪近似恒水平**，旧模型 `tool = fixed`（爪固连小臂）被否决。改为 `type: passive` + `coupling{gain:-1}→elbow` + 锁定 `90°`。**连带四处**：① IK 的 2R 作用对象换成「肘枢轴→腕枢轴」，「腕→TCP」退化为**常量偏移 `[40,0]`**（`ikGeometry()` 在 ≥3 姿态上数值验证，不变量被抛错守卫）；② MuJoCo 必须用 `<tendon><fixed>`+`<equality><tendon>` 锁**绝对角**（`<equality><joint>` 少一项 shoulder，残差恰为 `homePose.shoulder`）；③ `nq=5` 但**自由度 = 4**，前端/Go/Python 三处"可动关节"口径统一排除 passive；④ 爪锁平后包络最低点 15.8→32.71mm ⇒ **台面高度重推为 46mm** 并重新冻结基线。六套验收全绿 · IK↔FK 往返 2000 组 max **1.180e-13 mm**（ADR **D70**、`docs/hardware-measurement.md` §5.3） |
-| **A3** | **标定精度闭环（待操作者执行）** | ⏳ | A1（骨架改双杆）/ A2（`coupling.gain` → −0.81）**双双判定为"不改"**：自检 C 显示双杆改善仅 0.3° 量级且**无单调趋势**；实拍矩阵 `rod_gap=4` 局部"修好"、`rod_gap=10` 让 `dir_S7` 崩到 **−46.3%**。`tools/verify_calib_repro.py` 判定跨批极差 **肩 10.8% / 肘 52.9% > 5% 容差 ⇒ 测量本身不可复现**，此时把偏差归因给模型或标定表都不成立。**台面锁变量清单 + 采集 + 判据**见 `docs/hardware-measurement.md` §7（ADR **D47**） |
+| **A3** | **标定精度闭环（待操作者执行）** | ⏳ | A1（骨架改双杆）/ A2（`coupling.gain` → −0.81）**双双判定为"不改"**：自检 C 显示双杆改善仅 0.3° 量级且**无单调趋势**；实拍矩阵 `rod_gap=4` 局部"修好"、`rod_gap=10` 让 `dir_S7` 崩到 **−46.3%**。`robot-package/mearm-v1/tools/verify_calib_repro.py` 判定跨批极差 **肩 10.8% / 肘 52.9% > 5% 容差 ⇒ 测量本身不可复现**，此时把偏差归因给模型或标定表都不成立。**台面锁变量清单 + 采集 + 判据**见 `docs/hardware-measurement.md` §7（ADR **D47**） |
 
 ### MuJoCo 物理仿真轨（M1–M10，spec §39 的独立编号）
 
@@ -389,13 +398,13 @@ curl http://localhost:8090/healthz              # {"device":"mujoco","linked":tr
 |-------|------|------|----------|
 | **P0** | 只读分析关口 | ✅ | [`docs/architecture/so-arm101-phase0.md`](docs/architecture/so-arm101-phase0.md)：既有抽象盘点（`RobotDefinition` / `KinematicsEngine` / `IKResult` **已存在**，缺的是"选哪一份模型"的机制）、三处必改硬点（已定位到 file:line）、D1–D6 决策点 |
 | **P1** | 引入官方模型 | ✅ | `assets/models/so-arm101/official/` **14 个文件逐字节原样**（TheRobotStudio/SO-ARM100 @ `eecbe3e0`）· 13 个二进制 STL 共 16,129,292 B / 322,564 三角形 · `SOURCE.md` 记 26 个 sha256 + 两条勘误 + 一条裁决 · 保留官方目录布局（`meshdir="assets"`）⇒ **URDF 与 MJCF 都零修改加载**（实测 MuJoCo 3.13：`nq=6 nv=6 nu=6 nmesh=13`） |
-| **P2** | SO-101 RobotDefinition + 引擎 | ✅ | `config/robots/so-arm101/robot.yaml`（生成产物，`--check` 盯同步）· `SoArm101Kinematics`（FK 纯委托通用 `fk.ts`；**IK 诚实留白**）· `physics.yaml` **不复制任何数值**（真值 = 官方 MJCF）+ `tools/inspect_so101_physics.py --check` 复核 46 项（另做 5 组变异反验证） |
+| **P2** | SO-101 RobotDefinition + 引擎 | ✅ | `robot-package/so-arm101/model/robot.yaml`（生成产物，`--check` 盯同步）· `SoArm101Kinematics`（FK 纯委托通用 `fk.ts`；**IK 诚实留白**）· `physics.yaml` **不复制任何数值**（真值 = 官方 MJCF）+ `robot-package/so-arm101/tools/inspect_so101_physics.py --check` 复核 46 项（另做 5 组变异反验证） |
 | **P3** | 配置驱动的模型选择（**前端侧**） | ✅ | `config/robots.yaml` 选择器（只放 id/name/config）→ `robotConfigRegistry` → `loadRobotModel(id?)` → `RobotRegistry`（**唯一**分派表 + `assertRegistryCoverage()` 自检）。既有 22 处调用点显式化 ⇒ **既有 351 条断言逐条不变** · 新增 33 条 · vitest **384/384** · `tsc` 0 error · `pytest tests/sim` 147 + `tests/sim2sim` 9 · 4 份黄金数据**逐位一致** |
 | **P3'** | **Go / Python 侧选择器（三端同源）** | ✅ | `internal/robot/registry.go`（`LoadByID` / `Selector.IDList` / `physicsKind`）· `robotcfg.py`（`load_robot_selector` / `load_robot_by_id` / `resolve_robot_entry_by_config`）。三端读**同一份** `config/robots.yaml`；**★ 注册表 id ≠ 模型 id**（选择器 key `mearm-v1` vs `robot.yaml → robot.id = mearm`）⇒ 必须按**配置路径反查**，禁止用 `robot.id` 反查。后端启动实测：`default=mearm-v1，可选 mearm-v1 / so-arm101`，`-robot so-arm101` 时打印 6 关节 + 6 通道 + MJCF + `tcpSite=gripperframe` + 形态 `driver` |
 | **P4** | **三维模型切换（通用 mesh 支持）** | ✅ | 活动机器人从**模块常量**改为 **store 状态**（`robotId` + `model`），`setRobot(id)` 整体复位模型相关派生状态；渲染层已按 `model` 依赖重建树（`RobotArm` / `ActualGhostArm` 用 `useEffect([model])` + `disposeRobotObject3D`）。SO-101 的 13 个 STL 已进产物；**Three.js `tcpMarker.matrixWorld` ↔ FK 基线 max\|Δ\| = 3.596e-13 mm**（46 例，读真实渲染矩阵而非重算）。**MeArm 视觉行为零改动** |
-| **P5** | **SO-101 FK + 固定 joint/fk cases** | ✅ | `tests/baseline/so-arm101/sim2sim.json`（46 例：零位 / HOME / 各关节 min·mid·max / 角点 / seed 随机）由 `tools/run_sim2sim.py --freeze` 采集。三侧面互证：**前端↔参考 3.824e-13 mm**（两个独立实现消费同一份 yaml）。`inverse()` 对每个探测目标返回 `NOT_IMPLEMENTED` 且 `joints:{}` / `positionError:null`。**不伪造 IK / 不写 workspace**（报告里没有这两个字段） |
-| **P6** | **SO-101 MuJoCo 接入** | ✅ | `server.py --robot so-arm101` 实测：`STATUS S1..S6` / `JR` 6 关节 / `RESET`→HOME(0,0,0,0,0,0)。**Go→MuJoCo 全链路实测**：`-robot so-arm101 -c config.mujoco.yaml` ⇒ `device:"mujoco","linked":true`，`healthz` 报 SO-101 物理状态。★ 顺带修掉一条**错位告警**：原先无条件打印"物理量为估算值（config/physics.yaml）"—— 对 MeArm 成立、对 SO-101 是错的（其真值在官方 MJCF），现按 `physics_kind` 分支。`--phys-hz` 与 MJCF timestep 不一致时**告警而不静默**（SO-101 0.002 vs MeArm 0.001）。**官方物理参数一个未改** |
-| **P7** | **统一 Sim2Sim 框架 `runSim2Sim(robot)`** | ✅ | `simulation/mujoco/sim2sim.py`（**唯一入口**）+ `tools/run_sim2sim.py`（CLI：`--all` / `--robot` / `--freeze`）。**不是两个平行实现**：判据（用例枚举 / 三侧面比对 / 能力门）只有一份，两台机器人跑同一份代码。回归矩阵 = 选择器声明的**全部** robots（新增机器人自动进入）。★ 容差**按机器人登记且必须写明理由**，未登记一律**报错**（拒绝"先看跑出来是多少再填"）。`tests/sim/test_sim2sim_matrix.py` 14 项 + 前端 `so-arm101-baseline.test.ts` 12 项读**同一批**冻结文件 |
+| **P5** | **SO-101 FK + 固定 joint/fk cases** | ✅ | `robot-package/so-arm101/tests/cases/sim2sim.json`（46 例：零位 / HOME / 各关节 min·mid·max / 角点 / seed 随机）由 `core/tools/run_sim2sim.py --freeze` 采集。三侧面互证：**前端↔参考 3.824e-13 mm**（两个独立实现消费同一份 yaml）。`inverse()` 对每个探测目标返回 `NOT_IMPLEMENTED` 且 `joints:{}` / `positionError:null`。**不伪造 IK / 不写 workspace**（报告里没有这两个字段） |
+| **P6** | **SO-101 MuJoCo 接入** | ✅ | `server.py --robot so-arm101` 实测：`STATUS S1..S6` / `JR` 6 关节 / `RESET`→HOME(0,0,0,0,0,0)。**Go→MuJoCo 全链路实测**：`-robot so-arm101 -c config.mujoco.yaml` ⇒ `device:"mujoco","linked":true`，`healthz` 报 SO-101 物理状态。★ 顺带修掉一条**错位告警**：原先无条件打印"物理量为估算值（robot-package/mearm-v1/physics/physics.yaml）"—— 对 MeArm 成立、对 SO-101 是错的（其真值在官方 MJCF），现按 `physics_kind` 分支。`--phys-hz` 与 MJCF timestep 不一致时**告警而不静默**（SO-101 0.002 vs MeArm 0.001）。**官方物理参数一个未改** |
+| **P7** | **统一 Sim2Sim 框架 `runSim2Sim(robot)`** | ✅ | `simulation/mujoco/sim2sim.py`（**唯一入口**）+ `core/tools/run_sim2sim.py`（CLI：`--all` / `--robot` / `--freeze`）。**不是两个平行实现**：判据（用例枚举 / 三侧面比对 / 能力门）只有一份，两台机器人跑同一份代码。回归矩阵 = 选择器声明的**全部** robots（新增机器人自动进入）。★ 容差**按机器人登记且必须写明理由**，未登记一律**报错**（拒绝"先看跑出来是多少再填"）。`tests/sim/test_sim2sim_matrix.py` 14 项 + 前端 `so-arm101-baseline.test.ts` 12 项读**同一批**冻结文件 |
 | **P8** | **切换压力回归 + 终报告** | ✅ | `tests/acceptance/robot-switch.test.ts` 13 项：往返 **200 轮**后回到 MeArm 的状态与初始**逐位相同**（无漂移）；切换后关节键集合恰好是新模型的（MeArm 独有键**整个消失**）；已接入传输时**拒绝**切换且状态一位不变；未知 id 拒绝且**不回退**；同 id 幂等。**核心验收问题见下方专节** |
 
 **★ 核心验收问题（P8 · 必须回答的那一句）**
@@ -411,7 +420,7 @@ curl http://localhost:8090/healthz              # {"device":"mujoco","linked":tr
 | **3D** | 渲染树的 TCP 矩阵 == 该机器人的 FK | SO-101 **3.596e-13 mm**（46 例，读 `matrixWorld`） |
 | **FK** | 两条独立实现 + 引擎三面一致 | 前端↔参考 **3.824e-13 mm**；参考↔MuJoCo **3.318e-03 mm**（< 登记容差 5e-02，残差有根因：官方 URDF 6 位有效数字截断） |
 | **MuJoCo** | Go→Python 子进程全链路 | `device:"mujoco","linked":true`，`healthz` 报 6 关节 |
-| **Sim2Sim** | 同一入口跑两台 | `tools/run_sim2sim.py --all` 一条命令输出两行；MeArm `1e-13` 量级、SO-101 `3.3e-3` 量级 |
+| **Sim2Sim** | 同一入口跑两台 | `core/tools/run_sim2sim.py --all` 一条命令输出两行；MeArm `1e-13` 量级、SO-101 `3.3e-3` 量级 |
 | **MeArm 未被改动** | 真值冻结 + 4 份黄金数据 + 既有断言 | `freeze_baseline.py` ✅ · `gen_mearm_v1_baseline.py --check` **4 份逐位一致** · `tests/sim2sim` 9 项 ✅ · 前端 **409/409** |
 
 **边界（同一句话的另一半）**：SO-101 **没有 IK、没有工作空间数据**，且这是**声明出来的**
@@ -423,8 +432,8 @@ curl http://localhost:8090/healthz              # {"device":"mujoco","linked":tr
 
 ```bash
 # ── ① 三端读同一份选择器 ────────────────────────────────────────────────
-<python> tools/run_sim2sim.py --all                      # 统一矩阵（唯一入口）
-<python> tools/run_sim2sim.py --all --freeze             # 重新冻结 Sim2Sim 快照
+<python> core/tools/run_sim2sim.py --all                      # 统一矩阵（唯一入口）
+<python> core/tools/run_sim2sim.py --all --freeze             # 重新冻结 Sim2Sim 快照
 cd backend && ./bin/armpilot-backend.exe -robot so-arm101    # 后端换模型（日志会打印 6 关节 + MJCF）
 
 # ── ② 前端（4 件套）────────────────────────────────────────────────────
@@ -444,10 +453,10 @@ BACKEND_HTTP=http://127.0.0.1:8091 BACKEND_WS=ws://127.0.0.1:8091/ws/joint \
 <python> -m pytest tests/sim2sim -q                      # 9 passed
 
 # ── ④ MeArm-V1 未被改动的证明 ──────────────────────────────────────────
-<python> tools/freeze_baseline.py                        # 运动学/物理真值与冻结基线一致
-<python> tools/gen_mearm_v1_baseline.py --check          # 4 份黄金数据逐位一致
-<python> tools/gen_so_arm101_robot_yaml.py --check       # SO-101 配置 ↔ 官方模型同步
-<python> tools/inspect_so101_physics.py --check          # SO-101 物理快照 ↔ 官方 MJCF（46 项）
+<python> core/tools/freeze_baseline.py                        # 运动学/物理真值与冻结基线一致
+<python> robot-package/mearm-v1/tools/gen_mearm_v1_baseline.py --check          # 4 份黄金数据逐位一致
+<python> robot-package/so-arm101/tools/gen_so_arm101_robot_yaml.py --check       # SO-101 配置 ↔ 官方模型同步
+<python> robot-package/so-arm101/tools/inspect_so101_physics.py --check          # SO-101 物理快照 ↔ 官方 MJCF（46 项）
 
 # ── ⑤ Robot Package 契约（Core / Package / Working Robot 重构 · Phase 1）────
 <python> core/python/robopkg/cli.py selftest             # 路径锚点自检（config/ core/ robot-package/）
@@ -564,11 +573,11 @@ Sim2Sim·MuJoCo 黄金基线 116 + 121 例        Joint→MuJoCo 5.0e-13 mm · �
 几何↔运动学  抹掉全部 geometry/details   endEffectorPosition 逐位不变
 真机一致性    HOME 位（四舵机全 90°）    虚拟臂渲染姿态与实拍照片目视一致
 真值冻结      运动学+物理语义核心         与基线一致（本轮**有意**动过物理 ⇒ 已按 D55 走 `--update` 重新冻结）；改 geometry 放行 · 改 length/gravity 报错
-                                       （D55；`tools/freeze_baseline.py` + 11 项辨识力测试）
+                                       （D55；`core/tools/freeze_baseline.py` + 11 项辨识力测试）
 纹理校正      合成"模拟照片"往返          四角估计 max|Δ| = 1.00 px；刻度线偏差 1/1/1 px；板色 58≈60
                                        （D56）
 采集判定      合成帧 + 真机实测值          真机帧轮廓过渡 1.17 px（上限 2.5）；整条臂连通域 ⇒ 判 undecidable 且不误报倾斜
-                                       （D57；`tools/capture_texture.py`，pytest 共 147 项）
+                                       （D57；`robot-package/mearm-v1/tools/capture_texture.py`，pytest 共 147 项）
 贴图可见性    近黑纹理渲染（ROI 30680 px）  板面 L 0.08 → **12.21**、细节能量 hp_std 0.086 → **0.293**（×3.41）；
                                        仍**暗于背景 22.7** ⇒ 剪影保留；非贴图件**逐像素不变**
                                        （底座蓝板 ×1.0000、max|Δ| = 0.00）（D64）
@@ -583,7 +592,7 @@ Mock 物理约束 240°/s · 15ms 延迟 · tick 20ms   每 tick 恰好 4.8°；
 e2e 实测      滑杆跳 40°                  即时 cmd 39.9° / act 0.8°（差 39.1°）→ 收敛 39.9° / 39.9°
 收敛即停      到位后 tick 归零            无残留定时器空转（FakeTimer.pending() === 0）
 ──────────── Phase 8 · 真实 Go 后端 + 内置假固件 ────────────
-后端真值      读 ../config/robot.yaml     /healthz.state = HOME 位（shoulder 0.8498937633 / elbow 112.6185771989）
+后端真值      读 ../robot-package/mearm-v1/model/robot.yaml     /healthz.state = HOME 位（shoulder 0.8498937633 / elbow 112.6185771989）
 标定往返      JR 1 位小数 → 舵机角 → 反算   HOME 位逐位自洽；改标定表即表现为 Actual ≠ Command
 非等值回显    后端集成测试                命令 → 6 步中间态 4.18→7.52→10.85→14.18→17.51→20.80（等值回显必失败）
 OK JR 语义    回执是**目标**角             只用于核对标定（容差 0.1°）；状态只认 STATE（舵机实际角反算）
@@ -674,7 +683,7 @@ Level 声明    calibration.calibrated      false + 七项全空（由测试强�
 > **目标值**）。所以 `OK SET` / `STATUS` / 后端 `joint_state` **全都在说「我打算去哪」**，
 > 没有一条能证明「它实际上在哪」—— 哪怕机械臂卡死在桌上，回执依然一字不差。
 > **串口回执原理上无法验证物理到位，唯一的外部地面真值是相机。**
-> 见 `tools/verify_serial_e2e.mjs`（闭环主控）与 `tools/verify_pose.py`（反解内核），
+> 见 `core/tools/verify_serial_e2e.mjs`（闭环主控）与 `robot-package/mearm-v1/tools/verify_pose.py`（反解内核），
 > 决策记录见 `docs/decisions.md` D34–D38。
 
 **2026-09-12 复测补记（19:25 批，D37/D38）**
@@ -685,7 +694,7 @@ Level 声明    calibration.calibrated      false + 七项全空（由测试强�
 | **ROI 不改** | 用户要求"用新 ROI 更新数据"；单批实验确曾把锚点偏置从 −2.20° 改善到 **−0.45°**，但**跨批验证推翻**：另一批各帧误差均值 6.29 → **12.17**（翻倍恶化）⇒ 单批"最优"是过拟合，**维持 `(330,150,1040,530)`** |
 | **主误差源定位** | 反解标定增益偏差 **肩 +34% / 肘 −50%**，且**随行程放大**（+5° 命令误差 ~0.5°，+15° 涨到 +3.6~4.5°）⇒ 与 `hardware-measurement.md` §2 早已挂起的**平行四连杆耦合增益残差（实测 ≈ −0.81 而非 −1）** 完全吻合 |
 | 根因（目视复核） | 骨架拟合贴的是臂的**外轮廓边**而非连杆轴线；meArm 小臂是**两根平行杆**，三连杆骨架模型**结构上表达不了它** ⇒ **须改模型，不是调 ROI** |
-| 新增工具 | `tools/measure_roi.py`：量臂紧包围盒 + 给 ROI 建议值 + 可视化（**辅助目视工具**；数值会被线缆/桌沿污染成 `x0=0,x1=1279`，必须目视复核） |
+| 新增工具 | `robot-package/mearm-v1/tools/measure_roi.py`：量臂紧包围盒 + 给 ROI 建议值 + 可视化（**辅助目视工具**；数值会被线缆/桌沿污染成 `x0=0,x1=1279`，必须目视复核） |
 
 ### 真机端到端闭环（Phase 9）
 
@@ -695,7 +704,7 @@ verify_serial_e2e.mjs ──WebSocket(JSON，关节级)──▶ backend(serial)
         │  joint_state（开环**目标值**，只作链路自洽性参考，不作到位证据）                    │
         └── ffmpeg 抓帧 ◀────────────────────── 相机 ◀──────────────────────────────────────┘
                      │
-                     ▼  tools/verify_pose.py（FK 侧视骨架 ↔ 实拍掩膜，反解肩/肘绝对角）
+                     ▼  robot-package/mearm-v1/tools/verify_pose.py（FK 侧视骨架 ↔ 实拍掩膜，反解肩/肘绝对角）
               与本步意图关节角比对 → PASS / FAIL
 ```
 
@@ -813,7 +822,7 @@ solveIk(model, [x, y, z])  // → { success: true, joints, branch, residual, azi
 | 链路→状态 | `onState` → **只写 `actualJoints`**（回环打破）→ 状态面板 |
 | 后端分层 | `wsserver → controller → device(sim \| serial)` + `protocol`（编解码）+ `robot`（标定/限位） |
 | 后端端口 | **8090**（`MeArm-RemoteControl` 的舵机级摇杆是 8080，两者并存） |
-| 唯一真值 | 后端也读 `../config/robot.yaml`，并在 `hello` 里回传 ⇒ 两端不一致会被逐项报出 |
+| 唯一真值 | 后端也读 `../robot-package/mearm-v1/model/robot.yaml`，并在 `hello` 里回传 ⇒ 两端不一致会被逐项报出 |
 | 链路末端 | `device.mode = sim`：内置「假固件」，**走真实字节流**（`JR`/`OK JR`/`STATE`），只有串口驱动是假的 |
 | 可注入 | 时钟 `TimerLike`（`FakeTimer`）· socket `SocketLike`（`FakeSocketFactory`）⇒ 时序逻辑确定性可测 |
 
@@ -828,19 +837,19 @@ solveIk(model, [x, y, z])  // → { success: true, joints, branch, residual, azi
 | 机构 | 开源 meArm（4 舵机） | 标称尺寸 立柱 60 · 大臂 80 · 小臂 80 · 手部 40 mm（未直接量取，待标尺实测校核） |
 | 舵机角色 | **S9 底座 · S7 肩(大臂) · S8 肘(小臂) · S6 夹取** | **2026-09-12 实测**（白底分割 + 逐度扫描 + 骨架拟合）；固件侧 `SERVO_LEFT/RIGHT` 只是安装位，**不等于**运动学角色 |
 | 固件限位 | S9 30–150 / S8 20–100 / S7 80–160 / S6 40–130 | `MeArm-Device/bsp/servo.h` |
-| 关节限位（反算） | shoulder −6.094..49.455 / elbow 108.441..141.858 | `config/robot.yaml`（舵机限位 × 实测标定增益） |
+| 关节限位（反算） | shoulder −6.094..49.455 / elbow 108.441..141.858 | `robot-package/mearm-v1/model/robot.yaml`（舵机限位 × 实测标定增益） |
 | 标定增益（实测） | S7 0.694 · S8 0.418 关节度/舵机度 | `docs/hardware-measurement.md` §3 |
 | 固件开机位 | 全部 90°（= 本项目 HOME 位姿） | `MeArm-Device/core/arm_control.c` |
-| 串口 | **COM16** · 115200 8N1 | `tools/mearm_hw.py` |
-| 实测相机 | Windows 相机 + 机械臂与桌面之间的**白色分割板** | `tools/mearm_hw.py` / `analyze_sweep.py` |
+| 串口 | **COM16** · 115200 8N1 | `robot-package/mearm-v1/tools/mearm_hw.py` |
+| 实测相机 | Windows 相机 + 机械臂与桌面之间的**白色分割板** | `robot-package/mearm-v1/tools/mearm_hw.py` / `analyze_sweep.py` |
 
 > ⚠️ 打开 COM16 会拉低 DTR 使 ATmega328P 复位，固件随即把 4 个舵机驱到 90°。
 > 所以「发一条指令就重开一次串口」会让机械臂每次都弹回 RESET 位 ——
-> 实测脚本必须在**单次连接**内完成整段 `[set → 稳定 → 抓拍]`（见 `tools/mearm_hw.py`）。
+> 实测脚本必须在**单次连接**内完成整段 `[set → 稳定 → 抓拍]`（见 `robot-package/mearm-v1/tools/mearm_hw.py`）。
 
 > 机构尺寸仍是开源 meArm **标称值**，但**关节角色、标定 offset/scale/reverse、关节限位与零位
 > 已全部改为实测反解值**（见 `docs/decisions.md` D15–D17）。后续再实测微调**只改
-> `config/robot.yaml`**，代码与测试均无需改动 —— 测试期望值已改为跟随配置派生。
+> `robot-package/mearm-v1/model/robot.yaml`**，代码与测试均无需改动 —— 测试期望值已改为跟随配置派生。
 
 **显示外观同样只由 `robot.yaml` 决定**：连杆几何用 `plate`（倒角薄板）/ `box` / `cylinder` /
 `sphere` / `servo`（舵机）参数化声明，附加件（舵机、螺栓、轴销）写在 `links[].details`。
@@ -860,14 +869,14 @@ PY=<项目隔离 venv>/python      # numpy；与前端 node_modules 完全隔离
 
 # 0) 台面：机械臂与桌面之间铺白色分割板 → 「灰度 < 90 = 机械臂」即可干净分割
 # 1) 采集（单进程内 [复位 → 逐度 set → 稳定 → 抓拍]，避开 DTR 复位陷阱）
-$PY tools/mearm_hw.py sweep 7 80 95 110 125 140 155 --out-dir .workbuddy/captures/w2_S7
-$PY tools/mearm_hw.py sweep 8 30 45 60 75 90 100   --out-dir .workbuddy/captures/w2_S8
+$PY robot-package/mearm-v1/tools/mearm_hw.py sweep 7 80 95 110 125 140 155 --out-dir .workbuddy/captures/w2_S7
+$PY robot-package/mearm-v1/tools/mearm_hw.py sweep 8 30 45 60 75 90 100   --out-dir .workbuddy/captures/w2_S8
 # 2) 帧间量化：掩膜面积 / 重心 / 最高点 / 红绿差分（最小角=红，最大角=绿，重合=黄）
-$PY tools/analyze_sweep.py .workbuddy/captures/w2_S7 --overlay .workbuddy/analysis/ov_S7.png
+$PY robot-package/mearm-v1/tools/analyze_sweep.py .workbuddy/captures/w2_S7 --overlay .workbuddy/analysis/ov_S7.png
 # 3) 公共静止区自动分段：inter_S8 − inter_S7 ≈ 大臂像素（不用人肉认枢轴）
-$PY tools/segment_arm.py --out .workbuddy/analysis/segments.png
+$PY robot-package/mearm-v1/tools/segment_arm.py --out .workbuddy/analysis/segments.png
 # 4) 主证据：FK 骨架 ↔ 实拍照片拟合（对称 Chamfer + Hooke-Jeeves，RESET 帧锚定 s/ox/oy）
-$PY tools/fit_pose.py .workbuddy/captures/w2_S7 --sweep both --anchor .workbuddy/captures/w2_S8/S8_090.jpg
+$PY robot-package/mearm-v1/tools/fit_pose.py .workbuddy/captures/w2_S7 --sweep both --anchor .workbuddy/captures/w2_S8/S8_090.jpg
 ```
 
 三条**互相独立**的判据共同确定角色映射与解耦，任一单独成立都不足以定论：
@@ -891,10 +900,10 @@ $PY tools/fit_pose.py .workbuddy/captures/w2_S7 --sweep both --anchor .workbuddy
 
 **为什么关节级后端不塞进 `MeArm-RemoteControl`**（见 D27）：那是个**舵机级摇杆**服务，
 混入关节级逻辑会让"谁负责标定"变得模糊 —— 而本项目的铁律是标定只有一份。
-现在 `backend/` 直接读 `../config/robot.yaml`，并通过 WebSocket `hello` 把读到的
+现在 `backend/` 直接读 `../robot-package/mearm-v1/model/robot.yaml`，并通过 WebSocket `hello` 把读到的
 限位/标定回传给前端**在线互检**，两端真值不一致会当场暴露。
 
-三者共享的**唯一标定表**放在本仓库 `config/robot.yaml`，固件侧标定表由它生成，
+三者共享的**唯一标定表**放在本仓库 `robot-package/mearm-v1/model/robot.yaml`，固件侧标定表由它生成，
 避免"上位机标一次、固件再标一次"的双份真值。
 
 ## 9. 后端（`backend/`）快速索引
@@ -906,7 +915,7 @@ $PY tools/fit_pose.py .workbuddy/captures/w2_S7 --sweep both --anchor .workbuddy
 | 为什么 `OK JR` 不能当 Actual、为什么要 latest-wins | `docs/decisions.md` D29 / D30 |
 | 跟踪误差为什么是 0.02° 而不是 0（链路精度） | `docs/decisions.md` D31 · `docs/coordinate-system.md` §3.4 |
 | Phase 9 接真串口的落点与实测坑 | `backend/internal/device/serial.go` 注释 · `protocol/serial-v1.md` §6.1 |
-| 真机端到端怎么跑、相机怎么当唯一真值 | `tools/verify_serial_e2e.mjs` · `tools/verify_pose.py` 头注释 · D34–D36 |
+| 真机端到端怎么跑、相机怎么当唯一真值 | `core/tools/verify_serial_e2e.mjs` · `robot-package/mearm-v1/tools/verify_pose.py` 头注释 · D34–D36 |
 
 ## 10. MuJoCo 物理仿真（`simulation/`）快速索引
 
@@ -917,21 +926,21 @@ $PY tools/fit_pose.py .workbuddy/captures/w2_S7 --sweep both --anchor .workbuddy
 | 为什么 MuJoCo 的 hinge range **不是**限位真值 | `docs/decisions.md` **D49** · `simulation/README.md` §4.2 |
 | 「有接触记录」为什么不等于「有力」 | `docs/decisions.md` **D51** · `tests/sim/test_collision.py` 文件头 |
 | 为什么 IK 验收必须加载真实 `ik.ts` | `docs/decisions.md` **D53** · `frontend/tests/tools/kinematics-bridge.mjs` |
-| 改了几何后要做什么 | 重跑 `python simulation/mujoco/gen_model.py`（**MJCF 是产物，禁手改**） |
+| 改了几何后要做什么 | 重跑 `python robot-package/mearm-v1/tools/gen_model.py`（**MJCF 是产物，禁手改**） |
 | 三个只在特定调用方式下暴露的静默错误 | `docs/decisions.md` **D54** |
-| **统一 Sim2Sim 入口（跑哪台机器人、判据在哪）** | `simulation/mujoco/sim2sim.py` · `tools/run_sim2sim.py` · `docs/decisions.md` **D77** |
+| **统一 Sim2Sim 入口（跑哪台机器人、判据在哪）** | `simulation/mujoco/sim2sim.py` · `core/tools/run_sim2sim.py` · `docs/decisions.md` **D77** |
 | **FK 容差为什么按机器人分表（两个数量级的差别从哪来）** | `simulation/mujoco/sim2sim.py:FK_TOL_MM` · **D77** |
 | **第二台机器人（SO-ARM101）怎么加载、它没有什么** | `config/robots.yaml` · `assets/models/so-arm101/official/SOURCE.md` · **D75/D76** |
 
 ## 11. 真值冻结与视觉层边界
 
-用户要求「保存目前的运动学物理数据不变」。`config/robot.yaml` + `config/physics.yaml`
+用户要求「保存目前的运动学物理数据不变」。`robot-package/mearm-v1/model/robot.yaml` + `robot-package/mearm-v1/physics/physics.yaml`
 的**语义核心**已冻结（基线 `config/baseline-kinematics-physics.json`）：
 
 ```bash
-$PY tools/freeze_baseline.py            # 校验（不符则退出码 1，并逐字段列出差异）
-$PY tools/freeze_baseline.py --update   # 有意识改过参数后重新冻结
-$PY tools/freeze_baseline.py --show     # 打印当前核心摘要
+$PY core/tools/freeze_baseline.py            # 校验（不符则退出码 1，并逐字段列出差异）
+$PY core/tools/freeze_baseline.py --update   # 有意识改过参数后重新冻结
+$PY core/tools/freeze_baseline.py --show     # 打印当前核心摘要
 ```
 
 | 改动 | 结果 |
@@ -944,7 +953,7 @@ $PY tools/freeze_baseline.py --show     # 打印当前核心摘要
 > **判据是语义核心哈希，不是整文件哈希。** 整文件哈希会把"换外观"误判成违规，
 > 于是守卫会被绕过或删掉 —— 一个会被绕过的守卫等于没有守卫（ADR **D55**）。
 
-改真值后除 `--update` 外，**还必须**重跑 `python simulation/mujoco/gen_model.py`
+改真值后除 `--update` 外，**还必须**重跑 `python robot-package/mearm-v1/tools/gen_model.py`
 让 MJCF 跟上（`test_generated_mjcf_is_in_sync_with_config` 会盯这件事）。
 
 **推论（这是做视觉建模的前提）**：外观层自此完全自由 —— 几何 primitive、颜色、
@@ -952,10 +961,10 @@ $PY tools/freeze_baseline.py --show     # 打印当前核心摘要
 
 > **多机器人轨在这一节上的补充（重要）**：冻结只覆盖 MeArm-V1。
 > SO-101 的**物理量真值在官方 MJCF**（`assets/models/so-arm101/official/so101_new_calib.xml`），
-> `config/robots/so-arm101/physics.yaml` **一个数值都不复制**（只放驱动参数 + 审计快照 + 官方未声明项）。
-> 它的副本守卫是 `tools/inspect_so101_physics.py --check`（46 项，且做过 5 组变异反验证）。
-> 同时新增 `tests/baseline/so-arm101/sim2sim.json` 与 `tests/baseline/mearm-v1/sim2sim.json`
-> —— 两者由 `tools/run_sim2sim.py --freeze` 采集，判据见 ADR **D77**。
+> `robot-package/so-arm101/physics/physics.yaml` **一个数值都不复制**（只放驱动参数 + 审计快照 + 官方未声明项）。
+> 它的副本守卫是 `robot-package/so-arm101/tools/inspect_so101_physics.py --check`（46 项，且做过 5 组变异反验证）。
+> 同时新增 `robot-package/so-arm101/tests/cases/sim2sim.json` 与 `robot-package/mearm-v1/tests/cases/sim2sim.json`
+> —— 两者由 `core/tools/run_sim2sim.py --freeze` 采集，判据见 ADR **D77**。
 
 ## 12. 照片纹理贴图（进行中）—— 让数字孪生更像真机
 
@@ -965,22 +974,22 @@ primitive（`plate` / `cylinder` / `servo`）+ 十六进制单色 —— 这就�
 **做法**：把实物照片贴到对应板件的**大面**上。
 
 ```
-机械臂转到镜头前 → tools/capture_texture.py --plate <name>
+机械臂转到镜头前 → robot-package/mearm-v1/tools/capture_texture.py --plate <name>
    │                 三态判定：ok / reject / undecidable
    │                 不 ok 时给出**具体动作**（靠近多少 / 绕哪根轴转 / 长边横过来）
    ↓ 通过
 assets/textures/mearm/raw/<name>.jpg
-   → tools/make_texture.py（PCA 估四角 → homography 透视校正 → 按真实尺寸归一化）
+   → robot-package/mearm-v1/tools/make_texture.py（PCA 估四角 → homography 透视校正 → 按真实尺寸归一化）
    → assets/textures/mearm/tiles/*.png（+ 目视复核图，强制看图再信结果）
    → frontend 按面用材质数组贴图（仅 geometry 层，运动学/物理不动）
 ```
 
 ```bash
-$PY tools/capture_texture.py --plate upper_arm_link   # 抓帧 → 判定 → 告诉你要怎么调
-$PY tools/capture_texture.py --list-devices           # 列出 DirectShow 视频设备
-$PY tools/make_texture.py --list                      # 待拍清单（文件名 + 大面尺寸，直接来自 robot.yaml）
-$PY tools/make_texture.py --selftest                  # 合成数据自测，证明校正几何正确
-$PY tools/make_texture.py --all                       # 处理 raw/ 里已有的照片
+$PY robot-package/mearm-v1/tools/capture_texture.py --plate upper_arm_link   # 抓帧 → 判定 → 告诉你要怎么调
+$PY robot-package/mearm-v1/tools/capture_texture.py --list-devices           # 列出 DirectShow 视频设备
+$PY robot-package/mearm-v1/tools/make_texture.py --list                      # 待拍清单（文件名 + 大面尺寸，直接来自 robot.yaml）
+$PY robot-package/mearm-v1/tools/make_texture.py --selftest                  # 合成数据自测，证明校正几何正确
+$PY robot-package/mearm-v1/tools/make_texture.py --all                       # 处理 raw/ 里已有的照片
 ```
 
 **五条决定成败的事实**（都是实测，不是推断）：
@@ -1036,7 +1045,7 @@ $PY tools/make_texture.py --all                       # 处理 raw/ 里已有的
    实测 6 个 group 覆盖全部顶点：`0=+X 1=-X 2=+Y 3=-Y 4=+Z 5=-Z`。）
 
 **当前状态**：采集指南 + 透视校正管线（12 项测试）+ 采集判定（16 项测试）已就绪；
-**真机链路已打通**（`COM16` CH340 实测在线，`tools/set_joints.mjs` 可脚本化驱动，
+**真机链路已打通**（`COM16` CH340 实测在线，`core/tools/set_joints.mjs` 可脚本化驱动，
 发送前用 `hello` 的限位做**本地校验**、非 `device=="serial"` 一律拒绝发送，
 `--home` 保证实验从已知状态出发）。
 用户已按 D59 的要求**重新取景并挪近** ⇒ 新机位下**整臂完整入画**（不再被顶边裁掉），
@@ -1119,7 +1128,7 @@ $PY tools/make_texture.py --all                       # 处理 raw/ 里已有的
   （`0.186.0 WebGLRenderer.js:2736`）⇒ 逐材质"关掉环境反射"的设计**根本不生效**
   （实测 V5/V6 统计**逐位相同**：`L=59.17 / p05=57.36 / max=78.2`）。
   逐材质方案实测**底座蓝板逐像素不变**（`×1.0000`、`max|Δ| = 0.00`）。
-- 参数在 `config/robot.yaml → appearance`（**外观层**，与 FK / IK / 标定 / 限位无关）。
+- 参数在 `robot-package/mearm-v1/model/robot.yaml → appearance`（**外观层**，与 FK / IK / 标定 / 限位无关）。
   `environmentIntensity` 与 `roughness` 实测**只缩放整体亮度、不改变细节能量**
   （`L` 动 4 倍时 `hp_std` 只动 11%）⇒ "再亮一点"换不来更多细节。
 
@@ -1131,7 +1140,7 @@ $PY tools/make_texture.py --all                       # 处理 raw/ 里已有的
 
 爪原先只是 **`plate` 占位（两片倒角方块 + 硬编码黄色）**，与实物差得最远。
 实拍近景里它是**根部整圈方齿齿轮盘 + 内侧缘一排锯齿 + 末端斜切**的机加工件
-⇒ 改为 `geometry.type: jaw` 的**参数化平面轮廓**（`config/robot.yaml → links[jaw_link].geometry`）。
+⇒ 改为 `geometry.type: jaw` 的**参数化平面轮廓**（`robot-package/mearm-v1/model/robot.yaml → links[jaw_link].geometry`）。
 
 - **能读的只有轮廓**：黑件近纯黑（`≤3` 码值占 72%~77%，与 D64 同一批照片），**没有贴图信息**；
   但**剪影可用** —— 激光切割的亮切口恰好勾出轮廓。所以本轮做的是**形状**，不是纹理。

@@ -19,16 +19,14 @@
 import { describe, expect, it } from 'vitest';
 import {
   endEffectorPosition,
-  ikGeometry,
   loadRobotModel,
   movableJoints,
-  solveIk,
-  solveIkAll,
-  wristSagittal,
   type JointState,
   type RobotModel,
   type Vec3,
 } from '../../src/robot';
+// MeArm 的解析解住在**包内**（Phase 2 步④）
+import { ikGeometry, solveIk, solveIkAll, wristSagittal } from '../../../robot-package/mearm-v1/kinematics/ik';
 
 const model = loadRobotModel('mearm-v1');
 const geometry = ikGeometry(model);

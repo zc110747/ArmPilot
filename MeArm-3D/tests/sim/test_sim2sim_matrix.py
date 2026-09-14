@@ -32,6 +32,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from robopkg import declared_path  # noqa: E402
 from sim2sim import (
     FK_TOL_MM,
     fk_tolerance_mm,
@@ -41,7 +42,6 @@ from sim2sim import (
 )
 
 ROOT = Path(__file__).resolve().parents[2]
-BASELINE_ROOT = ROOT / "tests" / "baseline"
 
 #: 冻结快照用的随机用例数 —— 必须与 `tools/run_sim2sim.py --freeze` 时一致
 N_RANDOM = 24
@@ -52,7 +52,12 @@ SNAPSHOT_TOL_MUJOCO_MM = 1e-6
 
 
 def _snapshot_path(robot_id: str) -> Path:
-    return BASELINE_ROOT / robot_id / "sim2sim.json"
+    """快照路径 = **该包 manifest 声明的** `tests.cases` 目录（不在这里拼路径）。
+
+    Phase 2 之前这里硬编码 `tests/baseline/<id>/`；那种写法在搬迁时会漏改，
+    而漏改的表现是"文件找不到"（还算好）或"读到了仍存在的另一个同名文件"（很糟）。
+    """
+    return declared_path(robot_id, "tests.cases") / "sim2sim.json"
 
 
 def _load_snapshot(robot_id: str) -> dict:
@@ -60,7 +65,7 @@ def _load_snapshot(robot_id: str) -> dict:
     if not path.is_file():
         raise FileNotFoundError(
             f"缺少 Sim2Sim 快照 {path}\n"
-            f"  生成：python tools/run_sim2sim.py --robot {robot_id} "
+            f"  生成：python core/tools/run_sim2sim.py --robot {robot_id} "
             f"--n-random {N_RANDOM} --freeze"
         )
     return json.loads(path.read_text(encoding="utf-8"))
@@ -275,7 +280,7 @@ def test_snapshot_values_match(robot_id, bridge_factory):
 def test_mearm_sim2sim_agrees_with_the_four_file_golden_baseline(bridge_factory):
     """**交叉一致性**：统一框架没有偷偷改变 MeArm 的判据。
 
-    `tests/baseline/mearm-v1/*.json`（4 份）由 `tools/gen_mearm_v1_baseline.py`
+    `robot-package/mearm-v1/tests/cases/*.json`（4 份）由 `tools/gen_mearm_v1_baseline.py`
     在冻结时采集；`sim2sim.json` 由**另一个**工具（`tools/run_sim2sim.py`）采集。
     两批产物的**同名用例**（zero / home / *_min|mid|max / all_min|max）的 FK
     TCP 必须逐位相同。
@@ -285,7 +290,7 @@ def test_mearm_sim2sim_agrees_with_the_four_file_golden_baseline(bridge_factory)
     的产物互相印证，才把这条风险钉住。
     """
     golden = json.loads(
-        (BASELINE_ROOT / "mearm-v1" / "fk_cases.json").read_text(encoding="utf-8")
+        (declared_path("mearm-v1", "tests.cases") / "fk_cases.json").read_text(encoding="utf-8")
     )
     golden_by_id = {c["id"]: c for c in golden["cases"]}
 

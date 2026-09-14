@@ -127,9 +127,12 @@ type ModelInfo struct {
 // BuildModelInfo 从模型真值构造元数据。
 func BuildModelInfo(m *robot.Model) *ModelInfo {
 	return &ModelInfo{
-		ID:          m.ID,
-		Name:        m.Name,
-		Source:      "config/robot.yaml",
+		ID:   m.ID,
+		Name: m.Name,
+		// Source 是"真值文件在哪"的显示标签（UI / 日志用），不是定位用的路径。
+		// ★ 取**加载时实际用的那个路径**（`Model.SourcePath`），不写死字符串 ——
+		//   写死的话，真值随包搬迁后这里会继续报旧路径，而它看起来仍然"很合理"。
+		Source:      m.SourcePath,
 		JointOrder:  m.JointOrder(),
 		Limits:      m.LimitTable(),
 		Calibration: m.CalibrationTable(),

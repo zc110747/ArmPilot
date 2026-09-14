@@ -1,22 +1,23 @@
 /**
  * MeArm-V1 黄金基线（Golden Test Dataset）的读取助手。
  *
- * 数据由 `tools/gen_mearm_v1_baseline.py` 采集，落在仓库根的
- * `tests/baseline/mearm-v1/*.json`，**前后端 + Python 三方共用同一份文件**
- * （这就是它放在仓库根、而不是 `frontend/` 里的原因：它不是前端的私产，
- *  而是"MeArm-V1 冻结时的行为"这一事实的唯一记录）。
+ * 数据由 `tools/gen_mearm_v1_baseline.py` 采集，落在
+ * `robot-package/mearm-v1/tests/cases/*.json`（Phase 2 起随包），
+ * **前后端 + Python 三方共用同一份文件** —— 目录由该包的 manifest 声明，见
+ * `helpers/robotPackage.ts`（TS 侧唯一解析处）/ `robopkg.declared_path`（Python 侧）。
  *
  * ⚠️ 这里**只读**，不生成、不修补。生成入口只有一个：
  * `tools/gen_mearm_v1_baseline.py`。手改这些 JSON 等于伪造基线。
  */
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { declaredPath } from './robotPackage';
 
-const HERE = path.dirname(fileURLToPath(import.meta.url));
-/** `frontend/tests/helpers` → 仓库根 */
-export const REPO_ROOT = path.resolve(HERE, '..', '..', '..');
-export const BASELINE_DIR = path.join(REPO_ROOT, 'tests', 'baseline', 'mearm-v1');
+/** 本门面**只**服务 MeArm-V1：显式写 id，不读选择器 `default`。 */
+const MEARM_V1 = 'mearm-v1';
+
+/** 用例目录 —— 取自 `robot-package/mearm-v1/manifest.yaml` 的 `tests.cases` */
+export const BASELINE_DIR = declaredPath(MEARM_V1, 'tests.cases');
 
 /** 所有基线文件共有的头信息 */
 export interface BaselineMeta {

@@ -130,6 +130,14 @@ class SimulationCfg:
 
 @dataclass(frozen=True)
 class KinematicsCfg:
+    #: 包内**运动学引擎**实现的仓库相对路径（TS）。
+    #:
+    #: 为什么它必须由 manifest 声明（而不是靠"约定目录名"自动找）：
+    #: 前端 `RobotRegistry` 用 `import.meta.glob` **发现**引擎文件，而"发现到了"
+    #: 与"这台机器人声明的引擎就是它"是两件事 —— 前者可以悄悄命中一个
+    #: 属于别的机器人的同名文件。声明 + 对账（`test_registry_discovery_agrees_with_manifest`）
+    #: 把这两件事钉在一起。
+    engine_entry: str | None
     fk_type: str
     fk_entry: str | None
     ik_type: str
@@ -151,10 +159,19 @@ class TestsCfg:
     """**测试数据**的指针。测试**执行框架**在 Core（spec §10），不在这里。"""
 
     cases: str
-    #: 冻结真值文件（本机 = `config/baseline-kinematics-physics.json`）；没有则 None
+    #: 冻结真值文件（本机 = `core/baseline/baseline-kinematics-physics.json`）；没有则 None
     frozen: str | None
     #: 该包自带的校验脚本（如"生成物与上游同步"的 `--check`）
     tools: tuple[str, ...]
+    #: ★ 该包自带的**包内测试目录**（Phase 2 步⑤）；没有则 None。
+    #:
+    #: 判据是"这条断言换台机器人还成立吗"：不成立 ⇒ 随包走，放这里。
+    #: 典型内容是**构造事实**（连杆命名、耦合结构、被动件派生出的反例窗口）。
+    #: 机制（随机位形对比、格式契约…）留在 `tests/`，靠 manifest 的数据驱动。
+    #:
+    #: 与 `tools` 的区别：`tools` 是"可执行的校验脚本"（人/CI 手动跑），
+    #: `local` 是"pytest 收集的测试代码"（`pytest.ini` 的 testpaths 覆盖到）。
+    local: str | None
 
 
 @dataclass(frozen=True)
@@ -221,7 +238,9 @@ def parse_manifest(raw: Any, *, source_path: Path | None = None) -> Manifest:
     _unknown(sim_raw, ("mjcf", "generated_by", "tcp_site"), f"{where}.simulation")
 
     kin_raw = _mapping(m.get("kinematics"), f"{where}.kinematics")
-    _unknown(kin_raw, ("fk", "ik"), f"{where}.kinematics")
+    _unknown(kin_raw, ("engine", "fk", "ik"), f"{where}.kinematics")
+    engine_raw = _mapping(kin_raw.get("engine"), f"{where}.kinematics.engine")
+    _unknown(engine_raw, ("entry",), f"{where}.kinematics.engine")
     fk_raw = _mapping(kin_raw.get("fk"), f"{where}.kinematics.fk")
     _unknown(fk_raw, ("type", "entry"), f"{where}.kinematics.fk")
     ik_raw = _mapping(kin_raw.get("ik"), f"{where}.kinematics.ik")
@@ -244,7 +263,7 @@ def parse_manifest(raw: Any, *, source_path: Path | None = None) -> Manifest:
     _unknown(caps_raw, CAPABILITY_KEYS, f"{where}.capabilities")
 
     tests_raw = _mapping(m.get("tests"), f"{where}.tests")
-    _unknown(tests_raw, ("cases", "frozen", "tools"), f"{where}.tests")
+    _unknown(tests_raw, ("cases", "frozen", "tools", "local"), f"{where}.tests")
 
     return Manifest(
         id=_req_str(m, "id", where),
@@ -263,6 +282,7 @@ def parse_manifest(raw: Any, *, source_path: Path | None = None) -> Manifest:
             tcp_site=_req_str(sim_raw, "tcp_site", f"{where}.simulation"),
         ),
         kinematics=KinematicsCfg(
+            engine_entry=_opt_str(engine_raw, "entry", f"{where}.kinematics.engine"),
             fk_type=fk_type,
             fk_entry=_opt_str(fk_raw, "entry", f"{where}.kinematics.fk"),
             ik_type=ik_type,
@@ -275,6 +295,7 @@ def parse_manifest(raw: Any, *, source_path: Path | None = None) -> Manifest:
             cases=_req_str(tests_raw, "cases", f"{where}.tests"),
             frozen=_opt_str(tests_raw, "frozen", f"{where}.tests"),
             tools=_opt_str_list(tests_raw, "tools", f"{where}.tests"),
+            local=_opt_str(tests_raw, "local", f"{where}.tests"),
         ),
         source_path=(source_path or Path("<memory>")).resolve(),
         package_dir=(source_path.parent if source_path is not None else Path(".")).resolve(),

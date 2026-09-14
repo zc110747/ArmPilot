@@ -9,17 +9,15 @@ import { describe, expect, it } from 'vitest';
 import {
   endEffectorPosition,
   homeJointState,
-  ikGeometry,
-  IkModelError,
   jointByRole,
   loadRobotModel,
   movableJoints,
-  solveIk,
-  solveIkAll,
   type JointState,
   type RobotModel,
   type Vec3,
 } from '../../src/robot';
+// MeArm 的解析解住在**包内**（Phase 2 步④）—— 它不从 `@robot/index` 出口再导出。
+import { ikGeometry, IkModelError, solveIk, solveIkAll } from '../../../robot-package/mearm-v1/kinematics/ik';
 
 const model = loadRobotModel('mearm-v1');
 const geometry = ikGeometry(model);

@@ -1,11 +1,11 @@
 /**
- * Sim2Sim · **SO-ARM101** 基线回归（`tests/baseline/so-arm101/sim2sim.json`）。
+ * Sim2Sim · **SO-ARM101** 基线回归（`robot-package/so-arm101/tests/cases/sim2sim.json`）。
  *
  * ## 与 MeArm 那份的分工
  *
  * |                  | `mearm-v1-baseline.test.ts` | 本文件 |
  * |---|---|---|
- * | 基线文件          | `tests/baseline/mearm-v1/*.json`（4 份） | `tests/baseline/so-arm101/sim2sim.json`（1 份） |
+ * | 基线文件          | `robot-package/mearm-v1/tests/cases/*.json`（4 份） | `robot-package/so-arm101/tests/cases/sim2sim.json`（1 份） |
  * | 判据侧            | FK / Three.js / IK / 工作空间 / 抽象层等价 | FK / Three.js / **能力诚实性** |
  * | 为什么只有 FK     | —— | SO-101 **没有逆解器**，也没有工作空间数据。没有的东西不做基线、不写判据 |
  *
@@ -31,8 +31,6 @@
  * 属于 Python 侧（pytest）的判据。前端能独立验证的是"渲染 == FK == 录制值"。
  */
 import { readFileSync } from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 import {
@@ -41,10 +39,10 @@ import {
   disposeRobotObject3D,
 } from '../../src/components/RobotScene/buildRobotObject3D';
 import { SO_ARM101_ROBOT_ID, forwardKinematics, loadRobot } from '../../src/robot';
+import { declaredPath } from '../helpers/robotPackage';
 
-const HERE = path.dirname(fileURLToPath(import.meta.url));
-const REPO_ROOT = path.resolve(HERE, '..', '..', '..');
-const SNAPSHOT = path.join(REPO_ROOT, 'tests', 'baseline', 'so-arm101', 'sim2sim.json');
+/** 快照路径 = SO-ARM101 包 manifest 里声明的 `tests.cases`（不在本文件拼路径） */
+const SNAPSHOT = `${declaredPath(SO_ARM101_ROBOT_ID, 'tests.cases')}/sim2sim.json`;
 
 /** 对基线的位置容差（mm） */
 const TOL_VS_BASELINE_MM = 1e-9;

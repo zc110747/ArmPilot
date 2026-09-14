@@ -20,15 +20,14 @@
  * ⇒ 一律把 FK 的欧拉角**正解成矩阵**再比，容差取 1e-9（量级上只受浮点误差影响）。
  */
 import { describe, expect, it, beforeEach } from 'vitest';
+import path from 'node:path';
 // 资产登记表刻意**不**从 `@robot/index` 出口（与 textureRegistry 一致：它们是渲染层的
 // URL 登记，不是模型层契约），故按路径直取。
 import { listMeshKeys, resolveMeshUrl } from '@robot/model/meshRegistry';
 import {
   SO_ARM101_ROBOT_ID,
   MEARM_V1_ROBOT_ID,
-  SoArm101Kinematics,
   assertRegistryCoverage,
-  createSoArm101Kinematics,
   defaultRobotId,
   endEffectorMatrix,
   forwardKinematics,
@@ -41,10 +40,16 @@ import {
   loadRobotSelector,
   mat4RotationMatrix3,
   resetRobotRegistryCache,
-  resetSoArm101IkWarning,
   rotationMatrixMaxAbsDiff,
   type JointState,
 } from '@robot/index';
+// SO-101 的引擎住在**包内**（Phase 2 步④）
+import {
+  SoArm101Kinematics,
+  createSoArm101Kinematics,
+  resetSoArm101IkWarning,
+} from '../../../robot-package/so-arm101/kinematics/engine';
+import { REPO_ROOT, declaredPath } from '../helpers/robotPackage';
 
 // ---------------------------------------------------------------------------
 // 黄金值：MuJoCo 官方 MJCF 的 gripperframe 世界位姿（mm / 行主序 3×3）
@@ -113,9 +118,23 @@ describe('robotConfigRegistry · 模型选择器', () => {
     const selector = loadRobotSelector();
     for (const robot of selector.robots) {
       expect(robot.name.length).toBeGreaterThan(0);
-      // 路径必须是仓库相对路径（三端共用同一份解析约定）
-      expect(robot.config.startsWith('config/')).toBe(true);
+      // 路径必须是**仓库相对**路径（三端共用同一份解析约定）：
+      // 不带盘符、不以 `/` 或 `..` 开头、分隔符统一为 `/`。
+      //
+      // ⚠️ Phase 2 之前这里断言的是 `startsWith('config/')` —— 那是**把当时的
+      //    目录布局写进了期望值**。真值随包搬到 `robot-package/<id>/model/` 之后，
+      //    它变红并**不是**回归，而是那条断言本来就问错了问题：
+      //    "路径在不在 config/ 下" ≠ "路径是不是三端都能解析的仓库相对路径"。
+      //    现在改成后者，并且**加**了一条更强的互检（见下）。
+      expect(robot.config).not.toMatch(/^([A-Za-z]:|[\\/]|\.\.)/);
+      expect(robot.config).not.toContain('\\');
       expect(robot.config.endsWith('.yaml')).toBe(true);
+      // ★ 更强的一条：选择器声明的路径必须与该包 `manifest.yaml` 的
+      //   `model.config` 声明**指向同一个文件** —— 否则"配置侧说 A、包侧说 B"
+      //   会被不同读者各自读走，而这正是 Phase 2 要消灭的那类静默事故。
+      expect(path.resolve(REPO_ROOT, robot.config)).toBe(
+        declaredPath(robot.id, 'model.config'),
+      );
     }
     // 两台机器人必须指向**不同**的配置文件 —— 否则"切换模型"是假的
     const paths = selector.robots.map((r) => r.config);

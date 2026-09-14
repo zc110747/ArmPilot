@@ -30,6 +30,8 @@ __pycache__/
 # 注意：/.workbuddy/memory/ 是要入库的（与 MeArm-Device / MeArm-RemoteControl 约定一致）
 /.workbuddy/analysis/
 /.workbuddy/captures/
+# probe/：SO-101 Phase 0 的只读探测产物（URDF/MJCF 结构 dump、网格清单等，可重算）
+/.workbuddy/probe/
 
 # ---- 探针产物归档（analysis/ 清理时打的 tarball，体积大且可重算，绝不入库） ----
 # 实测此目录若非显式忽略，`git add -A` 会把数百 MB 的 tarball 吞进仓库。

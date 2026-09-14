@@ -420,3 +420,22 @@ C5（`role` 跨端语义分歧）· C6（`project_plates.py` 硬编码板件尺�
 另一条同族纪律：型号专属工具**随包走**（`manifest.tests.tools` 是完整清单）⇒ Core 侧要
 **由 `config/robots.yaml` 的 `default` 定位包**，不要写死 `mearm-v1`（写死 = 每接一台机器人回 Core 改一行）。
 **这类修复的可测判据**：`node core/tools/verify_serial_e2e.mjs --dry-run`（不碰硬件，验路径 + 动作计划 + 限位）。
+
+### 9.5 （2026-09-14 修复）gripper 真机「有概率不执行」
+
+**根因（纯 Web UI 拖动即可触发，不需 IR/摇杆）**：后端 `execJR` 把 4 执行器按固件
+`SET ≤3 对` 硬限制拆 2 条，**gripper 恒定在第二条**；原实现第一条 SET 的 ACK 超时/异常即
+`return`，**第二条（gripper）根本不发**——前三个关节已动、gripper 没动。底层诱因是固件串口
+64B RX 缓冲偶发静默丢字节（高频拖动 + 舵机负载下）。
+
+**修复（提交 `caf402d`，6 文件 +168/−22）**：
+① `serial.go` `execJR` 失败不再 `return`，`continue` 下发其余 SET（gripper 必发）；
+② `awaitAck` 严格匹配 `OK <what>`，异步 `OK IR`/`OK IRSEQ` 不再被误当 SET 应答（B 缺陷），
+   且只在应答行收集舵机角；
+③ 固件 `arm_nudge` 基于 `target` 增量（斜坡中途 nudge 不再就地取消运动，A 缺陷）；
+④ 固件 uart RX 缓冲 64→256（治本诱因）。新增 2 个回归测试（`device` 包全绿）。
+
+> ⚠️ 修复当时设备不响应串口（独占打开成功、无进程占用、10×`STATUS` 静默），故真机端到端
+> 最终复现未跑。恢复硬件后按 `.workbuddy/captures/gripper_noexec_hunt.py` 验证
+> （直连串口、复刻 execJR 命令形状、读真实 `current`）。A/B 两缺陷触发源是 IR/摇杆，
+> 与用户「从未碰遥控」不符，但主因（execJR 牺牲第二条 SET）是纯拖动场景即可触发。

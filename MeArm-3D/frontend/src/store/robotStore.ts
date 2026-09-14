@@ -29,11 +29,13 @@
 import { create } from 'zustand';
 import {
   appendFrame,
+  defaultRobotId,
   emptyTrack,
   endEffectorPose,
   homeJointState,
   jointByRole,
   jointIds,
+  loadRobot,
   loadRobotModel,
   movableJoints,
   solveIk,
@@ -60,7 +62,7 @@ export interface LogEntry {
   time: string;
   // 'err' 是本地告警（例如 mode=real 准入校验失败、安全门拦截命令）——
   // 它不来自链路，所以不能复用 'in'/'out'；用独立 kind 才能在日志里一眼分辨。
-  kind: 'in' | 'out' | 'sys' | 'err';
+  kind: 'in' | 'out' | 'sys' | 'err' | 'warn';
   text: string;
 }
 
@@ -90,6 +92,17 @@ export type ToggleKey =
   | 'showTcp';
 
 interface RobotStore {
+  /**
+   * 当前活动机器人 id（= `config/robots.yaml` 的 key，如 `mearm-v1` / `so-arm101`）。
+   *
+   * ★ 它**不是** `model.name` / `model.id`：那两者是**模型自己**的字段
+   * （MeArm 的 `robot.id` 是 `mearm`），而选择器的 key 是 `mearm-v1` ——
+   * 二者恰好不同名，所以绝不能互相反查（见 `resolve_robot_entry_by_config`）。
+   *
+   * 网页端**没有**模型选择器（spec：只通过配置文件选模型）。这里的初值来自
+   * `config/robots.yaml → default`；运行期只有 `setRobot()` 能改它（受守卫）。
+   */
+  robotId: string;
   model: RobotModel;
   /** 命令关节角（我们要求去的角度） */
   commandJoints: JointState;
@@ -206,11 +219,48 @@ interface RobotStore {
   setTeachTrack(track: TeachTrack): void;
   setTeachRecording(value: boolean): void;
   clearTeachTrack(): void;
+
+  /**
+   * 切换活动机器人（重载 `model` 并整体复位依赖模型的派生状态）。
+   *
+   * 守卫：**已接入传输**（`transportDriven`）时**拒绝** —— 模型决定限位与标定，
+   * 在驱动真机的当口换模型等于把"能发什么"悄悄换掉。要换请先断开。
+   */
+  setRobot(robotId: string): SetRobotResult;
 }
 
-const model = loadRobotModel('mearm-v1');
+/** `setRobot` 的结果 —— 拒绝时带上原因，调用方（UI / 测试 / hello 校验）可据此分支 */
+export interface SetRobotResult {
+  ok: boolean;
+  /** 切换后的活动 id（被拒绝时 = 切换前的 id） */
+  robotId: string;
+  /** 拒绝原因（`ok: true` 时为 undefined） */
+  reason?: string;
+}
+
+/**
+ * 活动机器人 id 的初值。
+ *
+ * ★ 它来自 **配置文件**（`config/robots.yaml → default`），**不是** UI 开关 ——
+ * 这与 spec「只通过后端配置文件选择模型」一致：网页端只**跟随**配置。
+ * 后端（Go / Python）默认也读同一个 `default`，所以三端在默认情况下天然一致；
+ * 若某一端被显式覆盖（`backend/config.yaml → robot.model_id`），
+ * `hello` 在线互检会把不一致**报出来**（见 `transportBridge`）。
+ */
+const INITIAL_ROBOT_ID = defaultRobotId();
+
+/**
+ * 模块级初值 —— **只用于构造 store 的初始 state**。
+ *
+ * ⚠️ 运行期一律读 `useRobotStore.getState().model` / `get().model`，
+ * 不要再把这个常量当"当前模型"用：`setRobot()` 之后它就已经过时了，
+ * 而"读了一个过时的模型"在本项目里等于**限位/标定整体错位**，且不会报错。
+ */
+const initialModel = loadRobotModel(INITIAL_ROBOT_ID);
 
 let logSeq = 0;
+/** 已经为哪些机器人记过"没有逆解器"的日志（避免拖动时刷屏） */
+const warnedNoSolver = new Set<string>();
 function makeLogEntry(kind: LogEntry['kind'], text: string): LogEntry {
   logSeq += 1;
   const now = new Date();
@@ -225,7 +275,15 @@ function defaultTeachName(): string {
   return `teach-${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
 }
 
-function clipJointState(partial: Partial<JointState>): JointState {  const out: JointState = {};
+/**
+ * 按**给定模型**的关节限位裁剪关节角。
+ *
+ * ★ `model` 是显式参数而非常量：切换机器人后限位整体不同，
+ * 用旧模型的限位去裁新模型的关节会**静默**产出越界角
+ * （然后被后端如实拒绝，表现为"命令没反应"）。
+ */
+function clipJointState(model: RobotModel, partial: Partial<JointState>): JointState {
+  const out: JointState = {};
   for (const id of jointIds(model)) {
     const joint = model.joints.find((j) => j.id === id);
     const fallback = joint ? joint.limits.min : 0;
@@ -243,6 +301,7 @@ function clipJointState(partial: Partial<JointState>): JointState {  const out: 
  * 命令路径若也去写，就会把回推的滞后值立刻覆盖掉，误差显示永远为 0。
  */
 function deriveVirtual(
+  model: RobotModel,
   joints: JointState,
   syncTarget: boolean,
   transportDriven: boolean,
@@ -266,10 +325,11 @@ function deriveVirtual(
 }
 
 export const useRobotStore = create<RobotStore>((set, get) => {
-  const initial = homeJointState(model);
-  const initialPose = endEffectorPose(model, initial);
+  const initial = homeJointState(initialModel);
+  const initialPose = endEffectorPose(initialModel, initial);
   return {
-    model,
+    robotId: INITIAL_ROBOT_ID,
+    model: initialModel,
     commandJoints: initial,
     actualJoints: initial,
     endEffector: initialPose,
@@ -304,7 +364,8 @@ export const useRobotStore = create<RobotStore>((set, get) => {
     log: [
       makeLogEntry(
         'sys',
-        `RobotModel 载入：${model.name}（${model.links.length} 连杆 / ${model.joints.length} 关节 / ${model.actuators.length} 舵机）`,
+        `RobotModel 载入：${initialModel.name}（${initialModel.links.length} 连杆 / ${initialModel.joints.length} 关节 / ${initialModel.actuators.length} 舵机）` +
+          ` · 活动机器人 id = ${INITIAL_ROBOT_ID}`,
       ),
     ],
 
@@ -313,26 +374,30 @@ export const useRobotStore = create<RobotStore>((set, get) => {
     teachRecording: false,
 
     setJoint(jointId, angleDeg) {
-      const next = clipJointState({ ...get().commandJoints, [jointId]: angleDeg });
-      set(deriveVirtual(next, true, get().transportDriven));
+      const m = get().model;
+      const next = clipJointState(m, { ...get().commandJoints, [jointId]: angleDeg });
+      set(deriveVirtual(m, next, true, get().transportDriven));
     },
 
     setCommandJoints(next) {
-      set(deriveVirtual(clipJointState(next), true, get().transportDriven));
+      const m = get().model;
+      set(deriveVirtual(m, clipJointState(m, next), true, get().transportDriven));
     },
 
     setActualJoints(next) {
-      const clipped = clipJointState(next);
+      const m = get().model;
+      const clipped = clipJointState(m, next);
       set({
         actualJoints: clipped,
-        actualEndEffector: endEffectorPose(model, clipped),
+        actualEndEffector: endEffectorPose(m, clipped),
         controlSource: 'real',
       });
     },
 
     attachToActual(next) {
-      const clipped = clipJointState(next);
-      const pose = endEffectorPose(model, clipped);
+      const m = get().model;
+      const clipped = clipJointState(m, next);
+      const pose = endEffectorPose(m, clipped);
 
       // 记下"机器实际离页面的假设有多远"：这个数就是用户此前看到的那只幽灵的
       // 偏移量。写进日志而不是只留在画面上 —— 幽灵消失之后，这条记录是唯一
@@ -340,7 +405,7 @@ export const useRobotStore = create<RobotStore>((set, get) => {
       const previous = get().commandJoints;
       let worstDeg = 0;
       let worstJoint = '';
-      for (const id of jointIds(model)) {
+      for (const id of jointIds(m)) {
         const delta = Math.abs((clipped[id] ?? 0) - (previous[id] ?? 0));
         if (delta > worstDeg) {
           worstDeg = delta;
@@ -369,33 +434,72 @@ export const useRobotStore = create<RobotStore>((set, get) => {
     },
 
     goHome() {
-      const home = clipJointState(homeJointState(model));
-      set(deriveVirtual(home, true, get().transportDriven));
+      const m = get().model;
+      const home = clipJointState(m, homeJointState(m));
+      set(deriveVirtual(m, home, true, get().transportDriven));
       get().pushLog('sys', `HOME 位姿 ${JSON.stringify(home)}`);
     },
 
     goZero() {
       // 关节空间原点：各关节 0°。小臂（绝对角）的真机可达区间是 108.44..141.86°，
       // 0° 不可达，故 clipJointState 会把它钳到最竖直的可达角 —— 结果是真机约束，不是 bug。
-      const zero = clipJointState(zeroJointState(model));
-      set(deriveVirtual(zero, true, get().transportDriven));
+      const m = get().model;
+      const zero = clipJointState(m, zeroJointState(m));
+      set(deriveVirtual(m, zero, true, get().transportDriven));
       get().pushLog('sys', `零位：各关节 0°（限位钳位后 ${JSON.stringify(zero)}）`);
     },
 
     moveTo(xyz, opts = {}) {
       const current = get();
+      const m = current.model;
+
+      // ---- 能力门：本机器人有没有逆解器？ ----
+      //
+      // ⚠️ 这一层**不能省**：下面的 `solveIk` 是 MeArm 的**解析解**（矢状面 2R），
+      // 对着一台 6 铰链的 SO-101 去跑它，得到的是"把一台机器的几何套在另一台上"
+      // 的结果 —— 它会**成功返回**一组关节角（`success: true`），而那组角在 SO-101
+      // 上毫无意义。这正是 spec 说的"伪造 IK"：不是报错，是静默给出错误的关节角。
+      //
+      // 判据取自 `RobotRegistry` 的能力**声明**（数据），而不是在这里写
+      // `if (robotId === 'so-arm101')`（逻辑）—— 将来 SO-101 加了数值 IK，
+      // 只需要改它自己的 `capability`，本函数一个字都不用动。
+      const solverKind = loadRobot(current.robotId).kinematics.capability.solverKind;
+      if (solverKind !== 'analytic') {
+        const message =
+          `${m.name} 没有逆解器（solverKind="${solverKind}"），目标点未被求解。` +
+          `这不是"目标不可达"——请改用关节角直接驱动（Joint 面板）`;
+        // 与"目标越界"同一取向：**保留 target** 让用户看到"我想去哪"，
+        // 并在面板上显示原因。绝不静默什么都不做。
+        set({
+          target: [xyz[0], xyz[1], xyz[2]],
+          ikStatus: { ok: false, reason: 'NO_SOLVER', message },
+        });
+        // 拖动时 `moveTo` 会被高频调用 ⇒ 只在**首次**为该机器人记一条日志，
+        // 否则日志面板会被同一句话刷满（与 `warnNotImplementedOnce` 同一考量）。
+        if (!warnedNoSolver.has(current.robotId)) {
+          warnedNoSolver.add(current.robotId);
+          current.pushLog('err', message);
+        }
+        return {
+          success: false,
+          reason: 'NO_SOLVER',
+          message,
+          candidates: [],
+        };
+      }
+
       // `prefer: 'nearest'` + `near: 当前命令角` —— 拖动经过工作空间内边界时不翻支；
       // `seed: 当前命令角` 让夹爪等未参与解算的关节保持原值，返回值可直接喂 FK 闭环。
-      const result = solveIk(model, xyz, {
+      const result = solveIk(m, xyz, {
         prefer: opts.prefer ?? 'nearest',
         near: current.commandJoints,
         seed: current.commandJoints,
       });
 
       if (result.success) {
-        const joints = clipJointState(result.joints);
+        const joints = clipJointState(m, result.joints);
         set({
-          ...deriveVirtual(joints, false, current.transportDriven),
+          ...deriveVirtual(m, joints, false, current.transportDriven),
           target: [xyz[0], xyz[1], xyz[2]],
           ikStatus: {
             ok: true,
@@ -451,7 +555,7 @@ export const useRobotStore = create<RobotStore>((set, get) => {
         const joints = get().commandJoints;
         patch.transportStats = null;
         patch.actualJoints = joints;
-        patch.actualEndEffector = endEffectorPose(model, joints);
+        patch.actualEndEffector = endEffectorPose(get().model, joints);
         patch.controlSource = 'virtual';
       }
       set(patch);
@@ -543,6 +647,78 @@ export const useRobotStore = create<RobotStore>((set, get) => {
       );
     },
 
+    setRobot(robotId) {
+      const st = get();
+
+      if (robotId === st.robotId) {
+        // 幂等：重复切到同一台只回结果，不动任何状态。
+        // 这一条不只是省事 —— P8 的切换压力回归会把它调上万次，
+        // 若每次都重算/重写状态，压测本身就成了噪声源。
+        return { ok: true, robotId };
+      }
+
+      // ---- 守卫：已接入传输时拒绝 ----
+      //
+      // 与 `setMode` 同一套哲学（本文件头部 §十七）：**校验通过才改状态**，
+      // 拒绝时给出一条说明"为什么"和"怎么修"的日志 —— 而不是改了状态再抱怨。
+      if (st.transportDriven) {
+        const reason =
+          `机器人切换被拒绝：当前已接入传输（${st.transportKind ?? '未知'}），` +
+          `模型决定限位与标定，在驱动链路上换模型会把"能发什么"悄悄换掉。` +
+          `请先在 Connection 面板断开，再切到 ${robotId}`;
+        st.pushLog('err', reason);
+        return { ok: false, robotId: st.robotId, reason };
+      }
+
+      let next: RobotModel;
+      try {
+        next = loadRobotModel(robotId);
+      } catch (error) {
+        // 未知 id / yaml 损坏：如实报错并**保持原模型**。
+        // 绝不回退到缺省 —— 那会把"配置写错一个字"变成"静默加载了另一台机器人"。
+        const reason = `机器人切换失败：${(error as Error).message}`;
+        st.pushLog('err', reason);
+        return { ok: false, robotId: st.robotId, reason };
+      }
+
+      const home = clipJointState(next, homeJointState(next));
+      const pose = endEffectorPose(next, home);
+
+      set({
+        robotId,
+        model: next,
+        commandJoints: home,
+        actualJoints: home,
+        endEffector: pose,
+        actualEndEffector: pose,
+        // 目标 / IK 结果 / 对齐误差 / 示教轨迹全部是**旧模型关节空间**里的量，
+        // 新模型下它们没有任何意义 ⇒ 一律复位。
+        // （示教轨迹是用户数据，所以下面单独记一条日志，不能悄悄丢。）
+        target: [pose.position[0], pose.position[1], pose.position[2]],
+        ikStatus: null,
+        alignmentErrorMm: null,
+        teachTrack: emptyTrack(st.teachTrack.name),
+        teachRecording: false,
+      });
+
+      const droppedFrames = st.teachTrack.frames.length;
+      st.pushLog(
+        'sys',
+        `机器人已切换：${next.name}（id=${robotId}）· ${next.links.length} 连杆 / ` +
+          `${next.joints.length} 关节 / ${next.actuators.length} 舵机 · 姿态复位到 HOME`,
+      );
+      if (droppedFrames > 0) {
+        // 示教轨迹是**用户数据**，不能悄悄丢 —— 它记录的是旧模型的关节空间，
+        // 换模型后回放会驱动一组语义完全不同的关节。
+        st.pushLog(
+          'warn',
+          `示教轨迹已清空（原有 ${droppedFrames} 帧）：它记录的是 ${st.model.name} 的关节空间，` +
+            `在 ${next.name} 上回放会驱动语义不同的关节。`,
+        );
+      }
+      return { ok: true, robotId };
+    },
+
     setControlSource(source) {
       set({ controlSource: source });
     },
@@ -593,10 +769,25 @@ export const useRobotStore = create<RobotStore>((set, get) => {
 
 // ---------------------------------------------------------------------------
 // 派生选择器（供组件使用，避免在组件里重复写业务规则）
+//
+// ★ 以下函数的 `model` 都是**可选参数**，缺省取当前活动模型。
+//   这样既保住了既有调用点（`jointLabel(joint.id)`）的形态，
+//   又允许在多机器人语境下显式传入 —— 也让测试能在**不碰全局 store**的情况下
+//   对指定模型做断言。
 // ---------------------------------------------------------------------------
 
-/** 关节显示名：J1/J2/J3 + Gripper */
-export function jointLabel(jointId: string): string {
+/**
+ * 当前活动模型。
+ *
+ * ⚠️ 这是"读一次当时的值"，**不是** React 订阅。组件里若要随模型变化重渲染，
+ * 必须订阅 `useRobotStore((s) => s.model)`（`RobotArm` / `ActualGhostArm` 就是这么做的）。
+ */
+export function activeRobotModel(): RobotModel {
+  return useRobotStore.getState().model;
+}
+
+/** 关节显示名：J1/J2/J3 + Gripper（无 role 的关节回落到模型自己的名字） */
+export function jointLabel(jointId: string, model: RobotModel = activeRobotModel()): string {
   const joint = model.joints.find((j) => j.id === jointId);
   if (!joint) return jointId;
   switch (joint.role) {
@@ -613,21 +804,29 @@ export function jointLabel(jointId: string): string {
   }
 }
 
-/** 定位关节（不含夹爪）—— IK 只解这三个（spec §十三） */
-export function positioningJointIds(): string[] {
+/**
+ * 定位关节（不含夹爪）—— IK 只解这三个（spec §十三）。
+ *
+ * ⚠️ 这是 MeArm 的语义（三自由度定位）。SO-101 有 5 个可动关节，
+ * 它的 IK 是 `NOT_IMPLEMENTED`，本函数对它的返回值**没有**"IK 输入"这层含义，
+ * 仅供 UI 分组使用（见 `SoArm101Kinematics.capability`）。
+ */
+export function positioningJointIds(model: RobotModel = activeRobotModel()): string[] {
   return movableJoints(model)
     .filter((joint) => joint.role !== 'gripper')
     .map((joint) => joint.id);
 }
 
-export function gripperJointId(): string | null {
+export function gripperJointId(model: RobotModel = activeRobotModel()): string | null {
   return jointByRole(model, 'gripper')?.id ?? null;
 }
 
 /** 目标点与当前 TCP 的距离（mm）—— 0 表示已到位 */
-export function targetGapMm(target: Vec3, joints: JointState): number {
+export function targetGapMm(
+  target: Vec3,
+  joints: JointState,
+  model: RobotModel = activeRobotModel(),
+): number {
   const tcp = endEffectorPose(model, joints).position;
   return Math.hypot(target[0] - tcp[0], target[1] - tcp[1], target[2] - tcp[2]);
 }
-
-export { model as robotModel };

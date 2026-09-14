@@ -32,13 +32,14 @@ import (
 
 func main() {
 	cfgPath := flag.String("c", "config.yaml", "配置文件路径 (YAML)")
+	robotID := flag.String("robot", "", "机器人 id（config/robots.yaml 的 key）；留空 = 选择器的 default")
 	flag.Parse()
-	if err := run(*cfgPath); err != nil {
+	if err := run(*cfgPath, *robotID); err != nil {
 		log.Fatalf("[fatal] %v", err)
 	}
 }
 
-func run(cfgPath string) error {
+func run(cfgPath, robotIDFlag string) error {
 	log.SetFlags(log.LstdFlags | log.Lmicroseconds)
 
 	c, err := cfg.Load(cfgPath)
@@ -48,17 +49,25 @@ func run(cfgPath string) error {
 	log.Printf("========== armpilot-backend 启动 ==========")
 	log.Printf("配置: %s", absOrSelf(c.Path))
 
-	// ---- 模型真值 ----------------------------------------------------------
-	robotPath, err := cfg.ResolveRobotConfig(c.Robot.ConfigPath)
+	// ---- 模型真值（选择器 → 记录 → 模型）-----------------------------------
+	// 优先级：命令行 `-robot` > `backend/config.yaml` 的 `robot.model_id` > 选择器的 default。
+	selectorPath, err := cfg.ResolveRobotSelector(c.Robot.SelectorPath)
 	if err != nil {
 		return err
 	}
-	model, err := robot.Load(robotPath)
+	wantID := robotIDFlag
+	if wantID == "" {
+		wantID = c.Robot.ModelID
+	}
+	model, sel, entry, err := robot.LoadByID(selectorPath, wantID)
 	if err != nil {
 		return err
 	}
-	log.Printf("模型真值: %s", robotPath)
+	log.Printf("模型选择器: %s（default=%s，可选 %s）", selectorPath, sel.Default, sel.IDList())
+	log.Printf("模型真值: %s", entry.ConfigPath)
 	log.Printf("robot: %s (%s)  %s", model.Name, model.ID, model.Describe())
+	log.Printf("仿真资产: mjcf=%s · tcpsite=%s · physics=%s（形态 %s）",
+		orNone(entry.MJCFPath), entry.TCPSite, entry.PhysicsPath, entry.PhysicsKind)
 
 	// ---- 链路末端 ----------------------------------------------------------
 	var dev device.Device
@@ -119,9 +128,24 @@ func run(cfgPath string) error {
 			dev.Kind(), mujocoScript,
 			floatOr(c.Device.Mujoco.PhysHz, 1000), floatOr(c.Device.Mujoco.ReportHz, 30),
 			!c.Device.Mujoco.NoRealtime)
-		log.Printf("⚠️ 这是**参数化物理仿真**（Level 3），不是真机标定模型：" +
-			"质量/惯量/摩擦为公开值或估算值（config/physics.yaml），" +
-			"限位与标定仍沿用 config/robot.yaml。跑 calibrate.py 可见哪些项还是猜的。")
+		// ⚠️ 这两条告警的**适用对象不同**，必须分开说。
+		//
+		// 早期的写法是"无条件先说一句'物理量是公开值或估算值（config/physics.yaml）'"，
+		// 那句话对 MeArm 成立（物理量确实是我们估的），但对 SO-101 **是错的** ——
+		// 它的物理量真值在官方 MJCF 里，我们一个字都没覆盖。把错的告警留在日志里，
+		// 比没有告警更糟：读日志的人会以为官方模型也被"估"过。
+		if entry.PhysicsKind == "driver" {
+			// SO-101 这类：物理量**不是**我们估的，官方 MJCF 已写全。
+			log.Printf("⚠️ 本机型的物理量真值来源 = 官方 MJCF（%s）："+
+				"ArmPilot 未估算、未覆盖任何物理量（%s 只放驱动参数 + 审计快照）。",
+				orNone(entry.MJCFPath), entry.PhysicsPath)
+			log.Printf("⚠️ 官方 MJCF **未声明**：地面/工作台、相邻连杆的 contact exclude、" +
+				"关节速度上限（→ 速率限制在控制层做）、独立标定段；质量来自 CAD 而非称重。")
+		} else {
+			log.Printf("⚠️ 这是**参数化物理仿真**（Level 3），不是真机标定模型：" +
+				"质量/惯量/摩擦为公开值或估算值（config/physics.yaml），" +
+				"限位与标定仍沿用 config/robot.yaml。跑 calibrate.py 可见哪些项还是猜的。")
+		}
 	default:
 		log.Printf("链路末端: %s (%s @ %d %d%s%d · 静默窗口 %dms · 暖机 %v · 单条固件指令超时 %dms)",
 			dev.Kind(), c.Device.Serial.Port, c.Device.Serial.Baud,
@@ -179,6 +203,15 @@ func absOrSelf(p string) string {
 	}
 	if abs, err := os.Getwd(); err == nil {
 		return abs + string(os.PathSeparator) + p
+	}
+	return p
+}
+
+// orNone 空串显示成 `(生成)` —— MJCF 为空表示"由 gen_model.py 从 robot.yaml 生成"，
+// 这个区别在日志里必须看得见（否则"用的是官方模型还是我们生成的"就成了猜）。
+func orNone(p string) string {
+	if p == "" {
+		return "(由 gen_model.py 生成)"
 	}
 	return p
 }

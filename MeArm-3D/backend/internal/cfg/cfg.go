@@ -39,8 +39,15 @@ type WebConfig struct {
 
 // RobotConfig 指向模型真值文件。
 type RobotConfig struct {
-	// ConfigPath robot.yaml 路径。支持相对路径；不存在时按候选列表回退
-	// （见 ResolveRobotConfig），从而 backend/ 与 MeArm-3D/ 两种工作目录都能跑。
+	// ModelID 要加载哪台机器人（`config/robots.yaml` 的 key）。
+	// **留空 = 用选择器的 `default`** ⇒ 不写这一行时行为与单机器人时代一致。
+	ModelID string `yaml:"model_id"`
+	// SelectorPath 模型选择器（`config/robots.yaml`）路径。支持相对路径；
+	// 不存在时按候选列表回退（见 ResolveRobotSelector）。
+	SelectorPath string `yaml:"selector_path"`
+	// ConfigPath **已废弃**：单机器人时代直接指向 `robot.yaml` 的写法。
+	// 保留它只是为了让旧的 `backend/config.yaml` 不至于读不懂；
+	// 现在由选择器决定加载哪一份配置（见 ResolveRobotSelector）。
 	ConfigPath string `yaml:"config_path"`
 }
 
@@ -134,7 +141,7 @@ func Default() Config {
 			Host: "0.0.0.0", Port: 8090, Path: "/ws/joint",
 			PingIntervalMs: 15000, ClientTimeoutMs: 40000,
 		},
-		Robot: RobotConfig{ConfigPath: "../config/robot.yaml"},
+		Robot: RobotConfig{SelectorPath: "../config/robots.yaml"},
 		Device: DeviceConfig{
 			Mode: "sim",
 			Sim: SimConfig{
@@ -186,14 +193,44 @@ func Load(path string) (Config, error) {
 	return c, nil
 }
 
-// ResolveRobotConfig 定位 robot.yaml。
+// ResolveRobotSelector 定位**模型选择器** `config/robots.yaml`。
 //
 // 候选顺序（相对当前工作目录）：
-//  1. 配置里写的路径（默认 ../config/robot.yaml —— 从 backend/ 启动）
-//  2. config/robot.yaml（从 MeArm-3D/ 启动）
-//  3. ../MeArm-3D/config/robot.yaml（从仓库根启动）
+//  1. 配置里写的路径（默认 ../config/robots.yaml —— 从 backend/ 启动）
+//  2. config/robots.yaml（从 MeArm-3D/ 启动）
+//  3. ../MeArm-3D/config/robots.yaml（从仓库根启动）
 //
 // 全部失败时返回错误并列出全部候选，避免"文件找不到"变成猜谜。
+//
+// ⚠️ 与已废弃的 `ResolveRobotConfig` 的区别：那个直接找 `robot.yaml`（单机器人时代），
+// 这个找**选择器**，再由选择器决定加载哪一份 `robot.yaml`。三端（前端 / 本服务 /
+// Python 仿真）之所以能指向同一台机器人，靠的就是都从这里出发。
+func ResolveRobotSelector(configured string) (string, error) {
+	candidates := []string{configured, "../config/robots.yaml", "config/robots.yaml", "../MeArm-3D/config/robots.yaml"}
+	seen := map[string]bool{}
+	tried := make([]string, 0, len(candidates))
+	for _, c := range candidates {
+		if c == "" || seen[c] {
+			continue
+		}
+		seen[c] = true
+		abs, err := filepath.Abs(c)
+		if err != nil {
+			continue
+		}
+		tried = append(tried, abs)
+		if st, err := os.Stat(abs); err == nil && !st.IsDir() {
+			return abs, nil
+		}
+	}
+	return "", fmt.Errorf("找不到 robots.yaml（模型选择器），已尝试:\n  %s", joinLines(tried))
+}
+
+// ResolveRobotConfig 定位 `robot.yaml`（**单机器人时代的入口**）。
+//
+// 保留它是因为 `backend/config.yaml` 的旧字段 `robot.config_path` 仍可能被写下；
+// 但正常的启动路径已经改走 `ResolveRobotSelector` + `robot.LoadByID`
+// —— 后者的好处是"加载哪一台"由**三端共用的那一份配置**决定，而不是各端各写一个路径。
 func ResolveRobotConfig(configured string) (string, error) {
 	candidates := []string{configured, "../config/robot.yaml", "config/robot.yaml", "../MeArm-3D/config/robot.yaml"}
 	seen := map[string]bool{}

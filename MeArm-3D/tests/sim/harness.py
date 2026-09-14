@@ -8,6 +8,7 @@ FK 与 IK 两条判据都要"在真机限位内采样位形""用 MuJoCo 做纯�
 """
 from __future__ import annotations
 
+import itertools
 from typing import Any, Mapping, Sequence
 
 import numpy as np
@@ -23,23 +24,31 @@ def random_pose(robot, rng: np.random.Generator) -> dict[str, float]:
 
     `elbow` 存的是绝对倾角，所以这里直接对 `[limit_min, limit_max]` 均匀采样即可 ——
     不需要（也不能）在局部角空间采样，否则会采到真机做不到的位形。
+
+    机器人无关：关节集合来自 `robot.movable_joints()`（MeArm 4 个 / SO-101 6 个）。
     """
     return {j.id: float(rng.uniform(j.limit_min, j.limit_max))
             for j in robot.movable_joints()}
 
 
-def grid_poses(robot, n: int = 4) -> list[dict[str, float]]:
-    """限位端点上的张量网格 —— 专门打边界，随机采样很难命中这些角点。"""
-    axes = []
-    for j in robot.movable_joints():
-        axes.append(np.linspace(j.limit_min, j.limit_max, n).tolist())
-    out = []
-    for a in axes[0]:
-        for b in axes[1]:
-            for c in axes[2]:
-                for d in axes[3]:
-                    out.append({j.id: v for j, v in
-                                zip(robot.movable_joints(), (a, b, c, d))})
+def grid_poses(robot, n: int = 4, *, max_poses: int = 4096) -> list[dict[str, float]]:
+    """限位端点上的张量网格 —— 专门打边界，随机采样很难命中这些角点。
+
+    ⚠️ 规模是 `n ** len(movable_joints)`：MeArm 4 关节 ⇒ 256；SO-101 6 关节 ⇒ 4096。
+    超过 `max_poses` 时**报错而不是静默截断** —— 静默截断会让"边界全覆盖"这句话
+    在某台机器人上悄悄变成"只覆盖了前 1/16"，而测试照样绿。
+    """
+    joints = robot.movable_joints()
+    total = n ** len(joints)
+    if total > max_poses:
+        raise ValueError(
+            f"grid_poses: {n}**{len(joints)} = {total} 超过上限 {max_poses}；"
+            f"请调小 n 或显式提高 max_poses"
+        )
+    axes = [np.linspace(j.limit_min, j.limit_max, n).tolist() for j in joints]
+    out: list[dict[str, float]] = []
+    for combo in itertools.product(*axes):
+        out.append({j.id: float(v) for j, v in zip(joints, combo)})
     return out
 
 
@@ -91,21 +100,43 @@ def mujoco_joint_origin_mm(sim, robot, jid: str) -> np.ndarray:
 
     调用前必须已经 `sim.reset(joints)`：本函数只读 `data`，不推进任何东西。
 
-    ⚠️ 固定关节（`robot.yaml` 里 `type: fixed`）在 MJCF 里**没有 `<joint>` 元素**
-    （见 `gen_model.py`：`if joint is not None and not joint.is_fixed` 才写 joint），
-    所以按关节名查会拿到 −1。但两条路径取到的是**同一个量**：生成器把 body 放在
-    `parent.length + origin.position` 处，可动关节的 anchor 就是这个 body 原点，
-    固定关节的坐标系原点也是这个 body 原点。所以可动关节读 `xanchor`，
-    固定关节读**子连杆 body 的 `xpos`**（与 `test_fk.py::joint_origin_mm` 同一条规则）。
+    三条取法（按优先级），覆盖了两台机器人各自的建模方式：
+
+    ① 可动关节 ⇒ `data.xanchor[joint]`。
+       ⚠️ 固定关节（`robot.yaml` 里 `type: fixed`）在 MJCF 里**没有 `<joint>` 元素**
+       （见 `gen_model.py`：`if joint is not None and not joint.is_fixed` 才写 joint），
+       所以按关节名查会拿到 −1。
+
+    ② 固定关节 ⇒ **子连杆 body 的 `xpos`**。
+       生成器把 body 放在 `parent.length + origin.position` 处，可动关节的 anchor
+       就是这个 body 原点，固定关节的坐标系原点也是这个 body 原点
+       （与 `test_fk.py::joint_origin_mm` 同一条规则）。
+
+    ③ 固定关节且**子连杆 body 不存在** ⇒ **TCP site 的 `xpos`**。
+       官方 SO-ARM101 的 TCP 帧就是一个 `<site name="gripperframe">`，
+       **没有**对应的 body（`gripper_frame_link` 只存在于 robot.yaml 的抽象里）。
+       判据用 `jid == robot.tcp_joint` 且 sim 声明了 tcp site ——
+       **不猜名字**（猜 `gripper_frame` → `gripperframe` 这种去下划线规则会在
+       下一台机器人上静默失效，而失效的表现是"关节锚点整体差几十毫米"）。
     """
     import mujoco
 
     joint = robot.joint(jid)
     if joint.is_fixed:
         i = mujoco.mj_name2id(sim.model, mujoco.mjtObj.mjOBJ_BODY, joint.child_link)
-        if i < 0:
-            raise KeyError(f"MJCF 里找不到 body {joint.child_link!r}（关节 {jid!r}）")
-        return np.asarray(sim.data.xpos[i], dtype=float) * 1000.0
+        if i >= 0:
+            return np.asarray(sim.data.xpos[i], dtype=float) * 1000.0
+
+        site_name = getattr(sim, "tcp_site", None)
+        if jid == robot.tcp_joint and site_name:
+            s = mujoco.mj_name2id(sim.model, mujoco.mjtObj.mjOBJ_SITE, site_name)
+            if s >= 0:
+                return np.asarray(sim.data.site_xpos[s], dtype=float) * 1000.0
+
+        raise KeyError(
+            f"MJCF 里既没有 body {joint.child_link!r} 也没有可用的 TCP site"
+            f"（固定关节 {jid!r}；sim.tcp_site={site_name!r}）"
+        )
     i = mujoco.mj_name2id(sim.model, mujoco.mjtObj.mjOBJ_JOINT, jid)
     if i < 0:
         raise KeyError(f"MJCF 里找不到 joint {jid!r}")

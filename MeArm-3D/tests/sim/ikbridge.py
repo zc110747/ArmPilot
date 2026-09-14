@@ -62,6 +62,7 @@ class KinematicsBridge:
     def __init__(
         self,
         *,
+        robot_id: str | None = None,
         node: str | None = None,
         script: Path | None = None,
         frontend_dir: Path | None = None,
@@ -71,6 +72,8 @@ class KinematicsBridge:
         self.script = Path(script or BRIDGE_SCRIPT)
         self.frontend_dir = Path(frontend_dir or FRONTEND_DIR)
         self.timeout = float(timeout)
+        #: 机器人 id（选择器的 key）。`None` = 桥自己用选择器的 default。
+        self.robot_id = robot_id
         if not self.script.is_file():
             raise BridgeError(f"找不到运动学桥脚本：{self.script}")
         self._tmp = Path(tempfile.mkdtemp(prefix="armpilot-ikbridge-"))
@@ -90,6 +93,8 @@ class KinematicsBridge:
         req_path = self._tmp / f"req-{self._n}.json"
         out_path = self._tmp / f"res-{self._n}.json"
         args = [self.node, str(self.script), "--out", str(out_path)]
+        if self.robot_id:
+            args += ["--robot", self.robot_id]
         if info:
             args.append("--info")
         else:

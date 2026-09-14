@@ -1,12 +1,24 @@
-"""MeArm MuJoCo 物理后端封装。
+"""MuJoCo 物理后端封装（**机器人无关**）。
 
 对外暴露 spec §31 要求的五个能力：
 
-    load        —— 构造即加载（`MeArmSim(...)`）
+    load        —— 构造即加载（`RobotSim(...)`）
     reset       —— `reset()` 复位到 HOME（或指定位形），**可重复**
     step        —— `step(n)` 推进物理
     command     —— `set_target_joints()` 下发关节角命令
     state       —— `state()` 读取统一状态（关节角/速度/力矩/末端位姿/接触）
+
+## 同一份代码服务两台完全不同的机器人
+
+| | MeArm-V1 | SO-ARM101 |
+|---|---|---|
+| MJCF 从哪来 | `gen_model.py` 从 `robot.yaml` 生成 | **官方 MJCF 原样**（官方仓库布局，零修改） |
+| TCP 从哪读 | `mearm.xml` 的 `tcp` site | 官方 MJCF 的 `gripperframe` site |
+| 物理量真值 | `config/physics.yaml`（我们估算） | 官方 MJCF（`observed` 段只是审计快照） |
+| 关节语义 | 绝对角 + coupling（被动腕） | 原生关节角（无 coupling、无被动件） |
+
+这三处差异**全部由配置声明**（`config/robots.yaml` 的指针 + 各自的 robot.yaml），
+本文件里**没有一处** `if robot == …` 的特判。新增一台机器人 = 加配置 + 加引擎实现。
 
 设计纪律
 --------
@@ -16,7 +28,10 @@
 2. **舵机速率限制在控制层实现**（spec §13 的 `max_velocity`）：
    MuJoCo 的 position actuator 本身没有速度上限，只有 `kp/kv/forcerange`。
    若不做这一步，阶跃命令会让舵机"瞬移"，整条"响应慢/滞后/跟不上"的真实特征消失。
+   ⚠️ 官方 SO-101 的 MJCF **也没有**声明速度上限 ⇒ 这一层对两台机器人都是**必需**的。
 3. 关节角语义换算（绝对 ↔ 局部）**只经 `units.JointAngleMap`**，见 ARCHITECTURE_ANALYSIS §6。
+   MeArm 的 coupling 语义由它承担；SO-101 没有 coupling，它退化成恒等映射
+   —— 也就是说**同一条代码路径**服务两种语义。
 """
 from __future__ import annotations
 
@@ -37,13 +52,20 @@ from robotcfg import (  # noqa: E402
     PKG_DIR,
     PhysicsCfg,
     RobotCfg,
+    RobotEntry,
+    SimDriverCfg,
     load_physics,
-    load_robot,
+    load_robot_by_id,
+    load_sim_driver,
+    resolve_robot_entry_by_config,
 )
 from units import JointAngleMap, deg2rad, rad2deg  # noqa: E402
 
+#: 历史缺省（只有一条 MJCF 的年代）。现在真正的缺省来自选择器记录
+#: （`config/robots.yaml` → `simulation.mjcf`），文件不存在而选择器又没声明时才用它兜底。
 DEFAULT_XML = PKG_DIR / "mearm.xml"
-TCP_SITE = "tcp"
+#: 历史缺省 TCP site 名（MeArm 的 mearm.xml 里就是它）
+DEFAULT_TCP_SITE = "tcp"
 
 
 class SimError(RuntimeError):
@@ -83,8 +105,8 @@ class SimState:
         }
 
 
-class MeArmSim:
-    """一个 MeArm 的 MuJoCo 物理实例。"""
+class RobotSim:
+    """一台机器人的 MuJoCo 物理实例（MeArm-V1 / SO-ARM101 共用）。"""
 
     def __init__(
         self,
@@ -92,11 +114,27 @@ class MeArmSim:
         robot: RobotCfg | None = None,
         physics: PhysicsCfg | None = None,
         *,
+        robot_id: str | None = None,
+        driver: SimDriverCfg | None = None,
+        tcp_site: str | None = None,
         gravity: bool | None = None,
         xml_text: str | None = None,
     ) -> None:
-        self.robot = robot or load_robot()
-        self.physics = physics or load_physics()
+        self.robot = robot if robot is not None else load_robot_by_id(robot_id)
+        # 选择器记录：MJCF 路径 / TCP site 名 / physics 形态的唯一来源。
+        # 先按显式 id 查，再按"配置文件路径"反查（不依赖 robot.id 与注册表 key 同名）。
+        self.entry: RobotEntry = resolve_robot_entry_by_config(self.robot.source_path)
+        self.driver: SimDriverCfg = driver if driver is not None else load_sim_driver(self.entry)
+
+        # MeArm 的 physics.yaml 还带着 contact / inertia / limits / solver / calibration
+        # 这些**它自己才有**的东西，那些由 MeArm 专属的测试与工具消费；
+        # SO-101 的真值在官方 MJCF 里 ⇒ 不加载 `PhysicsCfg`（它没有也不该有那些段）。
+        if physics is None and self.entry.physics_kind == "legacy":
+            physics = load_physics(self.entry.physics_file)
+        self.physics = physics
+
+        # TCP site：显式参数 > 选择器声明 > 历史缺省
+        self.tcp_site = tcp_site or self.entry.tcp_site or DEFAULT_TCP_SITE
 
         # ⚠️ 变体场景（抬高地面 / 改碰撞体尺寸）**必须在加载期改 XML**。
         #
@@ -109,7 +147,9 @@ class MeArmSim:
             self.xml_path: Path | None = None
             self.model = mujoco.MjModel.from_xml_string(xml_text)
         else:
-            path = Path(xml_path) if xml_path is not None else DEFAULT_XML
+            path = Path(xml_path) if xml_path is not None else self.entry.mjcf_file
+            if path is None:
+                path = DEFAULT_XML          # 老路径：选择器没声明 mjcf（MeArm 走生成）
             if not path.is_file():
                 raise SimError(
                     f"找不到 MJCF：{path}\n"
@@ -118,6 +158,19 @@ class MeArmSim:
             self.xml_path = path
             self.model = mujoco.MjModel.from_xml_path(str(path))
         self.data = mujoco.MjData(self.model)
+
+        # ---- 物理步长一致性自检 --------------------------------------------
+        # 物理时间只由 `model.opt.timestep` 决定，而"实时对齐"的换算却可能用配置里的
+        # 数字。两者不一致时仿真会以错误的速率前进（SO-101 官方是 0.002、MeArm 是 0.001），
+        # 而**不会报任何错** —— 只是"看起来有点快/有点慢"。这里把它变成一条明确的自检。
+        ts_model = float(self.model.opt.timestep)
+        if abs(ts_model - self.driver.ts_physics) > 1e-12:
+            raise SimError(
+                f"MJCF 的 timestep={ts_model!r} 与驱动配置的 timestep.physics="
+                f"{self.driver.ts_physics!r} 不一致（{self.driver.source_path}）。\n"
+                f"  MJCF: {self.xml_path or '(xml_text)'}\n"
+                f"  物理时间只由 MJCF 决定；不一致会让仿真以错误的速率前进且不报错。"
+            )
 
         # ---- 关节地址映射（不依赖数组顺序，全部按名字解析）----------------
         self.angle_map = JointAngleMap(self.robot.joints)
@@ -153,10 +206,24 @@ class MeArmSim:
             self._actuator_of_joint.setdefault(jname, i)
 
         # ---- TCP site ------------------------------------------------------
-        sid = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_SITE, TCP_SITE)
+        sid = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_SITE, self.tcp_site)
         if sid < 0:
-            raise SimError(f"MJCF 里没有名为 {TCP_SITE!r} 的 site（无法读末端位姿）")
+            raise SimError(
+                f"MJCF 里没有名为 {self.tcp_site!r} 的 site（无法读末端位姿）。\n"
+                f"  该名字来自 {self.entry.config_path} 所属的选择器记录"
+                f"（robots.{self.entry.id}.simulation.tcpSite）\n"
+                f"  MJCF: {self.xml_path or '(xml_text)'}"
+            )
         self._tcp_site = sid
+
+        # ---- 重力基准 -------------------------------------------------------
+        # 驱动配置声明了就用它（MeArm：我们估算的 0 0 -9.81）；
+        # 没声明就取**已加载 MjModel 自己的值**（SO-101：官方 MJCF 就是真值）。
+        # 后者比在配置里再抄一份 "0 0 -9.81" 诚实 —— 官方改了，仿真跟着改。
+        self._base_gravity = np.array(
+            self.driver.gravity if self.driver.gravity is not None else self.model.opt.gravity,
+            dtype=float,
+        )
 
         # ---- 舵机速率限制状态 ----------------------------------------------
         self._ctrl_qpos = np.zeros(self.model.nq)
@@ -174,10 +241,7 @@ class MeArmSim:
 
     @property
     def max_velocity_rad_s(self) -> float:
-        mv = self.physics.servo.get("max_velocity") or {}
-        if "rad_per_s" in mv:
-            return float(mv["rad_per_s"])
-        return deg2rad(float(mv["deg_per_s"]))
+        return self.driver.max_velocity_rad_s()
 
     def set_gravity(self, enabled: bool) -> None:
         """开关重力。
@@ -185,8 +249,7 @@ class MeArmSim:
         Gravity Test（spec §18）需要"同一初始条件、仅重力不同"的对照，
         用来区分"位移是重力造成的"还是"控制器造成的"。
         """
-        g = self.physics.gravity
-        self.model.opt.gravity[:] = g if enabled else (0.0, 0.0, 0.0)
+        self.model.opt.gravity[:] = self._base_gravity if enabled else (0.0, 0.0, 0.0)
 
     @property
     def gravity_enabled(self) -> bool:
@@ -417,7 +480,9 @@ class MeArmSim:
 
     def info(self) -> dict[str, Any]:
         return {
-            "xml": str(self.xml_path),
+            "robot_id": self.entry.id,
+            "xml": None if self.xml_path is None else str(self.xml_path),
+            "tcp_site": self.tcp_site,
             "nq": int(self.model.nq),
             "nv": int(self.model.nv),
             "nbody": int(self.model.nbody),
@@ -428,3 +493,10 @@ class MeArmSim:
             "gravity": list(self.model.opt.gravity),
             "joints": list(self.joint_ids),
         }
+
+
+#: 旧名字（MeArm 单机器人时代）。保留它是因为 `tools/*.py` 与 `tests/sim/*` 里
+#: 有几十处 `from model import MeArmSim` —— 逐个改名只会制造 diff 噪声，
+#: 而**没有**任何语义收益（现在是同一份代码服务两台机器人）。
+#: 新代码请用 `RobotSim`。
+MeArmSim = RobotSim

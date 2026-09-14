@@ -51,8 +51,8 @@ if str(PKG_DIR) not in sys.path:
 import numpy as np  # noqa: E402
 
 from limits import validate_joints  # noqa: E402
-from model import MeArmSim  # noqa: E402
-from robotcfg import RobotCfg, load_robot  # noqa: E402
+from model import RobotSim  # noqa: E402
+from robotcfg import RobotCfg, load_robot_by_id  # noqa: E402
 from units import ensure_utf8_stdout  # noqa: E402
 
 DEFAULT_REPORT_HZ = 30.0
@@ -83,12 +83,16 @@ class MujocoDevice:
         self,
         *,
         robot: RobotCfg | None = None,
-        sim: MeArmSim | None = None,
+        robot_id: str | None = None,
+        sim: RobotSim | None = None,
         report_hz: float = DEFAULT_REPORT_HZ,
         out: Emitter | None = None,
     ) -> None:
-        self.robot = robot or load_robot()
-        self.sim = sim if sim is not None else MeArmSim(robot=self.robot)
+        # 选择器（`config/robots.yaml`）是"加载哪台机器人"的唯一声明处。
+        # Go 侧通过 `--robot <id>` 把它传进来 —— 两边各按自己的 default 猜，
+        # 就会出现"限位在 Go 侧用 A 的、在 Python 侧用 B 的"这种双方都自认正确的错位。
+        self.robot = robot if robot is not None else load_robot_by_id(robot_id)
+        self.sim = sim if sim is not None else RobotSim(robot=self.robot, robot_id=robot_id)
         self.order = self.robot.joint_order()      # base, shoulder, elbow, gripper
         self.out = out if out is not None else Emitter()
         self.report_period = 1.0 / float(report_hz)
@@ -268,7 +272,16 @@ class MujocoDevice:
         batch_ms: float = DEFAULT_BATCH_MS,
         realtime: bool = True,
     ) -> None:
-        dt = 1.0 / float(phys_hz)
+        # ⚠️ 物理步长以 **MJCF 自己的** `timestep` 为准，不是 `1/phys_hz`。
+        #    两者不一致时（MeArm 0.001 / 官方 SO-101 0.002），按 phys_hz 算 chunk
+        #    会让仿真以错误速率前进，而且**不报任何错** —— 只是"看起来有点快"。
+        #    RobotSim 构造时已经做过一次硬自检（timestep 必须等于驱动配置），
+        #    这里再把 --phys-hz 与实际生效频率对一下，不一致就明说。
+        dt = float(self.sim.model.opt.timestep)
+        eff_hz = 1.0 / dt
+        if phys_hz > 0 and abs(eff_hz - float(phys_hz)) > 1e-6:
+            print(f"[warn] --phys-hz={phys_hz:g} 与 MJCF 的 timestep={dt:g}s "
+                  f"（= {eff_hz:g} Hz）不一致，以 MJCF 为准", file=sys.stderr)
         batch = max(1, int(round((batch_ms / 1000.0) / dt)))
         chunk_s = batch * dt
         chunk_ms = chunk_s * 1000.0
@@ -305,11 +318,16 @@ class MujocoDevice:
 
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description="MuJoCo 设备服务（stdio 文本协议）")
-    p.add_argument("--xml", default=None, help="MJCF 路径（默认 simulation/mujoco/mearm.xml）")
+    p.add_argument("--robot", default=None,
+                   help="机器人 id（config/robots.yaml 的 key）；缺省 = 选择器的 default。"
+                        "由 backend 的 -robot / robot.model_id 透传。")
+    p.add_argument("--xml", default=None,
+                   help="MJCF 路径；缺省由选择器决定"
+                        "（MeArm 生成产物 / SO-ARM101 官方 MJCF 原样）")
     p.add_argument("--report-hz", type=float, default=DEFAULT_REPORT_HZ,
                    help="STATE 上报频率（默认 30）")
     p.add_argument("--phys-hz", type=float, default=DEFAULT_PHYS_HZ,
-                   help="物理步频率（默认 1000）")
+                   help="期望的物理步频；与实际 timestep 不符时以 MJCF 为准并告警")
     p.add_argument("--batch-ms", type=float, default=DEFAULT_BATCH_MS,
                    help="每次 sleep 前连续推进的物理时长（默认 10ms）")
     p.add_argument("--no-realtime", action="store_true",
@@ -322,7 +340,10 @@ def main(argv: list[str] | None = None) -> int:
     except (AttributeError, ValueError):
         pass
 
-    dev = MujocoDevice(report_hz=args.report_hz)
+    dev = MujocoDevice(robot_id=args.robot, report_hz=args.report_hz)
+    if args.xml:
+        # 显式覆盖：只在明确知道自己在做什么时用（否则走选择器）
+        dev.sim = dev.sim.__class__(xml_path=args.xml, robot=dev.robot)
     dev.run(phys_hz=args.phys_hz, batch_ms=args.batch_ms,
             realtime=not args.no_realtime)
     return 0

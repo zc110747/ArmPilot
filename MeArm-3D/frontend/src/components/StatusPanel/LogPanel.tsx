@@ -34,7 +34,9 @@ export function LogPanel() {
                     ? 'RECV'
                     : entry.kind === 'err'
                       ? 'ERR '
-                      : 'SYS '}
+                      : entry.kind === 'warn'
+                        ? 'WARN'
+                        : 'SYS '}
               </span>{' '}
               {entry.text}
             </div>

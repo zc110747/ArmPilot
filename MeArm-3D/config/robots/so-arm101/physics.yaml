@@ -68,6 +68,25 @@ driver:
     # auto | reset —— 影响 solver 热启动，跨次复位一致性靠它
     warmstart: auto
 
+  # 舵机速率上限 —— **控制层**（Python 侧）实现的软限速。
+  #
+  # ⚠️ 官方 MJCF **没有**声明关节速度上限（见 §4 not_declared_by_official.joint_velocity_limit）。
+  #    而 MuJoCo 的 `<position>` 执行器只有 kp / kv / forcerange，**没有**速度上限
+  #    ⇒ 不做这一层，阶跃命令会让舵机"瞬移"，"响应慢 / 滞后 / 跟不上"这一真实特征
+  #    会**静默消失**（不是报错，是仿真变得比现实更理想）。
+  #
+  # 所以它是 ArmPilot 的**驱动参数**（「我们怎么跑仿真」），不是机器人属性 ——
+  # 与 MeArm 的 config/physics.yaml §servo 同一层级、同一角色。
+  servo:
+    max_velocity:
+      # 依据 Feetech STS3215 官方规格「空载速度 0.222 sec/60° @12V」
+      #   ⇒ 60 / 0.222 = 270.27 °/s。
+      # ⚠️ 官方 MJCF 未记录供电电压与具体子型号；7.4V 19kg 版（C001）为
+      #    「0.238 sec/60° @6V」⇒ 252.10 °/s。两者同量级，差别只影响"到达目标要多久"，
+      #    不影响正确性（几何/限位判据全部走 reset() 的纯运动学路径）。
+      #    台账口径统一取 12V 版规格值，与官方 MJCF 的 kp/kv 换算基准一致。
+      deg_per_s: 270.27
+
   # 数据记录（spec §34）。第一版只做 JSONL/CSV，不上数据库。
   recording:
     enabled: false

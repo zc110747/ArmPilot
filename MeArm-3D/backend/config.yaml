@@ -14,9 +14,14 @@ web:
   client_timeout_ms: 40000 # 静默超过此值判链路已死并断开
 
 robot:
-  # 模型/标定/限位真值文件。支持相对路径；
-  # 不存在时按 ../config/robot.yaml → config/robot.yaml → ../MeArm-3D/config/robot.yaml 回退。
-  config_path: "../config/robot.yaml"
+  # 模型**选择器**（config/robots.yaml）—— 它只回答"该加载哪台机器人"，
+  # 路径不存在时按 ../config/robots.yaml → config/robots.yaml → ../MeArm-3D/config/robots.yaml 回退。
+  selector_path: "../config/robots.yaml"
+  # 要加载哪台机器人（选择器的 key）。**留空 = 选择器的 default** ⇒ 行为与单机器人时代一致。
+  # 可用命令行 `-robot so-arm101` 覆盖（优先级：命令行 > 这里 > 选择器的 default）。
+  model_id: ""
+  # ⚠️ config_path 已废弃（单机器人时代直接指向 robot.yaml 的写法）。
+  #    现在"加载哪一份 robot.yaml"由选择器决定 —— 它是**三端共用**的那一份声明。
 
 device:
   # sim    = 内置假固件（无真机也能跑通字节级闭环）

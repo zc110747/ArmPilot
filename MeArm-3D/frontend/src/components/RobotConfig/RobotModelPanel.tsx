@@ -6,6 +6,7 @@ import { buildCalibrationTable, describeCalibration } from '@robot/index';
 import { useRobotStore } from '@/store/robotStore';
 
 export function RobotModelPanel() {
+  const robotId = useRobotStore((s) => s.robotId);
   const model = useRobotStore((s) => s.model);
   const lines = describeCalibration(model);
   const table = buildCalibrationTable(model);
@@ -14,6 +15,13 @@ export function RobotModelPanel() {
     <div className="card">
       <h2>模型 · robot.yaml</h2>
 
+      <div className="kv">
+        {/* 活动机器人 id 来自 config/robots.yaml（**不是** UI 开关）。
+            与 model.id 刻意两行并列：MeArm 的 id 是 `mearm`，而选择器 key 是
+            `mearm-v1` —— 两者不同名，混用会反查失败。 */}
+        <span>active robot</span>
+        <span>{robotId}</span>
+      </div>
       <div className="kv">
         <span>id / name</span>
         <span>

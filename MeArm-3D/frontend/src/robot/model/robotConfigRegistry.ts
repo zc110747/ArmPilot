@@ -68,7 +68,7 @@ const TEXT_BY_PATH: ReadonlyMap<string, string> = new Map(
   Object.entries(CONFIG_TEXTS).map(([globKey, text]) => [repoRelativePath(globKey), text]),
 );
 
-/** 选择器里的一条机器人记录 —— **只允许**这三个字段 */
+/** 选择器里的一条机器人记录 —— 只有 id / name / 指针（**禁止放数值**） */
 export interface RobotSelectorEntry {
   /** 机器人 id（选择器的 key，也是 `loadRobotModel(id)` 收的那个值） */
   id: string;
@@ -76,6 +76,12 @@ export interface RobotSelectorEntry {
   name: string;
   /** 该机器人 `robot.yaml` 的仓库相对路径 */
   config: string;
+  /** `physics.yaml` 的仓库相对路径（缺省按 `config/robots/<id>/physics.yaml` 约定） */
+  physics: string;
+  /** MJCF 的仓库相对路径；`null` = 由 gen_model.py 从 robot.yaml 生成（MeArm 路线） */
+  mjcf: string | null;
+  /** MJCF 里代表 TCP 的 site 名 */
+  tcpSite: string;
 }
 
 export interface RobotSelector {
@@ -92,6 +98,14 @@ function asDict(value: unknown, path: string): Record<string, unknown> {
     throw selectorError(`${path} 必须是对象`);
   }
   return value as Record<string, unknown>;
+}
+
+/** 取一个「必须是非空字符串」的字段；错误信息带上完整字段路径 */
+function requireString(value: unknown, path: string): string {
+  if (typeof value !== 'string' || value.trim() === '') {
+    throw selectorError(`${path} 必须是非空字符串`);
+  }
+  return value;
 }
 
 /**
@@ -132,7 +146,35 @@ export function parseSelector(text: string): RobotSelector {
           `已登记: ${[...TEXT_BY_PATH.keys()].join(', ') || '（空）'}`,
       );
     }
-    robots.push({ id, name, config });
+    // ── 指针字段（同样"只放路径 / 名字，不放数值"） ─────────────────────────
+    //
+    // `physics` 缺省按**约定**推导（`config/robots/<id>/physics.yaml`），
+    // 但**不校验文件是否存在** —— 前端不需要 physics 原文（那三类真值分别归
+    // 各自 robot.yaml / physics.yaml / MJCF，前端只消费 robot.yaml），
+    // 在这里做存在性检查会把"后端/Python 才需要的文件"变成前端启动期硬依赖。
+    // 真正需要它的两端（Go / Python）各自有存在性检查，报错更贴近使用现场。
+    const physicsRaw = entry['physics'];
+    const physics =
+      physicsRaw === undefined
+        ? `config/robots/${id}/physics.yaml`
+        : requireString(physicsRaw, `robots.${id}.physics`);
+
+    const simRaw = entry['simulation'];
+    let mjcf: string | null = null;
+    let tcpSite = 'tcp';
+    if (simRaw !== undefined) {
+      const sim = asDict(simRaw, `robots.${id}.simulation`);
+      const mjcfRaw = sim['mjcf'];
+      if (mjcfRaw !== undefined && mjcfRaw !== null) {
+        mjcf = requireString(mjcfRaw, `robots.${id}.simulation.mjcf`);
+      }
+      const siteRaw = sim['tcpSite'];
+      if (siteRaw !== undefined) {
+        tcpSite = requireString(siteRaw, `robots.${id}.simulation.tcpSite`);
+      }
+    }
+
+    robots.push({ id, name, config, physics, mjcf, tcpSite });
   }
 
   if (robots.length === 0) throw selectorError('robots 不能为空');

@@ -42,6 +42,13 @@ type MujocoConfig struct {
 	Python string
 	// Script server.py 的绝对路径（由 cfg.ResolveMujocoScript 解析）。
 	Script string
+	// RobotID 要加载哪台机器人（`config/robots.yaml` 的 key）。
+	//
+	// ⚠️ 必须传：server.py 自己读选择器决定加载哪一份 robot.yaml。
+	// 不传的话，Go 侧按选择器加载了 A、Python 侧按 default 加载了 B ——
+	// 于是"限位校验在 Go 侧用 A 的、在 Python 侧用 B 的"，两边都自认为正确，
+	// 而错的那些指令会以"上位机算错了"的形式表现（本项目最贵的一类错误）。
+	RobotID string
 	// ReportHz STATE 上报频率（0 = 用 server.py 的默认 30Hz）
 	ReportHz float64
 	// PhysHz 物理步频率（0 = 用默认 1000Hz）
@@ -100,6 +107,9 @@ func NewMujoco(m *robot.Model, cfg MujocoConfig) (*MujocoDevice, error) {
 	}
 
 	args := []string{cfg.Script}
+	if cfg.RobotID != "" {
+		args = append(args, "--robot", cfg.RobotID)
+	}
 	if cfg.ReportHz > 0 {
 		args = append(args, "--report-hz", trimFloat(cfg.ReportHz))
 	}

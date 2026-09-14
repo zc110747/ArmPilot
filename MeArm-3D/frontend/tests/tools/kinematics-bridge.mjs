@@ -28,7 +28,12 @@
  * cd frontend
  * node tests/tools/kinematics-bridge.mjs --in req.json --out res.json
  * node tests/tools/kinematics-bridge.mjs --info --out model.json     # 只导出模型元信息
+ * node tests/tools/kinematics-bridge.mjs --robot so-arm101 --info --out model.json
  * ```
+ *
+ * `--robot` 指定机器人 id（= `config/robots.yaml` 的 key）；省略时用选择器的 `default`。
+ * 桥**不猜**任何能力：`model.capability.solverKind === 'none'` 的机器人，
+ * 它的 IK 请求一律返回 `NOT_IMPLEMENTED`，绝不退化用另一台机器人的求解器。
  *
  * 请求格式：
  * ```json
@@ -52,12 +57,13 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const FRONTEND_DIR = path.resolve(HERE, '..', '..');
 
 function parseArgs(argv) {
-  const out = { in: null, out: null, info: false };
+  const out = { in: null, out: null, info: false, robot: null };
   for (let i = 0; i < argv.length; i += 1) {
     const a = argv[i];
     if (a === '--in') out.in = argv[++i];
     else if (a === '--out') out.out = argv[++i];
     else if (a === '--info') out.info = true;
+    else if (a === '--robot') out.robot = argv[++i];
     else if (a === '--help' || a === '-h') out.help = true;
     else throw new Error(`未知参数 ${a}`);
   }
@@ -94,21 +100,38 @@ async function loadModules() {
 
   const ik = await load('/src/robot/kinematics/ik.ts');
   const fk = await load('/src/robot/kinematics/fk.ts');
-  const loader = await load('/src/robot/model/loadRobotModel.ts');
   const robotModel = await load('/src/robot/model/RobotModel.ts');
+  // 选择器 + 注册表：让桥能加载**任意**机器人，而不是只会 loadRobotModel() 的那一台。
+  // 走注册表（而不是直接 loadRobotModel(id)）是为了让 `capability` 也一并拿到 ——
+  // 「这台机器人有没有 IK」必须由数据声明，桥不猜。
+  const registry = await load('/src/robot/registry/RobotRegistry.ts');
 
-  return { server, ik, fk, loader, robotModel };
+  return { server, ik, fk, robotModel, registry };
 }
 
-function describeModel(robotModel, ikGeometry, model) {
-  const movable = robotModel.movableJoints(model);
+function describeModel(ik, model, entry) {
+  // 有独立自由度的关节 —— 与前端 `movableJoints()` / Go `JointOrder()` /
+  // Python `RobotCfg.movable_joints()` 是同一条规则（**只看 `type === 'revolute'`**）。
+  // 刻意在桥里就地写出来而不是 import `RobotModel.ts`：桥是"一次性 CLI"，
+  // 少一个模块就少一处 Node 解析失败的面；而这条规则本身只有一行，不会漂移。
+  const movable = model.joints.filter((j) => j.type === 'revolute');
+  const capability = entry.kinematics.capability;
+  const hasIk = capability.solverKind !== 'none';
   return {
-    id: model.id,
+    id: entry.id,
+    /** 模型自己的名字（`robot.yaml → robot.id`）—— 与注册表 id **不强制同名** */
+    modelId: model.id,
     name: model.name,
     units: model.units,
     /** 模型标识（只读元数据）—— 让"基线属于哪个模型"可被机器检查 */
     model: model.model ?? null,
     modelVersion: model.modelVersion ?? null,
+    /** 能力声明（数据，不是逻辑）：上层据此决定"要不要调用 IK" */
+    capability: {
+      positioningDof: capability.positioningDof,
+      supportsOrientation: capability.supportsOrientation,
+      solverKind: capability.solverKind,
+    },
     homePose: { ...model.homePose },
     tcp: { joint: model.tcp.joint, offset: [...model.tcp.offset] },
     /** 按 `movableJoints` 的顺序（与 MuJoCo 的关节顺序无关，仅作对照） */
@@ -133,36 +156,48 @@ function describeModel(robotModel, ikGeometry, model) {
       reverse: a.reverse,
       limits: { min: a.limits.min, max: a.limits.max },
     })),
-    /** 解析式 2R 从模型求导出来的几何量（IK 内部用的就是这几个数） */
-    geometry: {
-      baseId: ikGeometry.baseId,
-      shoulderId: ikGeometry.shoulderId,
-      elbowId: ikGeometry.elbowId,
-      /** TCP 参考关节（本机 = 被动腕 `tool`）；其坐标系原点 = 2R 子链末端的「腕枢轴」 */
-      wristId: ikGeometry.wristId,
-      pivotZ: ikGeometry.pivotZ,
-      pivotR: ikGeometry.pivotR,
-      /** 肩枢轴 → 肘枢轴（mm） */
-      l1: ikGeometry.l1,
-      /** 肘枢轴 → **腕枢轴**（mm）。⚠️ 不含腕→TCP 那一段，故不是「肘 → TCP」 */
-      l2: ikGeometry.l2,
-      /** 腕枢轴 → TCP 的常量矢状面偏移 [径向, 竖直]（mm）。本机 = [40, 0] */
-      toolOffset: [...ikGeometry.toolOffset],
-      /** 2R 子链的可达距离壳（mm）——约束的是**减去 toolOffset 后**的腕目标点 */
-      reach: [...ikGeometry.reach],
-    },
+    /** 解析式 2R 从模型求导出来的几何量（IK 内部用的就是这几个数）。
+     *  ⚠️ 只在**确实有解析 IK** 的机器人上才有值 —— 对 `solverKind:'none'` 的机器人，
+     *  这里必须是 `null`，绝不为了"字段看起来完整"而编一组数出来。 */
+    geometry: hasIk ? describeGeometry(ik, model) : null,
+  };
+}
+
+function describeGeometry(ik, model) {
+  const g = ik.ikGeometry(model);
+  return {
+    baseId: g.baseId,
+    shoulderId: g.shoulderId,
+    elbowId: g.elbowId,
+    /** TCP 参考关节（本机 = 被动腕 `tool`）；其坐标系原点 = 2R 子链末端的「腕枢轴」 */
+    wristId: g.wristId,
+    pivotZ: g.pivotZ,
+    pivotR: g.pivotR,
+    /** 肩枢轴 → 肘枢轴（mm） */
+    l1: g.l1,
+    /** 肘枢轴 → **腕枢轴**（mm）。⚠️ 不含腕→TCP 那一段，故不是「肘 → TCP」 */
+    l2: g.l2,
+    /** 腕枢轴 → TCP 的常量矢状面偏移 [径向, 竖直]（mm）。本机 = [40, 0] */
+    toolOffset: [...g.toolOffset],
+    /** 2R 子链的可达距离壳（mm）——约束的是**减去 toolOffset 后**的腕目标点 */
+    reach: [...g.reach],
   };
 }
 
 async function run(opts) {
-  const { server, ik, fk, loader, robotModel } = await loadModules();
+  const { server, ik, fk, registry } = await loadModules();
   try {
-    const model = loader.loadRobotModel();
-    const geometry = ik.ikGeometry(model);
+    // ⚠️ 一律走注册表（`loadRobot(id?)`）：省略 id 时它读选择器的 default，
+    //    与 `loadRobotModel()` 的缺省行为一致 —— 但拿到的 definition/engine
+    //    是**同一份对象**，于是"引擎算的"与"桥报告的"不可能错配。
+    const entry = registry.loadRobot(opts.robot ?? undefined);
+    const model = entry.definition.robotModel;
+    const capability = entry.kinematics.capability;
+    const hasIk = capability.solverKind !== 'none';
 
     const response = {
       ok: true,
-      model: describeModel(robotModel, geometry, model),
+      model: describeModel(ik, model, entry),
       results: [],
       fkResults: [],
     };
@@ -207,6 +242,7 @@ async function run(opts) {
     }
 
     const cases = Array.isArray(req.cases) ? req.cases : [];
+    const analytic = capability.solverKind === 'analytic';
 
     for (const c of cases) {
       const id = c.id ?? response.results.length;
@@ -217,6 +253,26 @@ async function run(opts) {
           success: false,
           reason: 'BAD_REQUEST',
           message: `target 必须是 3 个数值，收到 ${JSON.stringify(target)}`,
+        });
+        continue;
+      }
+
+      // ---- 有解析解的机器人（MeArm）：沿用原生 solveIk，输出最完整 ----
+      if (!analytic) {
+        // ⚠️ 这台机器人的 capability 声明"solverKind = none" ⇒ **不调用**任何求解器。
+        //    绝不因为"看起来能忍"就退化成"用 A 的 IK 解 B 的机构"：
+        //    解出来的角必然是错的，而 positionError 还会因为用自己的 FK 自证
+        //    而显示成一个"很小的残差"。能诚实说"没实现"比伪造一个"看起来能用"的
+        //    求解器重要（这是 spec「不伪造」那一条的直接后果）。
+        response.results.push({
+          id,
+          success: false,
+          reason: capability.solverKind === 'none' ? 'NOT_IMPLEMENTED' : 'UNSUPPORTED',
+          joint: null,
+          message:
+            `${entry.id} 的运动学引擎声明 solverKind='${capability.solverKind}'，` +
+            `未提供逆解 —— 桥不会替它编一个。`,
+          candidates: [],
         });
         continue;
       }
@@ -284,7 +340,9 @@ async function run(opts) {
 async function main() {
   const opts = parseArgs(process.argv.slice(2));
   if (opts.help) {
-    console.log('用法: node tests/tools/kinematics-bridge.mjs [--info] [--in req.json] --out res.json');
+    console.log(
+      '用法: node tests/tools/kinematics-bridge.mjs [--robot <id>] [--info] [--in req.json] --out res.json',
+    );
     return 0;
   }
   if (!opts.out) throw new Error('必须指定 --out（结果写文件，避免与 Vite 日志抢 stdout）');
@@ -292,7 +350,8 @@ async function main() {
   const response = await run(opts);
   writeFileSync(opts.out, JSON.stringify(response, null, 2), 'utf8');
   console.log(
-    `[kinematics-bridge] ${opts.info ? '模型元信息' : `IK ${response.results.length} 个用例 · FK ${response.fkResults.length} 个用例`}` +
+    `[kinematics-bridge] ${opts.robot ?? '(default)'} · ` +
+      `${opts.info ? '模型元信息' : `IK ${response.results.length} 个用例 · FK ${response.fkResults.length} 个用例`}` +
       ` → ${opts.out}`,
   );
   return 0;

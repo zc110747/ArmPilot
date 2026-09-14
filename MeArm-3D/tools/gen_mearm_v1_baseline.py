@@ -55,13 +55,23 @@ sys.path.insert(0, str(PROJECT_ROOT / "tests" / "sim"))
 from fkref import fk_joint_origins_mm, fk_tcp_mm          # noqa: E402
 from ikbridge import KinematicsBridge                      # noqa: E402
 from model import MeArmSim                                 # noqa: E402
-from robotcfg import load_physics, load_robot              # noqa: E402
+from robotcfg import (                                     # noqa: E402
+    load_physics,
+    load_robot_by_id,
+    resolve_robot_entry,
+)
 from units import ensure_utf8_stdout                       # noqa: E402
 
 ensure_utf8_stdout()
 
 OUT_DIR = PROJECT_ROOT / "tests" / "baseline" / "mearm-v1"
 GENERATOR = "tools/gen_mearm_v1_baseline.py"
+
+#: 本工具**只**负责 MeArm-V1。刻意显式写出 id，不读选择器的 `default` ——
+#: 否则将来改 `default` 会让这套黄金数据**静默**换成另一台机器人的行为快照
+#: （文件名还叫 mearm-v1，内容却已经不是了），而 `--check` 照样能绿。
+#: 与前端 22 处 `loadRobotModel('mearm-v1')`、`tests/sim/conftest.py` 是同一条纪律。
+MEARM_V1 = "mearm-v1"
 
 #: 固定 seed —— 换它等于换了一整套数据，必须同时重新生成 4 个文件
 SEED = 20260914
@@ -437,12 +447,12 @@ def main(argv: list[str] | None = None) -> int:
                     help="只校验当前实现能否逐位复现已提交的基线（不写文件）")
     args = ap.parse_args(argv)
 
-    robot = load_robot()
-    physics = load_physics()
+    robot = load_robot_by_id(MEARM_V1)
+    physics = load_physics(resolve_robot_entry(MEARM_V1).physics_file)
     print(f"[gen-baseline] 模型 = {robot.model} v{robot.model_version} "
-          f"(id={robot.id}) · 可动关节 = {robot.joint_order()}")
+          f"(id={robot.id} · selector id={MEARM_V1}) · 可动关节 = {robot.joint_order()}")
 
-    with KinematicsBridge() as bridge:
+    with KinematicsBridge(robot_id=MEARM_V1) as bridge:
         # 桥自检：加载到的模型必须就是 robot.yaml 里的那一个
         info = bridge.model_info()
         if info.get("model") != robot.model:

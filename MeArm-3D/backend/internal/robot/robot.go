@@ -51,6 +51,12 @@ type Limit struct {
 // Actuator 执行器：关节空间 → 舵机空间的映射，以及舵机（0..180°）硬件限位。
 //
 //	servo = reverse ? (-θ·scale + offset) : (θ·scale + offset)
+//
+// ⚠️ `Unit == "joint"`（关节空间伺服）时上式退化成恒等映射（offset=0 / scale=1 /
+// reverse=false），`Limits` 也就是**关节区间本身**而不是 0..180 的舵机行程。
+// 官方 SO-ARM101 的 MJCF 正是这种：6 个 `<position>`、`ctrlrange ≡ joint range`、
+// `gear=1` ⇒ **不存在 offset/scale/reverse 标定**。刻意照实声明，
+// 而不是为了塞进 0..180 去编一段并不存在的 scale（那会让标定从事实退化成凑数）。
 type Actuator struct {
 	ID      string  `yaml:"id"`
 	Name    string  `yaml:"name"`
@@ -59,8 +65,21 @@ type Actuator struct {
 	Offset  float64 `yaml:"offset"`
 	Scale   float64 `yaml:"scale"`
 	Reverse bool    `yaml:"reverse"`
-	Limits  Limit   `yaml:"limits"`
+	// Unit `deg`（缺省，0..180 舵机行程）/ `joint`（关节空间，ctrlrange ≡ 关节范围）
+	Unit   string `yaml:"unit"`
+	Limits Limit  `yaml:"limits"`
 }
+
+// UnitOf 取执行器空间，缺省 `"deg"`（与前端 `actuatorUnit()` 同一条规则）。
+func (a *Actuator) UnitOf() string {
+	if a.Unit == "" {
+		return "deg"
+	}
+	return a.Unit
+}
+
+// IsJointSpace 该执行器是否工作**关节空间**（无标定）。
+func (a *Actuator) IsJointSpace() bool { return a.UnitOf() == "joint" }
 
 // Model 从 robot.yaml 载入的模型视图（只保留控制所需字段）。
 type Model struct {
@@ -116,6 +135,15 @@ func Load(path string) (*Model, error) {
 		a := &m.Actuators[i]
 		if a.Scale == 0 {
 			return nil, fmt.Errorf("执行器 %s 的 scale 为 0（无法换算）", a.ID)
+		}
+		// `unit: joint` 声明"这里没有标定" ⇒ 标定字段必须真的是恒等映射。
+		// 不查的话，"声明是关节空间、却偷偷写了 scale=2" 会同时有两个互相矛盾的说法，
+		// 而后端与前端各读一半时谁都不会报错。
+		if a.IsJointSpace() && (a.Offset != 0 || a.Scale != 1 || a.Reverse) {
+			return nil, fmt.Errorf(
+				"执行器 %s 声明 unit: joint（关节空间、无标定），但 offset=%g scale=%g reverse=%v"+
+					" —— 两者互相矛盾：要么删掉 unit，要么把标定写成恒等映射",
+				a.ID, a.Offset, a.Scale, a.Reverse)
 		}
 		m.byJoint[a.JointID] = append(m.byJoint[a.JointID], a)
 	}

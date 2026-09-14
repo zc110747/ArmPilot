@@ -83,6 +83,30 @@ def euler_xyz(rot_deg: Sequence[float]) -> np.ndarray:
     return rot_x(rx) @ rot_y(ry) @ rot_z(rz)
 
 
+def euler_rpy(rot_deg: Sequence[float]) -> np.ndarray:
+    """fixed-axis XYZ（= URDF `<origin rpy="r p y">`）：R = Rz(y) · Ry(p) · Rx(r)。
+
+    ⚠️ 与 `euler_xyz` 的关系：extrinsic XYZ ≡ intrinsic ZYX，**不是**同一种参数化。
+    官方 SO-ARM101 的 URDF 用的是这一种；让配置用 `rotationConvention: rpy` 声明，
+    官方数值就能原样落盘（可逐个复核），而不必在 yaml 里塞"换算后"的数。
+    """
+    rx, ry, rz = (float(x) for x in rot_deg)
+    return rot_z(rz) @ rot_y(ry) @ rot_x(rx)
+
+
+def rotation_matrix(rot_deg: Sequence[float], convention: str = "xyz") -> np.ndarray:
+    """按配置声明的约定取旋转矩阵。未知约定**报错**（不静默回退到默认）。
+
+    静默回退在这里的代价特别大：`rpy` 回退成 `xyz` 在小角度下几乎看不出来，
+    在大角度下会差出**几十毫米**，而表现只是"TCP 好像有点歪"。
+    """
+    if convention == "xyz":
+        return euler_xyz(rot_deg)
+    if convention == "rpy":
+        return euler_rpy(rot_deg)
+    raise ValueError(f"未知的 rotationConvention {convention!r}（应为 'xyz' 或 'rpy'）")
+
+
 def axis_angle(axis: Sequence[float], deg: float) -> np.ndarray:
     """绕任意轴的旋转（Rodrigues 公式）。"""
     a = np.array([float(x) for x in axis], dtype=float)
@@ -137,7 +161,7 @@ def fk_chain(robot: RobotCfg, joints: Mapping[str, float],
         parent = robot.link(joint.parent_link)
         t = t @ translate_z(parent.length)
         t = t @ translate(joint.origin_position)
-        t = t @ euler_xyz(joint.origin_rotation)
+        t = t @ rotation_matrix(joint.origin_rotation, joint.origin_rotation_convention)
         t = t @ axis_angle(joint.axis, effective_angle_deg(joint, joints))
         if joint.id == stop:
             break
@@ -160,7 +184,7 @@ def fk_joint_origins_mm(robot: RobotCfg,
         parent = robot.link(joint.parent_link)
         t = t @ translate_z(parent.length)
         t = t @ translate(joint.origin_position)
-        t = t @ euler_xyz(joint.origin_rotation)
+        t = t @ rotation_matrix(joint.origin_rotation, joint.origin_rotation_convention)
         out[joint.id] = t[:3, 3].copy()
         t = t @ axis_angle(joint.axis, effective_angle_deg(joint, joints))
     return out

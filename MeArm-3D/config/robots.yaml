@@ -1,0 +1,33 @@
+# =============================================================================
+# ArmPilot · 机器人模型选择器（Robot Selector）
+# -----------------------------------------------------------------------------
+# ★ 本文件**只回答一个问题**：「当前该加载哪台机器人」。
+#   它**不包含任何机器人参数** —— 尺寸 / 关节 / 限位 / 标定 / TCP 全部在各自
+#   的 robot.yaml 里（`config` 字段指向它）。把参数抄进这里就等于制造第二份真值。
+#
+# 三端共用（前端 / Go 后端 / Python 仿真）：
+#   frontend  → src/robot/model/robotConfigRegistry.ts（构建期静态登记 + 本文件选路径）
+#   backend   → internal/robot/registry.go
+#   python    → simulation/mujoco/robotcfg.py
+#
+# ⚠️ 改 `default` 会同时改变三端的行为，且**只影响"未显式指定机器人"的调用**。
+#    所有既有测试都显式传 'mearm-v1'，所以改默认值不会静默改变它们测的对象。
+# =============================================================================
+
+version: 1
+
+# 缺省机器人 id。未显式指定时用它。
+default: mearm-v1
+
+# id → 配置文件。`config` 是**仓库相对路径**（三端都按仓库根解析）。
+robots:
+  mearm-v1:
+    name: MeArm-V1
+    # Golden Baseline：这是被冻结的参考模型，禁止因为"适配抽象"而修改。
+    config: config/robot.yaml
+
+  so-arm101:
+    name: SO-ARM101
+    # 官方模型派生（TheRobotStudio/SO-ARM100 @ eecbe3e0）——
+    # 由 tools/gen_so_arm101_robot_yaml.py 生成，**禁止手改**。
+    config: config/robots/so-arm101/robot.yaml

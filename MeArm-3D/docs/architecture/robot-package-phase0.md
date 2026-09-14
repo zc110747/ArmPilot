@@ -126,7 +126,7 @@ Robot 专属（`ik.ts` / MJCF / 标定值 / 测试数据）**已经分开**，�
 | `assets/models/so-arm101/official/**`（20 文件） | `assets/` | `robot-package/so-arm101/model/official/**` | **PKG** | 官方模型逐字节原样（`meshdir="assets"` 必须同层级保留） |
 | `assets/textures/mearm/**` | `assets/` | `robot-package/mearm-v1/assets/textures/**` | **PKG** | MeArm 照片纹理 |
 | `3d-models/mearm3Dasm.STEP` | `3d-models/` | `robot-package/mearm-v1/model/source/mearm3Dasm.STEP` | **PKG** | MeArm 的源 CAD |
-| `protocol/serial-v1.md` | `protocol/` | `core/protocol/` | CORE | 通用串口协议契约 |
+| `serial-v1.md` | `protocol/` | `docs/`（**实际落点**，非本表 Phase 0 原拟的 `core/protocol/`） | CORE | 通用串口协议契约 |
 
 ### 3.3 Python 仿真层
 
@@ -216,7 +216,7 @@ Robot 专属（`ik.ts` / MJCF / 标定值 / 测试数据）**已经分开**，�
 | `components/**` `store/**` `App.tsx` | UI/状态属 Core |
 | `simulation/mujoco/{model,server,run,record,units,limits,fkref,sim2sim,robotcfg}.py` | 全部机器人无关；`model.py` 文件头已写明"没有一处 `if robot == …`" |
 | `tests/sim/{conftest,harness,ikbridge}.py` | **测试执行框架属 Core**（spec §10 的反面教材：给每个包复制一份 TestRunner） |
-| `backend/**` `protocol/serial-v1.md` | 通用基础设施 |
+| `backend/**` `docs/serial-v1.md` | 通用基础设施 |
 | `tools/freeze_baseline.py` `run_sim2sim.py` + 通用探针（7 个） | 机制/探针属 Core |
 | `frontend/src/components/RobotScene/buildRobotObject3D.ts` | 通用建树器；它**直接 import `fk.ts`**（这条旁路见 §6-C2） |
 | **`tests/sim/test_fk.py` 这类"用 MeArm 当夹具的机制测试"** | 断言的是机制，不是 MeArm。搬进包 = 机制失去通用测试，且新机器人没人测（spec §31 禁止降低标准） |

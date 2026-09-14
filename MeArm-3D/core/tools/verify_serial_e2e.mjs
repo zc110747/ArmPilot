@@ -68,7 +68,7 @@
  * 退出码：0 = 全 PASS；1 = 有 FAIL/SKIP；2 = 前置缺失或脚本自身错误。
  */
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -77,7 +77,12 @@ import { fileURLToPath } from 'node:url';
 // ---------------------------------------------------------------------------
 
 const TOOLS_DIR = path.dirname(fileURLToPath(import.meta.url));
-const ROOT = path.resolve(TOOLS_DIR, '..');
+// ⚠️ 本脚本住在 core/tools/，所以仓库根要退**两层**。
+//    旧的 `path.resolve(TOOLS_DIR, '..')` 只到 <repo>/core —— Core 重构把工具从
+//    <repo>/tools/ 挪进 core/tools/ 时这行没跟着改，于是 ROOT 变成 <repo>/core：
+//    backend 找不到、输出目录写进 core/.workbuddy/、verify_pose.py 也按那时的目录去找，
+//    结果直接 [fatal] 崩在第一步（2026-09-14 实测）。
+const ROOT = path.resolve(TOOLS_DIR, '..', '..');
 const BACKEND_DIR = path.join(ROOT, 'backend');
 const BACKEND_EXE = path.join(BACKEND_DIR, 'bin', 'armpilot-backend.exe');
 const SERIAL_CFG = 'config.serial.yaml';
@@ -405,9 +410,51 @@ function readSize(p) {
 // 反解（调 verify_pose.py）
 // ---------------------------------------------------------------------------
 
+/**
+ * 定位包内的 verify_pose.py。
+ *
+ * Phase 2 起型号专属的工具**住在各自的包里**（manifest 的 `tests.tools` 是完整清单），
+ * 所以这里不写死型号名：先取 config/robots.yaml 的 `default`，再回退到扫描
+ * robot-package/<id>/tools/verify_pose.py。写死 "mearm-v1" 就等于"每接一台机器人
+ * 都要回到 Core 改一行" —— 那正是 Robot Package 重构要消灭的东西。
+ */
+function findVerifyPose() {
+  const pkgRoot = path.join(ROOT, 'robot-package');
+  let ids;
+  try {
+    ids = readdirSync(pkgRoot, { withFileTypes: true })
+      .filter((d) => d.isDirectory())
+      .map((d) => d.name);
+  } catch {
+    return null;
+  }
+  let preferred = null;
+  try {
+    const sel = readFileSync(path.join(ROOT, 'config', 'robots.yaml'), 'utf8');
+    preferred = /^default:\s*["']?([A-Za-z0-9._-]+)/m.exec(sel)?.[1] ?? null;
+  } catch {
+    /* 选择器读不到就退回纯扫描 */
+  }
+  const order =
+    preferred && ids.includes(preferred) ? [preferred, ...ids.filter((i) => i !== preferred)] : ids;
+  for (const id of order) {
+    const p = path.join(pkgRoot, id, 'tools', 'verify_pose.py');
+    if (existsSync(p)) return p;
+  }
+  return null;
+}
+
+const VERIFY_POSE = findVerifyPose();
+
 /** 让 verify_pose.py 给出本次真值输入（homePose/限位）与量化后的落点。 */
 function verifyPose(python, extraArgs, { allowVerdictFail = false } = {}) {
-  const args = [path.join(TOOLS_DIR, 'verify_pose.py'), ...extraArgs];
+  if (!VERIFY_POSE) {
+    throw new Error(
+      '找不到包内的 verify_pose.py：先看 config/robots.yaml 的 default 指向哪个包，' +
+        '再确认 robot-package/<id>/tools/ 里确实有它（manifest 的 tests.tools 应已声明）',
+    );
+  }
+  const args = [VERIFY_POSE, ...extraArgs];
   const r = spawnSync(python, args, { cwd: ROOT, encoding: 'utf8' });
   // verify_pose 的退出码语义：0 = 全 PASS，1 = 有 FAIL/SKIP（**不是**脚本崩溃）。
   // 只有 2 及以上的退出码、或完全没有 stdout，才算真出错。

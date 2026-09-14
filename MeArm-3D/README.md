@@ -166,11 +166,11 @@ MeArm-3D/
 │   ├── hardware-measurement.md   # ★★ 真机实测记录：角色映射 / 绝对角解耦 / 标定 / 不确定度
 │   ├── ARCHITECTURE_ANALYSIS.md  # ★ MuJoCo 轨 Phase 1：自由度清点 / 五种角度对照 / 接入方案
 │   ├── decisions.md              # 设计决策 ADR（**D1–D79，最新在前**；D55 = 真值冻结 · D63–D69 = 照片纹理与外观 · D70 = 被动腕关节 · D71–D73 = 基线冻结 / 最小抽象 / Sim2Sim 纪律 · D74 = 首次接管握手 · D75 = 配置选模型 + 分派收敛到一张表 · D76 = SO-101 的三条真值取舍 · **D77–D79 = 多机器人统一验收 / 运行期切换**）
+│   ├── serial-v1.md              # ★ 串口 / WS 协议基线（§4 固件侧；§5 上位机侧已实现）
 │   ├── texture-capture-guide.md  # ★ 图像采集指南（拍哪块板 / 大面朝向 / 采集闭环 / 自查清单）
 │   ├── architecture/             # ★★ 架构重构轨：MeArm-V1 基线冻结三件套（现状分析 / 验收结论 / 无关问题登记）
 │   │                             #   + so-arm101-phase0.md · robot-package-phase0.md · robot-package-phase1.md · robot-package-phase2.md
 │   └── images/                   # 界面截图（armpilot-console.png 由 e2e 自动重出）
-├── protocol/serial-v1.md         # ★ 串口 / WS 协议基线（§4 固件侧；§5 上位机侧已实现）
 ├── pytest.ini                    # ★ Python 测试收集范围（core/tests + tests + robot-package）
 ├── assets/textures/mearm/        # ★ 板件纹理资产（raw/ = 原图 · tiles/ = 校正后的贴图）
 ├── frontend/
@@ -289,7 +289,7 @@ node tests/e2e/ui-smoke.mjs http://localhost:5273 9333 ../docs/images/armpilot-c
 start.bat --real
 ```
 
-确认后端窗口出现 `[serial] 已连接 COM16 @ 115200 8N1`，
+确认后端窗口出现 `[serial] 已连接 COM18 @ 115200 8N1`，
 页面提示条显示「★ 正在驱动真实机械臂（链路末端 serial）」即可。
 串口号在 `backend/config.serial.yaml` 的 `device.serial.port` 里改。
 
@@ -356,7 +356,7 @@ curl http://localhost:8090/healthz              # {"device":"mujoco","linked":tr
 | 5 | IK（XYZ → J1/J2/J3） | ✅ | **FK(IK(XYZ)) 2000 组随机位姿最大残差 1.180e-13 mm**；错误码 `OUT_OF_WORKSPACE` / `JOINT_LIMIT`；多解 `elbow-up/elbow-down/nearest`（默认就近）；几何量全部从模型求导（含被动腕的**常量偏移** `toolOffset`，跨 3 姿态逐位验证），改 yaml 即生效（见 `docs/coordinate-system.md` §3.1、D18/D19/D70） |
 | 6 | XYZ / 鼠标拖动末端 | ✅ | XYZ 直输 + **鼠标真实拖拽**（e2e 用 CDP 派发真实鼠标事件命中场景把手，Δ 17.23mm）；三种拖动平面 xy/xz/camera 在 pointerdown **冻结**；**越界不钳位**（关节逐位不变）；400 点轨迹穿越工作空间边界验收（见 `docs/coordinate-system.md` §3.2、D20–D22） |
 | 7 | MockTransport 闭环 | ✅ | 完整双向闭环（命令 → 尾沿节流 → Mock → 回推 → Actual）；Mock **如实模拟舵机有限角速度 / 传输延迟 / 丢帧 / 限位拒绝**（非等值回显）；回推**只写 Actual**（回环打破，400 点轨迹引用从未改变）；Connection 面板可实时调参（见 `docs/coordinate-system.md` §3.3、D23–D26） |
-| 8 | **Go WebSocket** | ✅ | **后端独立 module `backend/`（8090）+ 内置「假固件」sim**：命令走 `JSON → JR 文本 → 舵机角 → 反算关节角 → STATE` 真实往返，非等值回显；`OK JR` **只做标定核对不发布状态**；ACK 门控 + latest-wins；`hello` 带模型真值在线互检；两层心跳；断线指数退避重连**并补发当前命令**。`go test` 56 项 · 前端新增 66 项单测（`wsProtocol` 25 / `WebSocketTransport` 30 / 接线验收 11）· e2e 新增 21 项真实 WS 端到端（见 `docs/coordinate-system.md` §3.4、`protocol/serial-v1.md` §5、D27–D33） |
+| 8 | **Go WebSocket** | ✅ | **后端独立 module `backend/`（8090）+ 内置「假固件」sim**：命令走 `JSON → JR 文本 → 舵机角 → 反算关节角 → STATE` 真实往返，非等值回显；`OK JR` **只做标定核对不发布状态**；ACK 门控 + latest-wins；`hello` 带模型真值在线互检；两层心跳；断线指数退避重连**并补发当前命令**。`go test` 56 项 · 前端新增 66 项单测（`wsProtocol` 25 / `WebSocketTransport` 30 / 接线验收 11）· e2e 新增 21 项真实 WS 端到端（见 `docs/coordinate-system.md` §3.4、`docs/serial-v1.md` §5、D27–D33） |
 | **9** | **Serial（真机）** | ✅ | `internal/device/serial.go` 落地真串口（Windows 非重叠 I/O，**不用 `bufio`**）；Uno DTR 复位静默窗口 `connect_settle_ms=2600` + 暖机包。**真机端到端闭环实测 PASS 18 / FAIL 1**：`hello=serial` · `homePose` 与 `robot.yaml` 逐位一致 · 7 步链路回推 `max\|Δ\| ≤ 0.004°` · 相机反解重复性肩 `0.26°`/肘 `0.01°`。见 `core/tools/verify_serial_e2e.mjs`、`docs/decisions.md` D34–D36 |
 | 10 | Real Robot | ✅ | 机构角色 / 标定 / 限位 / 零位**已实测就绪**（Phase 4.5 + `robot-package/mearm-v1/model/robot.yaml`）；Serial 已落地 ⇒ 浏览器拖动能**真实驱动物理机械臂**。**2026-09-12 修复 mode↔transport 联动缺口**：`Real Robot` 按钮原先只改 UI 样式、命令照样走当前 transport（"点了真机不动 / 切回仿真仍在动真机"），现补准入校验 + 安全门 + 去向提示（ADR **D41**）。⚠️ 相机验收已测出**肩标定增益偏差 −13.1%**（肘 +1.4% 已证实），需按锁死曝光重布台面后重测 |
 | **10.5** | **一键启动 `start.bat`** | ✅ | 根目录 `start.bat`：前置检查（backend exe / robot.yaml / node）、端口探测+确认清理（8090/5273）、按模式起前后端、打印本机+局域网地址。**关键**：注入 `VITE_AUTO_CONNECT=ws`（+ `--real` 时 `VITE_AUTO_REAL=1`）让页面**自动连后端并切 Real Robot** —— 原先页面默认停在 MockTransport 且不会自动连接，"脚本起好了但只动仿真臂"（ADR **D42**）。`npm run dev` 不注入，手动调试行为不变 |
@@ -792,7 +792,7 @@ solveIk(model, [x, y, z])  // → { success: true, joints, branch, residual, azi
 > **本机结构上只有一支解**：`elbow.limits.min − shoulder.limits.max = 108.4415 − 49.4549 = 58.99° > 0`
 > ⇒ 相对肘角恒为正 ⇒ `elbow-down` 恒不可达。2000 组随机可达位姿实测分支分布
 > `{elbow-up: 2000, elbow-down: 0}`。多解策略是为**换机构**预留的通用性，Phase 6 拖动不会翻肘。
-> 失败信息格式对齐 `protocol/serial-v1.md` 的 `ERR JOINT base 95 (limit -60..60)`；
+> 失败信息格式对齐 `docs/serial-v1.md` 的 `ERR JOINT base 95 (limit -60..60)`；
 > 模型轴/朝向不符平面 2R 前提时**抛 `IkModelError`**，不静默解出错解。
 
 ### 末端目标与拖动（Phase 6）
@@ -830,6 +830,74 @@ solveIk(model, [x, y, z])  // → { success: true, joints, branch, residual, azi
 > 所以标定表写错（offset/scale/reverse）、链路精度不够（0.1°）都会立刻表现为"Actual 追不上 Command"。
 > 见 `docs/coordinate-system.md` §3.4 与 `docs/decisions.md` D28–D31。
 
+### 一键启动器修复（`start.bat`）· 2026-09-14
+
+双击 `start.bat` 当场退出（`RC=255`，stderr `此时不应有 .`），SIM / REAL 都起不来。
+定位到**三个互相独立、每个都足以单独弄死启动**的缺陷：
+
+| # | 症状 | 根因 | 修法 |
+|---|------|------|------|
+| 1 | cmd 解析错误，死在 preflight | 第 81 行 `echo ... the model truth (robot-package).` 的 `)` **未转义**，在 `if` 块内**提前闭合块**，剩下的 `.` 成了游离 token | 转义为 `^(robot-package^)`。**只有块内的裸括号会中招**：引号内的、顶层 echo 的都安全（已分别实测） |
+| 2 | 后端一起来就 `[fatal] 找不到 robot.yaml` | `backend/bin/armpilot-backend.exe` 停在 **09-13 20:28**，落后源码**整整一次重构**（Phase 2 选择器化），旧二进制仍在找已废弃的 `config/robot.yaml` | 用当前源码重建；并给 `start.bat` 加**陈旧闸门**（任一 `.go` 比 exe 新 ⇒ 自动 `go build`；无 `go` 则**拒绝启动**，而不是硬起一个已知过期的二进制） |
+| 3 | REAL 模式串口号过期 | `config.serial.yaml` 写 `COM16`，实测机械臂在 **`COM18`** | 改 `COM18`；`config.yaml` / `docs/hardware-measurement.md` / `mearm_hw.py` 一并同步 |
+
+另补一条**启动后探活**：launcher 起完服务后主动问一次 `/healthz`，答不上就在**能读到的地方**报出来
+（后端自己的窗口可能一闪而过，这正是缺陷 2 之前的表现）。`start.bat` 头部注释已登记这两条
+cmd 括号/重定向陷阱与陈旧闸门的存在理由。
+
+#### 验收
+
+| 模式 | 项 | 结果 |
+|------|----|------|
+| SIM | `start.bat` 退出码 / 端口预检 / 自带探针 | `RC=0` ✅ |
+| SIM | `/healthz` → `ok=true linked=true device=sim` | ✅ |
+| SIM | 前端 `http://localhost:5273/` 200 + `<title>` | ✅（922 B，`ArmPilot · mARM 数字孪生控制台`） |
+| SIM | WS 关节闭环：`hello` → 下发 `shoulder=20` → **回读** | ✅ `0.85 → 20.00`（末端确实被驱动，不只是回显） |
+| SIM | 收尾端口释放 | ✅ |
+| | **SIM 小计** | **7/7 PASS** |
+| REAL | launcher `RC=0` / REAL 横幅 / 自探针 / 无解析错误 | ✅ |
+| REAL | `hello.device == serial`（链路末端确认为真机，非 sim） | ✅ |
+| REAL | 限位来自包内 `robot.yaml`（工具不硬编码） | ✅ `base[-60,60] shoulder[-6.09,49.45] elbow[108.44,141.86] grip[0,90]` |
+| REAL | **打开 COM18**（首次尝试） | ❌ `SetCommState` 失败：`A device attached to the system is not functioning.`（OS err 31） |
+| REAL | **打开 COM18**（拔插 USB 后） | ✅ `[serial] 已连接 COM18 @ 115200 8N1（ack 超时 600ms）` · `设备: STATUS S6=90(H) S7=90(H) S8=90(H) S9=90(H)` |
+| REAL | `verify_serial_e2e.mjs --no-camera`（链路层验收 · 7 步小步动作序列） | ✅ **PASS 11 / FAIL 0**；逐步回推 `max\|Δ\| ≤ 0.004°`；收尾复位到 HOME |
+| | **REAL 小计（链路层）** | **11/11 PASS** |
+| REAL | **复现第二批**（同一文件状态改日再跑一次） | ✅ **又 11/11 PASS**；`[serial] 已连接 COM18` · 回推 `max\|Δ\|` 逐项与上批一致 ⇒ 不是单次侥幸 |
+| REAL | **物理到位判据**（相机 + `verify_pose.py`） | ⏸ **未取到** —— 相机对着房间、臂不在取景内，Phase 4.5 台面未就位 |
+
+> **首次 REAL 卡在设备层而非代码层 —— 判据链留档（下次同症状可直接照用）**：
+> 三种**互相独立**的实现（Go `kernel32` syscall / `pyserial` / .NET `SerialPort`）在**同一处**报同一个 err 31，
+> 而 `Get-PnpDevice` 报 `STATUS=OK` / `CM_PROB_NONE`、`CreateFile` **成功**（失败在 `SetCommState`）⇒ **排除代码**。
+> 已排除：进程占用（全机仅两个 `node.exe`，无串口持有者）、DTR/RTS 组合（开关都试）、
+> 波特率（`baudrate=115200` 最简形式同样失败）。设备当时挂在 `Hub_#0004` 的 `Port_#0002`，驱动 `3.9.2024.9`；
+> 本机**无管理员权限**，PnP 软复位做不到。⇒ **拔插 USB 后立即恢复，配置一个字没改。**
+> （对照：`COM16` 已是 `Present=False` 的幽灵条目 —— **串口号会随 USB 枚举变**，只改 `config.serial.yaml`。）
+>
+> ⚠️ **口径提醒**：上表 REAL 的 11/11 是**链路层**。它只证明"指令确实送到了固件并被接受"，
+> **不证明机械臂物理到位** —— 真机无位置反馈，`joint_state` / `STATUS` 都是固件的**内部目标值**（开环）。
+> 物理证据只有相机（`verify_pose.py`）；本轮相机对着房间、臂不在取景内，故**物理层判据未取到**，
+> 待 Phase 4.5 台面（白分割板 + 画面内标尺 + 正交侧视 + **锁死曝光** + 人员离场）就位后补测。
+
+#### 顺带修好：`verify_serial_e2e.mjs` 在 Core 重构后崩在上游
+
+跑真机验收时它直接 `[fatal]` —— **两处路径没跟上 Phase 2 的搬迁**：
+
+| 项 | 旧值（错） | 新值 |
+|----|-----------|------|
+| 仓库根 `ROOT` | `resolve(TOOLS_DIR,'..')` → **`<repo>/core`** | `resolve(TOOLS_DIR,'..','..')` → `<repo>` |
+| `verify_pose.py` | `path.join(TOOLS_DIR,'verify_pose.py')`（文件已随包下移） | 由 `config/robots.yaml` 的 `default` 定位包 → `robot-package/<id>/tools/verify_pose.py`（**不写死型号名**；写死 = 每接一台机器人就回 Core 改一行） |
+
+`core/tools/first_load_probe.mjs` 有同一个 off-by-one（截图会落到 `core/.workbuddy/`），一并修。
+验证用 `--dry-run`（**不碰硬件**）：`ROOT` 正确、`homePose`/限位来自包内真值、7 步动作计划全在限位内、`exit 0`。
+
+本轮改动后的回归（仓库根执行）：
+
+| 闸门 | 结果 |
+|------|------|
+| `pytest -q` | **204 passed**（52.2s） |
+| `robopkg/cli.py validate --all` | 2 包 / **2 通过 / 0 问题** |
+| `gen_mearm_v1_baseline.py --check` | joint / fk / ik / workspace 四份**逐位一致** |
+
 ## 7. 硬件基线
 
 | 部位 | 参数 | 来源 |
@@ -840,10 +908,10 @@ solveIk(model, [x, y, z])  // → { success: true, joints, branch, residual, azi
 | 关节限位（反算） | shoulder −6.094..49.455 / elbow 108.441..141.858 | `robot-package/mearm-v1/model/robot.yaml`（舵机限位 × 实测标定增益） |
 | 标定增益（实测） | S7 0.694 · S8 0.418 关节度/舵机度 | `docs/hardware-measurement.md` §3 |
 | 固件开机位 | 全部 90°（= 本项目 HOME 位姿） | `MeArm-Device/core/arm_control.c` |
-| 串口 | **COM16** · 115200 8N1 | `robot-package/mearm-v1/tools/mearm_hw.py` |
+| 串口 | **COM18** · 115200 8N1 | `robot-package/mearm-v1/tools/mearm_hw.py` |
 | 实测相机 | Windows 相机 + 机械臂与桌面之间的**白色分割板** | `robot-package/mearm-v1/tools/mearm_hw.py` / `analyze_sweep.py` |
 
-> ⚠️ 打开 COM16 会拉低 DTR 使 ATmega328P 复位，固件随即把 4 个舵机驱到 90°。
+> ⚠️ 打开 COM18 会拉低 DTR 使 ATmega328P 复位，固件随即把 4 个舵机驱到 90°。
 > 所以「发一条指令就重开一次串口」会让机械臂每次都弹回 RESET 位 ——
 > 实测脚本必须在**单次连接**内完成整段 `[set → 稳定 → 抓拍]`（见 `robot-package/mearm-v1/tools/mearm_hw.py`）。
 
@@ -895,7 +963,7 @@ $PY robot-package/mearm-v1/tools/fit_pose.py .workbuddy/captures/w2_S7 --sweep b
 | 仓库 | 角色 | 变更时机 |
 |------|------|----------|
 | **MeArm-3D**（本仓库） | 数字孪生**前端 + 关节级后端**（`backend/`，8090），模型/运动学/标定/状态权威 | — |
-| `MeArm-Device` | AVR 固件：现有舵机级文本协议（`SET` / `JOY` / `STATUS` / `RESET`） | Phase 9：新增关节级 `JR` / `STATE`（见 `protocol/serial-v1.md` §4） |
+| `MeArm-Device` | AVR 固件：现有舵机级文本协议（`SET` / `JOY` / `STATUS` / `RESET`） | Phase 9：新增关节级 `JR` / `STATE`（见 `docs/serial-v1.md` §4） |
 | `MeArm-RemoteControl` | Go 串口↔Web/TCP 服务 + 双摇杆 UI（8080） | **不再计划改名**：Phase 8 的关节级通道落在本仓库 `backend/`（8090），与它的舵机级摇杆通道**并存**、互不干扰 |
 
 **为什么关节级后端不塞进 `MeArm-RemoteControl`**（见 D27）：那是个**舵机级摇杆**服务，
@@ -911,10 +979,10 @@ $PY robot-package/mearm-v1/tools/fit_pose.py .workbuddy/captures/w2_S7 --sweep b
 | 想知道 | 看 |
 |--------|-----|
 | 怎么跑、`/healthz` 长什么样、与 8080 的分工 | [`backend/README.md`](backend/README.md) |
-| JSON 消息全集、错误码、Go 分层职责 | `protocol/serial-v1.md` §5 |
+| JSON 消息全集、错误码、Go 分层职责 | `docs/serial-v1.md` §5 |
 | 为什么 `OK JR` 不能当 Actual、为什么要 latest-wins | `docs/decisions.md` D29 / D30 |
 | 跟踪误差为什么是 0.02° 而不是 0（链路精度） | `docs/decisions.md` D31 · `docs/coordinate-system.md` §3.4 |
-| Phase 9 接真串口的落点与实测坑 | `backend/internal/device/serial.go` 注释 · `protocol/serial-v1.md` §6.1 |
+| Phase 9 接真串口的落点与实测坑 | `backend/internal/device/serial.go` 注释 · `docs/serial-v1.md` §6.1 |
 | 真机端到端怎么跑、相机怎么当唯一真值 | `core/tools/verify_serial_e2e.mjs` · `robot-package/mearm-v1/tools/verify_pose.py` 头注释 · D34–D36 |
 
 ## 10. MuJoCo 物理仿真（`simulation/`）快速索引

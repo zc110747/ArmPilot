@@ -169,7 +169,7 @@ func (d *SimDevice) WriteLine(line string) error {
 			d.emit(fmt.Sprintf("ERR ARG %s", err.Error()))
 			return nil
 		}
-		// ① 关节限位（固件内置同一张标定表 + 关节限位，见 serial-v1.md §4）
+		// ① 关节限位（固件内置同一张标定表 + 关节限位，见 docs/serial-v1.md §4）
 		if enforce {
 			if v := d.model.Validate(joints); v != nil {
 				d.emit(v.Error())

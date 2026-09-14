@@ -92,7 +92,7 @@ export interface TargetStatus {
   reason?: IkReason;
   /** `JOINT_LIMIT` 时越界的关节 id */
   joint?: string;
-  /** 人类可读说明，格式对齐 `protocol/serial-v1.md` 的 `ERR JOINT ...` */
+  /** 人类可读说明，格式对齐 `docs/serial-v1.md` 的 `ERR JOINT ...` */
   message?: string;
   /** 成功时的解支 */
   branch?: IkBranch;

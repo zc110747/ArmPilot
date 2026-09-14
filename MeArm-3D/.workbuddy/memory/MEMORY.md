@@ -28,20 +28,17 @@
 - `mode`（simulation/real）**不是 UI 开关**：决定"要不要发给真实机械臂"，取值须校验全通过才改，
   失败要 pushLog 说明原因与修法（D41/D43）。
 - **机器人相关状态一律进 store**，组件不持局部副本（含 `teachTrack`）。
-- ★ **包边界 + 测试通道，各配一条「能红」的守卫**（Phase 2 步④⑤，明细 `playbook.md` §8）：Core 里
-  不得出现任何**型号名 / 型号路径**（`corePackageBoundary.test.ts` 盯）；包内测试必须**真的被执行**
-  —— Python 靠 `pytest.ini` `testpaths`（含 `robot-package`）、前端靠 `vite.config.ts` `test.include`
-  （`'../robot-package/*/tests/**'`），守卫 `packageTestChannel.test.ts`。运动学引擎由
+- ★ **包边界 + 测试通道，各配一条「能红」的守卫**（Phase 2 步④⑤，明细 `playbook.md` §8）：包内测试必须
+  **真的被执行** —— Python 靠 `pytest.ini` `testpaths`（含 `robot-package`）、前端靠 `vite.config.ts`
+  `test.include`（`'../robot-package/*/tests/**'`），守卫 `packageTestChannel.test.ts`；运动学引擎由
   `import.meta.glob('robot-package/*/kinematics/engine.ts')` **自动发现**（声明只用于对账）。
-- **多机器人轨（2026-09-14，P0–P8 已完成）**：`config/robots.yaml` 选择器（**只放指针**：`name/config/
-  physics/simulation.mjcf/tcpSite`，白名单 schema 断言盯着）→ 三端各自解析**同一份** →
-  `RobotRegistry`（唯一分派表，禁止 `if robot == ...`）。第二台 = 官方 SO-ARM101，
-  资产 `assets/models/so-arm101/official/`（**逐字节原样，禁止改**）。
-  ★ **注册表 id ≠ 模型 id**（`mearm-v1` vs `robot.id = mearm`）⇒ 只按**路径**反查。
-  ★ `physics.yaml` 两种形态：**顶层有无 `driver:` 段** = `legacy`(MeArm) / `driver`(SO-101，真值在官方 MJCF)。
-  ★ 物理量真值 = **官方 MJCF**；限位与 TCP 帧朝向也取 MJCF（URDF 那两份不可信 —— 截断 / 差 90°）。
-  ★ SO-101 **无 IK**：`solverKind:'none'` ⇒ `moveTo` 在**下发层**返回 `NO_SOLVER`（与"试过不行"并列）。
-  统一验收只有一份：`run_sim2sim(robot_id)` / `core/tools/run_sim2sim.py --all`，**不为第二台另写一套**。
+  ⚠️ **更正实际覆盖面**（2026-09-14 核实）："Core 不得出现型号名/型号路径"是**纪律**；机器判据只有
+  `frontend/tests/unit/corePackageBoundary.test.ts`，它扫 **`frontend/src/**` 的 `import` 说明符**，
+  **不覆盖** `core/**`、也不看路径字符串 ⇒ `core/tools/*.mjs` 里写死型号名**不会报错**。
+- **多机器人轨（2026-09-14，P0–P8 已完成）**：`config/robots.yaml` 选择器（**只放指针**，白名单 schema
+  断言盯着）→ 三端各自解析**同一份** → `RobotRegistry`（唯一分派表，禁止 `if robot == ...`）；
+  第二台 = 官方 SO-ARM101，资产**逐字节原样、禁止改**；统一验收只有 `run_sim2sim.py --all`。
+  明细与陷阱（注册表 id ≠ 模型 id、`physics.yaml` 两种形态、SO-101 无 IK、mesh 取用）见 `playbook.md` §7。
 
 ## 二、验收七件套
 
@@ -73,6 +70,13 @@ $PY core/python/robopkg/cli.py validate --all # 选择器 / manifest / 真值 / 
   `(cmd &)` 后台进程只活到本次工具调用结束 ⇒ 起服务与跑 e2e 必须**在同一次调用里**；
   `/tmp/*.log` 重定向被沙箱拦 ⇒ 日志落 `.workbuddy/captures/`；e2e **必须隔离端口**（5276 + 8091）；
   Python 用 `~/.workbuddy/binaries/python/envs/default/Scripts/python.exe` + `PYTHONIOENCODING=utf-8`。
+  ★ **跑 `.bat`/`cmd` 只能靠 Python `subprocess`**（Bash 与 PowerShell 工具都拦 `cmd.exe`），且
+  `capture_output=True` 会因 `start` 的子进程**继承管道句柄**而永久挂起 ⇒ stdout/stderr **重定向到文件**。
+- ★ **真机验收有一条容易自欺的口径**：链路层全绿（`hello.device=serial` / `OK JR` / `joint_state`）只证明
+  "指令送到固件并被接受"，**不证明物理到位**（真机无位置反馈，`joint_state` 是**开环目标值**）。
+  物理证据只有相机（`verify_pose.py`），且要先按 Phase 4.5 把台面（白分割板 + 锁曝光）就位。详见 `playbook.md` §9。
+- ★ **`start.bat` 已不再"只负责起窗口"**：`[0/3]` 陈旧闸门（源码比 exe 新就 `go build`，无 `go` 就拒绝启动）
+  + 启动后 `/healthz` 探活。别绕过它去直接起旧二进制。详见 `playbook.md` §9。
 
 ## 三、细节入口（按需读）
 
@@ -83,7 +87,8 @@ $PY core/python/robopkg/cli.py validate --all # 选择器 / manifest / 真值 / 
 | 外观 · 纹理轨（RoundedBoxGeometry / flipY / 渲染参数语义，D56–D69） | `playbook.md` §3 |
 | 测量方法论与能力边界（D34 / D37 / D47 / D59 / D64） | `playbook.md` §4 |
 | 运行环境与 Windows 工具陷阱（sort / grep `\b` / taskkill） | `playbook.md` §5 |
-| 协作约定与真机链路（COM16 / DTR 复位 / `--home`） | `playbook.md` §6 |
+| 协作约定与真机链路（★ COM 号会变 / DTR 复位 / `--home`） | `playbook.md` §6 |
+| **一键启动器 `start.bat`（陈旧闸门 / 探活 / 块内括号坑）+ 真机验收两条证据链** | `playbook.md` §9 |
 | **多机器人轨（选择器 / 注册表 / mesh / SO-101 陷阱）** | `playbook.md` §7 |
 | **Robot Package 重构（Core/Package/WorkingRobot 边界与搬迁纪律）** | `playbook.md` §8 · `docs/architecture/robot-package-phase*.md` |
 | 冻结与基线决策理由 | `docs/decisions.md` D55 / D71–D73 |

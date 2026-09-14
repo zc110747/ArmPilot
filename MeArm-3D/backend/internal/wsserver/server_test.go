@@ -294,7 +294,7 @@ func TestHelloCarriesModelTruth(t *testing.T) {
 	if len(hello.Model.Limits) != 4 || len(hello.Model.Calibration) != 4 {
 		t.Fatalf("limits=%d calibration=%d, 期望各 4", len(hello.Model.Limits), len(hello.Model.Calibration))
 	}
-	// 标定的通道映射必须与 serial-v1.md §2 一致（S7=肩 / S8=肘）
+	// 标定的通道映射必须与 docs/serial-v1.md §2 一致（S7=肩 / S8=肘）
 	chByJoint := map[string]int{}
 	for _, row := range hello.Model.Calibration {
 		chByJoint[row.JointID] = row.Channel

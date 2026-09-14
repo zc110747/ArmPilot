@@ -1,9 +1,9 @@
 // Package protocol 定义两个方向的编解码，本包**不认识机械结构**：
 //
-//	Browser ↔ Go      JSON（spec §二十一 / protocol/serial-v1.md §5）
-//	Go ↔ Device       arm-device 文本协议（JR / STATE / OK / ERR，serial-v1.md §4）
+//	Browser ↔ Go      JSON（spec §二十一 / docs/serial-v1.md §5）
+//	Go ↔ Device       arm-device 文本协议（JR / STATE / OK / ERR，docs/serial-v1.md §4）
 //
-// 分层铁律（serial-v1.md §1）：本包只负责把关节角编成字节 / 把字节解回关节角，
+// 分层铁律（docs/serial-v1.md §1）：本包只负责把关节角编成字节 / 把字节解回关节角，
 // 不做标定、不做限位判断 —— 那是 `internal/robot`（真值）与 `internal/controller`
 // （策略）的职责。协议层一旦开始"懂关节"，双份真值就回来了。
 package protocol

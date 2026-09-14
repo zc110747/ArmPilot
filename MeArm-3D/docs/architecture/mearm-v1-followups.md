@@ -65,7 +65,7 @@
 
 ---
 
-## F4 · `protocol/serial-v1.md §5.1` 文档漂移：`hello` 没有 `connected` 字段
+## F4 · `docs/serial-v1.md §5.1` 文档漂移：`hello` 没有 `connected` 字段
 
 **症状**：按协议文档用 `hello.connected` 判真机接入，永远拿不到值。
 

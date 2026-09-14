@@ -1,6 +1,6 @@
 // Package robot 解析 robot-package/mearm-v1/model/robot.yaml —— ArmPilot 的**唯一模型/标定真值**。
 //
-// 后端绝不自己存一份关节限位或标定表。原因见 protocol/serial-v1.md §2：
+// 后端绝不自己存一份关节限位或标定表。原因见 docs/serial-v1.md §2：
 // 前端、固件、后端各存一份，三份必然漂移；实测已经证明"按固件命名推定角色"
 // 会得出反着动的机械臂（S7=肩 / S8=肘 是靠相机实测纠正的）。
 //
@@ -171,7 +171,7 @@ func Load(path string) (*Model, error) {
 // ⚠️ 判据是 `== "revolute"`，**不是** `!= "fixed"`（2026-09-13 修正）：
 // `joints.tool` 是被动腕，它没有独立输入（角度由 coupling 从 elbow 派生），
 // 不进 JointState / UI 滑杆 / JR 四元组。若把它算进来，JR 会变成五元组 ——
-// 而固件、`protocol/serial-v1.md`、前端 `wsProtocol` 全部按四元组解析，
+// 而固件、`docs/serial-v1.md`、前端 `wsProtocol` 全部按四元组解析，
 // 结果是**每一条指令的位次都错**，且不会有任何一处报错。
 func (m *Model) JointOrder() []string {
 	out := make([]string, 0, len(m.Joints))

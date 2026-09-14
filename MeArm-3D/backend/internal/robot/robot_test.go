@@ -180,7 +180,7 @@ func TestCalibrationTableShape(t *testing.T) {
 	if len(rows) != 4 {
 		t.Fatalf("标定表行数 = %d, 期望 4", len(rows))
 	}
-	// 必须按关节顺序排列，且 channel 与 protocol/serial-v1.md §2 表一致
+	// 必须按关节顺序排列，且 channel 与 docs/serial-v1.md §2 表一致
 	wantCh := map[string]int{"base": 9, "shoulder": 7, "elbow": 8, "gripper": 6}
 	for i, r := range rows {
 		if r.Channel != wantCh[r.JointID] {

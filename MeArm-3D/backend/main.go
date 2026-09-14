@@ -1,6 +1,6 @@
 // armpilot-backend：ArmPilot 数字孪生的关节级后端（Phase 8）。
 //
-// 架构（spec §二十二；分层图见 protocol/serial-v1.md §5）：
+// 架构（spec §二十二；分层图见 docs/serial-v1.md §5）：
 //
 //	Browser ──WebSocket(JSON)──▶ wsserver
 //	                                 │

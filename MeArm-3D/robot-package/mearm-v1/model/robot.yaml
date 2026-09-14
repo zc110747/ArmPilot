@@ -368,7 +368,7 @@ joints:
   #   ⚠️ `limit.min === limit.max` 是**被动关节的表达方式**：它没有输入，
   #      关节值取该限位（= 锁定值）。校验层强制要求被动关节 min === max 且不得挂执行器。
   #   ⚠️ 它**不进入** JointState / UI 滑杆 / JR 协议（`type` 不是 `revolute`）
-  #      ⇒ JR 仍是四元组，`protocol/serial-v1.md` 与固件一个字都不用改。
+  #      ⇒ JR 仍是四元组，`docs/serial-v1.md` 与固件一个字都不用改。
   #   ⚠️ 它的坐标系同时是 **TCP 参考系**（见上方 robot.tcp.joint），原点即**腕枢轴**。
   #      因此 `tool_link.length = 40` 是「腕枢轴 → 爪铰点」的**水平**前伸量
   #      （爪锁水平时它完全落在 +X 上，故 IK 可把目标点减去这个常量偏移后退化成 2R）。

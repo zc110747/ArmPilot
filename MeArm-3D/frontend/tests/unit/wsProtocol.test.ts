@@ -186,7 +186,7 @@ describe('wsProtocol · 错误码常量', () => {
 });
 
 describe('wsProtocol · 链路精度（quantizeForWire）', () => {
-  it('线上步进是 0.1°（与 serial-v1.md §4 的 `JR` 精度一致）', () => {
+  it('线上步进是 0.1°（与 docs/serial-v1.md §4 的 `JR` 精度一致）', () => {
     expect(WIRE_JOINT_STEP_DEG).toBe(0.1);
   });
 

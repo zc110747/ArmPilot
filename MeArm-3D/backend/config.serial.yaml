@@ -27,7 +27,7 @@ robot:
 device:
   mode: "serial"
   serial:
-    port: "COM16"          # 本机实测：USB-SERIAL CH340 = 机械臂
+    port: "COM18"          # 本机实测：USB-SERIAL CH340 = 机械臂（2026-09-14 重新枚举）
     baud: 115200
     data_bits: 8
     stop_bits: 1

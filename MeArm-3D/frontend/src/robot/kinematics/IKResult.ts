@@ -45,7 +45,7 @@ import type { JointState } from '../model/Pose';
  * | `positionError: number` | `number \| null` | 失败时无解 ⇒ 无误差；填 `0` 是编造 |
  * | `orientationError?: number` | `number \| null`（本机恒 `null`） | 显式表达"本机没有姿态自由度"，而不是留一个可能被误判为 0 的缺省 |
  * | `solutionType: string` | 同（本机取 `'elbow-up' \| 'elbow-down' \| 'none'`） | 保留原语义 |
- * | `error?: string` | 同（本机取 `'OUT_OF_WORKSPACE' \| 'JOINT_LIMIT' \| 'MODEL_ERROR'`） | 与 `protocol/serial-v1.md` 的错误码同源 |
+ * | `error?: string` | 同（本机取 `'OUT_OF_WORKSPACE' \| 'JOINT_LIMIT' \| 'MODEL_ERROR'`） | 与 `docs/serial-v1.md` 的错误码同源 |
  */
 export interface IKResult {
   /** 解算是否成功 */

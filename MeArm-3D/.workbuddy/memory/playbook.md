@@ -131,7 +131,22 @@
   连通性自检：`curl -s -o /dev/null -w "%{http_code}" --max-time 8 https://github.com`（返回 200 即网络正常，
   curl 自身 exit 23 是沙箱写 `/dev/null` 被拦，**不是网络故障**）。
 - `start.bat` 前置检查只依赖：`backend/bin/armpilot-backend.exe` · `backend/config.yaml` ·
-  `config/robot.yaml` · PATH 上的 `node` · `frontend/node_modules/.bin/vite.cmd`。
+  `config/robots.yaml`（**注意：只有 `robots.yaml`，旧的 `config/robot.yaml` 已随选择器化废弃**）·
+  PATH 上的 `node` · `frontend/node_modules/.bin/vite.cmd`。
+  ★ `[0/3]` 之前的**陈旧闸门**会在 `.go` 源比 exe 新时自动 `go build`；launch 后还会再探一次 `/healthz`。
+  两者都存在的原因：**"启动了"和"真的在服务"是两个命题**（详见 §9）。
+- ★★ **本机 `grep`（msys2 `GNU grep 3.0`）里 `\[` / `\]` 不等于字面方括号**（2026-09-14 实测）：
+  `grep -c '\[0/3\]' start.bat` 返回 **59**（= 文件里含 `0`/`/`/`3` 的**行数**，说明 `\[…\]` 被当成
+  **方括号表达式**），而该串真实出现 **1** 次；`grep -cF '[0/3]'` 与 Python `str.count()` 都返回 1。
+  用 `\|` 把两个模式或起来更糟：`grep -c "robot-package\^)\|\[0/3\]"` 返回 **0**
+  （而两个模式**都确实在文件里**）——这是本轮唯一一次把工具 bug 误读成"仓库被回退"的源头。
+  ⇒ **数精确字符串一律 `grep -cF`，或直接 Python `str.count()`**；先拿"已知答案的探针文件"
+  验一次工具语义（与 §1 的 `grep \b`、§5 的 `sort -u` 是同一类坑：**工具语义没验证就下结论**）。
+  > 假警报的完整还原：`grep` 报 0 → 我读成"修复被 `checkout` 回退"，于是去查 reflog/index mtime。
+  > 真相是：`git diff -- MeArm-3D/start.bat` **为空**（工作区 == 暂存区**内容一致**），
+  > 313/343 字节差 = 343 行 × 1 字节 = **纯 CRLF 行尾**，属正常；
+  > 工作区与暂存区都含 `robot-package^)` ×1、`[0/3]` ×1、`STALE` ×3、`healthz` ×5。
+  > **教训：判"文件被回退"用 `git diff` + 逐字节哈希，不要用 `grep` 的计数。**
 
 ## §6 协作约定与真机链路
 
@@ -140,10 +155,13 @@
 - **破坏性操作先列清单确认**；建新目录先跑 `git check-ignore -v <path>/probe.txt` 探针。
 - 每轮收尾：README 阶段表/§6 + `docs/decisions.md` ADR + memory **同步更新**。
 - 提交按逻辑拆分（freeze / refactor / test 各自独立），不混在一起。
-- **真机链路**：`backend/bin/armpilot-backend.exe -c config.serial.yaml` · **COM16 CH340 @115200 8N1** ·
-  开机四舵机全 90°(= HOME)。调试入口 `tools/set_joints.mjs`（`--status`/`--home`/`name=value`），
+- **真机链路**：`backend/bin/armpilot-backend.exe -c config.serial.yaml` · **CH340 @115200 8N1** ·
+  ★ **COM 号不是常量**，它会随 USB 枚举变：2026-09-14 实测 = **`COM18`**（此前 `COM16`，已成
+  `Present=False` 的幽灵条目）。**唯一改动点 = `config.serial.yaml` 的 `device.serial.port`**，
+  别信记忆/文档里的旧值 —— 先 `serial.tools.list_ports.comports()` 看一眼实际是谁。
+  开机四舵机全 90°(= HOME)。调试入口 `core/tools/set_joints.mjs`（`--status`/`--home`/`name=value`），
   **别拿验收脚本当摇杆**。
-  - ★ `hello` **没有** `connected` 字段（`protocol/serial-v1.md` §5.1 属**文档漂移**，followups **F4**）
+  - ★ `hello` **没有** `connected` 字段（`docs/serial-v1.md` §5.1 属**文档漂移**，followups **F4**）
     ⇒ 判真机只能看 `hello.device === 'serial'`。
   - ★ `hello` 与 `joint_state` 同时到达且 `hello` 在前 ⇒ 发送点必须在收齐 `joint_state` 之后，
     否则"保持不变"的关节会 fallback 到 `homePose` = **把臂拉回 home**。`--settle` 的"保持不变"
@@ -236,6 +254,11 @@
 **目标形态**：`core/`（机制，**不含任何型号名**）· `robot-package/<id>/`（一台机器人的全部：manifest +
 `model/` + `physics/` + `tests/cases/` + `tools/` + 资产）· `working-robot/`（"现在轮到谁"，构建产物，gitignore）。
 spec = `docs/MeArm_3D_Prompter_06.md`（56 节）；只读分析 = `docs/architecture/robot-package-phase0.md`。
+
+**文档落点（2026-09-14 定，用户拍板）**：串口 / WS 协议基线 = **`MeArm-3D/docs/serial-v1.md`**
+（原 `MeArm-3D/protocol/serial-v1.md`，`protocol/` 目录已撤）。phase0 映射表原拟的 `core/protocol/`
+**未采用**，该行已就地标注实际落点。全仓 51 处引用 + 2 处仓库树 + 1 处映射表已同步
+（唯一故意不改：父仓 `docs/MeArm_3D_Prompter_01.md` 的**历史设计快照树**）。
 
 **搬迁纪律（不可跳）**：一次只搬一个子系统 → `Build → Test → 验证 → 记录`，**每步交付一次实测**。
 判据按子系统选：
@@ -349,3 +372,51 @@ spec = `docs/MeArm_3D_Prompter_06.md`（56 节）；只读分析 = `docs/archite
 `3d-models/*.STEP`）· `IKResult.diagnostics` 袋子（解 `robotStore` → 包内 `ik.ts` 的层次倒置）·
 C5（`role` 跨端语义分歧）· C6（`project_plates.py` 硬编码板件尺寸）· `test_ik.py` 残留的 MeArm 耦合
 （目前是"把型号当数据键"的可接受形态）。
+
+## §9 一键启动器（`start.bat`）与真机验收口径（2026-09-14 起）
+
+### 9.1 `start.bat` 现在不止"起两个窗口"
+
+| 阶段 | 做什么 | 为什么必须有 |
+|---|---|---|
+| `[0/3]` 陈旧闸门 | 任一 `backend/**/*.go` 比 `bin/armpilot-backend.exe` 新 ⇒ 自动 `go build`；**没有 `go` 就拒绝启动** | 旧二进制不报"我过期了"：它照常启动、毫秒内因配置错误死掉、窗口一闪而过。实测就这么发生的（exe 落后**整整一次重构**，仍在找已废弃的 `config/robot.yaml`） |
+| `[1/3]` 端口预检 | 8090 / 5273 占用则列 PID 并**问**是否清理 | （原有） |
+| `[2/3]` 启动 | 两个独立窗口 | （原有） |
+| 启动后探活 | 主动请求 `/healthz`，答不上就在 **launcher 窗口里**报出来 | "窗口出现了" ≠ "服务起来了"。后端自己的报错在被回收的窗口里，用户在 launcher 里根本看不到 |
+
+陈旧判据用 `%%~tT` 字符串比较（格式 `yyyy/MM/dd HH:mm` ⇒ 字典序 == 时间序）。
+★ **别用 `dir /o-d` 多目标排序**（实测报"文件名、目录名或卷标语法不正确"），也别用 `forfiles /d`（只到"天"）。
+
+### 9.2 `.bat` 里的括号：只有"块内裸括号"会炸
+
+| 位置 | 安全? | 说明 |
+|---|---|---|
+| `if (...)` / `for ... (...)` **块内**的裸 `(` `)` | ❌ **炸** | cmd 的块读取器扫到第一个 `)` 就闭合块，余下文本成游离 token |
+| 同一行**双引号内**的括号 | ✅ | 引号保护（实测） |
+| **顶层**（不在任何块内）echo 里的括号 | ✅ | 不参与块配对（实测） |
+
+症状：`此时不应有 .`（`. was unexpected at this time`）+ `RC=255`，脚本死在 preflight。
+**定位手段（比二分快得多）**：把脚本复制成 `@echo on` 版本跑一遍，trace 会停在出错那一行。
+（同理：块内 echo 里裸 `>` 会被当成**整块**的重定向，写文本要 `^>`。）
+
+### 9.3 真机验收有**两条独立证据链**，不能混着读
+
+| 证据链 | 能证明 | **不能**证明 |
+|---|---|---|
+| 链路层（`hello.device=serial` / `OK JR` 回执 / `joint_state` / `verify_serial_e2e.mjs --no-camera`） | 指令**确实送到了固件并被接受** | ❌ **物理到位** —— 真机无位置反馈，`joint_state` 是固件**内部目标值**（开环） |
+| 相机（`verify_pose.py` 反解肩/肘绝对角） | **物理**在哪（唯一外部地面真值） | —— |
+
+⇒ **链路层全绿 ≠ "真机验证通过"**。要判物理到位，必须让相机取景按 `docs/hardware-measurement.md`
+的 **Phase 4.5** 就位（白分割板 + 画面内标尺 + 正交侧视 + **锁死曝光**）**且人员离场**。
+台面没就位时，`verify_pose.py` 的**绝对误差含反解公共偏置**，不可当机械精度读 —— 只有
+**重复性（同位姿两帧之差）**是干净的噪声底。取景里连臂都没有时，只能报"物理层未取到证据"，别硬算。
+
+### 9.4 （已修）Core 重构后工具路径的 off-by-one
+
+工具从 `<repo>/tools/` 搬进 `core/tools/` 时，`ROOT = resolve(TOOLS_DIR, '..')` **没多退一层** ⇒
+`ROOT` 变成 `<repo>/core`。后果不是报错，而是**静默指错地方**：backend 找不到、输出写进
+`core/.workbuddy/`、`verify_pose.py` 按旧目录找 ⇒ `[fatal]`。
+**搬工具时同步检查**：`ROOT`/`REPO_DIR` 的层数 · 工具之间的相对引用 · 文档里写下的路径。
+另一条同族纪律：型号专属工具**随包走**（`manifest.tests.tools` 是完整清单）⇒ Core 侧要
+**由 `config/robots.yaml` 的 `default` 定位包**，不要写死 `mearm-v1`（写死 = 每接一台机器人回 Core 改一行）。
+**这类修复的可测判据**：`node core/tools/verify_serial_e2e.mjs --dry-run`（不碰硬件，验路径 + 动作计划 + 限位）。

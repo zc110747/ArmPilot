@@ -1,6 +1,6 @@
 // Package controller 是 Go 侧的唯一"懂机械臂"的地方（spec §二十二 的 Robot Controller）。
 //
-// 职责边界（对齐 protocol/serial-v1.md §5 的分层图）：
+// 职责边界（对齐 docs/serial-v1.md §5 的分层图）：
 //
 //	WebSocket Client → Protocol(编解码) → **Robot Controller** → Device → AVR
 //

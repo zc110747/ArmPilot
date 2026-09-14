@@ -355,8 +355,7 @@ ArmPilot/
     ├── backend/                  #    Go 关节级服务（robot / protocol / controller / device / wsserver）
     ├── simulation/mujoco/        #    MJCF 生成器 + 模型 + 服务 + Viewer + 记录
     ├── tests/sim/                #    MuJoCo 轨验收（pytest）
-    ├── protocol/serial-v1.md     #    串口 / WS 协议基线
-    └── docs/                     #    坐标系 / 模型结构 / 真机实测 / ADR 决策记录 / 采集指南
+    └── docs/                     #    坐标系 / 模型结构 / 真机实测 / ADR 决策记录 / 采集指南 / 串口协议基线
 ```
 
 ---
@@ -389,7 +388,7 @@ ArmPilot/
 | 真机实测记录与不确定度 | [`MeArm-3D/docs/hardware-measurement.md`](MeArm-3D/docs/hardware-measurement.md) |
 | 设计决策 ADR（D1–D70） | [`MeArm-3D/docs/decisions.md`](MeArm-3D/docs/decisions.md) |
 | 物理仿真怎么跑 / 判据纪律 | [`MeArm-3D/simulation/README.md`](MeArm-3D/simulation/README.md) |
-| 串口 / WS 协议基线 | [`MeArm-3D/protocol/serial-v1.md`](MeArm-3D/protocol/serial-v1.md) |
+| 串口 / WS 协议基线 | [`MeArm-3D/docs/serial-v1.md`](MeArm-3D/docs/serial-v1.md) |
 | 图像采集指南 | [`MeArm-3D/docs/texture-capture-guide.md`](MeArm-3D/docs/texture-capture-guide.md) |
 | 开发提示词记录 | [`docs/`](docs) |
 

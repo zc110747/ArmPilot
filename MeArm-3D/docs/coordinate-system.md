@@ -198,7 +198,7 @@ r  = hypot(x, y)        ← 矢状面内的水平半径
 | 目标方位角超出底座 `±60°` | `JOINT_LIMIT`，`joint = "base"` |
 | 几何可达但两支解都越界 | `JOINT_LIMIT`，`joint` 指向越界最轻的那支所涉关节 |
 
-失败信息格式对齐 `protocol/serial-v1.md` 的 `ERR JOINT base 95 (limit -60..60)`。
+失败信息格式对齐 `docs/serial-v1.md` 的 `ERR JOINT base 95 (limit -60..60)`。
 返回前 IK 会用 FK 自查残差（`residual`，mm），超出容差即抛错而非静默返回。
 
 ### 多解与"本机只有一支解"

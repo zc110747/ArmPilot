@@ -450,7 +450,7 @@ tests/baseline/mearm-v1/
 | Python | `is_dof = (type == "revolute")`；`has_qpos = (type != "fixed")` | 4 / 5 ✅ |
 
 `nq = 5`、`njnt = 5`、`nu = 4`、**自由度 = 4** —— 这四个数同时存在且都对，
-把它们混成一个"关节数"就会协商出**五元组的 JR**，而固件与 `protocol/serial-v1.md`
+把它们混成一个"关节数"就会协商出**五元组的 JR**，而固件与 `docs/serial-v1.md`
 只认四元组（`base/shoulder/elbow/gripper`）。
 
 > 实测踩法：`SimState.joint_velocities` / `joint_torques` 一度按 `joint_ids`（5 个）顺序取，
@@ -1449,7 +1449,7 @@ score 只有 **1.9 ~ 4.2**，**比 18.2 还差 4~9 倍**。
 
 **顺带钉住的两个机制性教训**
 
-- **`hello` 里没有 `connected` 字段**（`protocol/serial-v1.md` §5.1 写错了）。
+- **`hello` 里没有 `connected` 字段**（`docs/serial-v1.md` §5.1 写错了）。
   判"是否真机"必须用 `device == "serial"`；否则跑 `config.yaml` 时会把虚拟臂当真机，
   "摆位成功"是幻觉。`set_joints.mjs` 据此**拒绝向非串口链路发送**。
 - **`hello` 与 `joint_state` 同时到达、`hello` 在前**。若在 `hello` 分支里就发指令，
@@ -2956,7 +2956,7 @@ FK 与 Three.js `applyJointState()` **共用它**，保证"屏幕上的臂就是
 - ✅ 该不变量写成测试锁死（`tests/unit/ik.test.ts`、`tests/acceptance/ik-fk-roundtrip.test.ts`）：
   一旦有人放宽 `shoulder` 上限到 ≥108°，测试会立刻失败并提示原因
 - ⚠️ 失败信息的 `reason` 只有 `OUT_OF_WORKSPACE` / `JOINT_LIMIT` 两种（对齐 spec 与
-  `protocol/serial-v1.md`）；**模型配置错误走抛异常**，不复用这两个码，避免二者混淆
+  `docs/serial-v1.md`）；**模型配置错误走抛异常**，不复用这两个码，避免二者混淆
 
 ---
 
@@ -3112,7 +3112,7 @@ FK 与 Three.js `applyJointState()` **共用它**，保证"屏幕上的臂就是
 
 ---
 
-## D26 · `protocol/serial-v1.md` 的角色映射按实测修正
+## D26 · `docs/serial-v1.md` 的角色映射按实测修正
 
 **背景**：该文档 §2 的关节↔舵机映射仍沿用早期**推定值** `shoulder→S8 / elbow→S7`，
 与 Phase 4.5 实测结论（**S7 = 肩、S8 = 肘**，见 D15）**正好相反**。
@@ -3224,7 +3224,7 @@ WebSocket 层收到命令就直接把同值回推 —— 接口通了，但 `Act
 直接相减恒差 `0.0186°`。
 
 **决策**：
-1. 在 `wsProtocol.ts` 显式声明链路精度 `WIRE_JOINT_STEP_DEG = 0.1`（依据 `serial-v1.md` §4）。
+1. 在 `wsProtocol.ts` 显式声明链路精度 `WIRE_JOINT_STEP_DEG = 0.1`（依据 `docs/serial-v1.md` §4）。
 2. `lagDeg()` 比对前先 `quantizeForWire(命令)`，之后误差可**精确归零**，
    0.1° 以上的**真实**滞后照实上报。
 3. 只量化**命令侧**，不量化测量的状态 —— 后端回推的 `joint_state` 已经受 `STATE` 行精度约束，

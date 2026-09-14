@@ -1,5 +1,5 @@
 /**
- * wsProtocol —— 浏览器 ↔ Go 的 JSON 消息编解码（spec §二十一 / protocol/serial-v1.md §5）。
+ * wsProtocol —— 浏览器 ↔ Go 的 JSON 消息编解码（spec §二十一 / docs/serial-v1.md §5）。
  *
  * 本模块是**纯函数**，不认识 socket、不认识计时器，因此可以独立单测。
  *
@@ -23,7 +23,7 @@ export const PROTOCOL_VERSION = 1;
 /**
  * `JR` 线的关节角步进（度）：**0.1°**。
  *
- * 依据 `protocol/serial-v1.md` §4：「关节角整帧（degree，浮点，保留 1 位小数）」。
+ * 依据 `docs/serial-v1.md` §4：「关节角整帧（degree，浮点，保留 1 位小数）」。
  * 后端控制器把 `joint_command` 编码成 `JR` 时按这个精度量化 —— 也就是说
  * **链路本身无法表达比 0.1° 更细的命令**。
  *

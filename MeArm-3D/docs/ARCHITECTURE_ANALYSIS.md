@@ -16,7 +16,7 @@
 | 前端运动学 | `frontend/src/robot/kinematics/fk.ts` | FK 链公式（与 MuJoCo 建模一一对应的依据） |
 | 前端协议 | `frontend/src/robot/transport/wsProtocol.ts` | JSON 信封 / 错误码 / 模型一致性校验 |
 | 前端接线 | `frontend/src/store/transportBridge.ts` | 安全门 / 设备类型判定 |
-| 文档 | `docs/coordinate-system.md`、`docs/model-structure.md`、`protocol/serial-v1.md`、`docs/decisions.md` | 既有约定与 ADR |
+| 文档 | `docs/coordinate-system.md`、`docs/model-structure.md`、`docs/serial-v1.md`、`docs/decisions.md` | 既有约定与 ADR |
 | 工具 | `tools/*.py`、`tools/*.mjs` | 实测与验收脚本 |
 
 **环境事实**（实测）：Python `3.13.14` @ `~/.workbuddy/binaries/python/envs/default`，已装 `mujoco 3.13.0`（cp313 win_amd64）+ `numpy 2.5.3`。编译 / 步进 / 重力已跑通（最小模型 100 步无 NaN）。
@@ -356,7 +356,7 @@ MuJoCo 一个 `hinge` 只能驱动一个 body ⇒ 第一版采用：
 
 错误码：`BAD_MESSAGE` / `VERSION_MISMATCH` / `JOINT_LIMIT` / `DEVICE_UNAVAILABLE` / `ACK_TIMEOUT` / `INTERNAL`。
 
-### 8.2 设备文本协议（Go ↔ AVR，`serial-v1.md` §4）
+### 8.2 设备文本协议（Go ↔ AVR，`docs/serial-v1.md` §4）
 
 ```
 JR <j1> <j2> <j3> <grip>      下行（关节角，保留 1 位小数）

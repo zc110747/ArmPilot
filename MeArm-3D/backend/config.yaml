@@ -56,7 +56,7 @@ device:
     start_timeout_ms: 20000  # 启动握手超时（首次 import mujoco 较慢）
   serial:
     # ⚠️ 运行参数在这里；**标定/限位不在这里**（全在 robot-package/mearm-v1/model/robot.yaml）
-    port: "COM16"          # 本机实测：USB-SERIAL CH340 = 机械臂
+    port: "COM18"          # 本机实测：USB-SERIAL CH340 = 机械臂（sim 模式不使用，仅为一致性）
     baud: 115200
     data_bits: 8
     stop_bits: 1

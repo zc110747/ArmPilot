@@ -39,7 +39,7 @@ import serial
 
 # ---------------------------------------------------------------- 常量
 
-DEFAULT_PORT = "COM16"
+DEFAULT_PORT = "COM18"
 DEFAULT_BAUD = 115200
 DEFAULT_CAM = "Integrated Camera"
 FFMPEG_FALLBACK = r"E:\agent-tools\ffmpeg-master-latest-win64-gpl-shared\bin\ffmpeg.exe"

@@ -32,5 +32,5 @@
 | 坐标系 / 单位 / 运动学链 | [`../MeArm-3D/docs/coordinate-system.md`](../MeArm-3D/docs/coordinate-system.md) |
 | 模型结构（几何 vs 运动学边界） | [`../MeArm-3D/docs/model-structure.md`](../MeArm-3D/docs/model-structure.md) |
 | 真机实测记录与不确定度 | [`../MeArm-3D/docs/hardware-measurement.md`](../MeArm-3D/docs/hardware-measurement.md) |
-| 串口 / WebSocket 协议基线 | [`../MeArm-3D/protocol/serial-v1.md`](../MeArm-3D/protocol/serial-v1.md) |
+| 串口 / WebSocket 协议基线 | [`../MeArm-3D/docs/serial-v1.md`](../MeArm-3D/docs/serial-v1.md) |
 | 工作日志 | 各子项目 `.workbuddy/memory/YYYY-MM-DD.md` |

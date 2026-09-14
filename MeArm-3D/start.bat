@@ -24,6 +24,17 @@ rem    dangerous than a clear "port not found" from the backend.
 rem  * A bare ">" inside an echo line that sits in a parenthesised block is parsed
 rem    as redirection for the WHOLE block and silently kills it. Every literal ">"
 rem    printed as text is therefore caret-escaped as "^>".
+rem  * Same trap for "(" and ")". An UNQUOTED ")" in an echo inside an if/for
+rem    block closes the block early; the leftover text then trips a syntax error
+rem    such as ". was unexpected at this time". Observed 2026-09-14 on the line
+rem    "the model truth (robot-package)." -- it killed the launcher before the
+rem    very first preflight message. Escape as "^(x^)", or quote the whole text.
+rem    (Parens inside DOUBLE QUOTES are safe; parens on a top-level echo are safe.)
+rem  * The backend is rebuilt when its sources are newer than the binary, and the
+rem    backend is probed via /healthz after launch. Both exist because "started"
+rem    and "is actually serving" are different claims.
+rem  * Exit code is 0 on success. A non-zero code means the launcher refused to
+rem    start (missing tool, stale binary, failed build), not that a service died.
 rem ============================================================================
 setlocal EnableExtensions EnableDelayedExpansion
 
@@ -78,10 +89,57 @@ if not exist "%CFG_PATH%" (
 )
 if not exist "%ROOT%config\robots.yaml" (
   echo [FAIL] Robot selector missing: config\robots.yaml
-  echo        This file points the backend at the model truth (robot-package).
+  echo        This file points the backend at the model truth ^(robot-package^).
   echo        Refusing to start: without it the wrong robot could silently load.
   goto :end
 )
+
+rem ---- Preflight: backend binary vs. its sources ------------------------------
+rem  A stale binary is the nastiest failure this launcher can produce: the process
+rem  starts, dies on a config error within milliseconds, and its window is gone
+rem  before the message can be read. Observed 2026-09-14 -- the exe was a whole
+rem  refactor behind and still looked for the retired config\robot.yaml.
+rem  So: if any .go source is newer than the binary, rebuild before launching.
+rem  Without Go on PATH we FAIL rather than launch something known to be stale.
+rem  The comparison uses the bare "%%~tT" stamp, whose order is yyyy/MM/dd HH:mm,
+rem  so plain string ordering is chronological -- no date parsing needed.
+set "NEWEST_GO="
+for /f "delims=" %%F in ('dir /b /a-d /s /o-d "%BACKEND_DIR%\*.go" 2^>nul') do (
+  if not defined NEWEST_GO set "NEWEST_GO=%%F"
+)
+
+set "STALE="
+if defined NEWEST_GO (
+  for %%T in ("!NEWEST_GO!") do set "GO_TS=%%~tT"
+  for %%T in ("%BACKEND_EXE%") do set "EXE_TS=%%~tT"
+  if "!GO_TS!" GTR "!EXE_TS!" set "STALE=1"
+)
+
+if not defined STALE goto :after_stale
+
+echo.
+echo [0/3] Backend sources are newer than the binary -- rebuilding ...
+where go >nul 2>nul
+if errorlevel 1 goto :stale_no_go
+pushd "%BACKEND_DIR%"
+go build -o "bin\armpilot-backend.exe" .
+set "BUILD_RC=!errorlevel!"
+popd
+if not "!BUILD_RC!"=="0" goto :stale_build_failed
+echo       Rebuilt OK.
+goto :after_stale
+
+:stale_no_go
+echo [FAIL] "go" is not on PATH, so the stale backend cannot be rebuilt.
+echo        Refusing to launch a binary that does not match the sources.
+echo        Build it manually:  cd backend ^&^& go build -o bin\armpilot-backend.exe .
+goto :end
+
+:stale_build_failed
+echo [FAIL] go build failed -- backend NOT launched. Fix the errors above.
+goto :end
+
+:after_stale
 
 where node >nul 2>nul
 if errorlevel 1 (
@@ -198,6 +256,40 @@ if exist "%VITE_CMD%" (
 ) else (
   start "ArmPilot frontend" /d "%FRONTEND_DIR%" cmd /k "set VITE_AUTO_CONNECT=%FE_AUTO_CONNECT%&& set VITE_AUTO_REAL=%FE_AUTO_REAL%&& npm run dev"
 )
+
+rem ---- Post-launch liveness probe ---------------------------------------------
+rem  "A window appeared" is not evidence that the service came up. Ask the backend
+rem  directly; if it never answers, say so HERE, where the message can be read --
+rem  the backend's own console may flash past before anyone sees it.
+set "HEALTH_OK="
+where curl >nul 2>nul
+if errorlevel 1 goto :no_curl
+
+for /l %%I in (1,1,10) do (
+  if not defined HEALTH_OK (
+    ping -n 2 127.0.0.1 >nul 2>nul
+    curl -s -m 2 -o nul "http://127.0.0.1:%WEB_PORT%/healthz" >nul 2>nul
+    if not errorlevel 1 set "HEALTH_OK=1"
+  )
+)
+if not defined HEALTH_OK goto :health_fail
+
+echo       Backend answered /healthz: it is up and holds a device link.
+goto :after_probe
+
+:health_fail
+echo.
+echo       [WARN] Backend did NOT answer http://127.0.0.1:%WEB_PORT%/healthz.
+echo              Read the backend window for the actual reason: bad config,
+echo              port already taken, or the wrong device mode. The page may
+echo              still load at http://localhost:%FE_PORT% but cannot drive.
+echo.
+goto :after_probe
+
+:no_curl
+echo       (curl not found on PATH -- skipping the backend liveness probe)
+
+:after_probe
 
 echo [3/3] Done.
 echo.

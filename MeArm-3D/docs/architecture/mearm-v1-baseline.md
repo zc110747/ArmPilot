@@ -250,7 +250,7 @@ spec §19 的字面要求是「旧代码 VS 新封装」，所以另立一条：
 
 见 [`mearm-v1-followups.md`](./mearm-v1-followups.md)：
 `MeArm-RemoteControl` 缺 `go.mod` · Windows 工具语义陷阱（`sort -u` / `grep \b` /
-`taskkill //PID`）· 一处关节锚点辅助函数的重复实现 · `protocol/serial-v1.md §5.1` 文档漂移。
+`taskkill //PID`）· 一处关节锚点辅助函数的重复实现 · `docs/serial-v1.md §5.1` 文档漂移。
 
 ### 6.3 提交划分
 

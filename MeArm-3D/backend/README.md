@@ -97,7 +97,7 @@ curl -s http://127.0.0.1:8090/healthz
 `hello` 里的 `model` 是**在线校验手段**：前端拿它与本地 `RobotModel` 比对限位/标定，
 不一致就说明两侧读的不是同一份 `robot.yaml`。
 
-### Go ↔ 设备（arm-device 文本，`protocol/serial-v1.md` §4）
+### Go ↔ 设备（arm-device 文本，`docs/serial-v1.md` §4）
 
 ```
 JR 0.0 20.8 112.6 50.0                        下发（保留 1 位小数）
@@ -207,7 +207,7 @@ node MeArm-3D/core/tools/verify_serial_e2e.mjs
 
 ### 6.3 固件侧仍待办
 
-- 固件 `core/cmd.c` 实现 `JR` / `STATE` 解析与回执（`protocol/serial-v1.md` §4）
+- 固件 `core/cmd.c` 实现 `JR` / `STATE` 解析与回执（`docs/serial-v1.md` §4）
 - 固件内置标定表**由 `robot-package/mearm-v1/model/robot.yaml` 生成**，避免手抄造成双份真值
 
 决策记录：`docs/decisions.md` **D34**（相机是唯一真值）· **D35**（帧间差为锐利判据）·

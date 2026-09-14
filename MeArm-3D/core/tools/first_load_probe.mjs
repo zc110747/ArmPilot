@@ -29,7 +29,9 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const REPO_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+// ⚠️ 本脚本住在 core/tools/，仓库根要退**两层**（旧的 `..` 只到 <repo>/core，
+//    于是截图落到 core/.workbuddy/captures/，与文件头声明的 .workbuddy/captures/ 不符）。
+const REPO_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const CAPTURE_DIR = path.join(REPO_DIR, '.workbuddy', 'captures');
 
 const TARGET_URL = process.argv[2] ?? 'http://127.0.0.1:5276/';

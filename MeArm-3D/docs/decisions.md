@@ -3,7 +3,129 @@
 记录"为什么这么做"，尤其是**与原 spec 示例不一致**的地方，方便后续复盘与修改。
 每条都有编号，代码注释会引用编号（如 `D2`）。
 
-> 本文**最新条目在前**（D70 在最上，D1 在最下）。
+> 本文**最新条目在前**（D73 在最上，D1 在最下）。
+
+## D73 · Sim2Sim 回归的三条纪律：容差写在数据里 · Python 不解释语义 · 锚点也要对
+
+**背景**：D71/D72 建起了黄金数据与抽象层，但如果回归判据本身不独立，
+"抽象前后一致"就只是**自证**（实现改了、判据跟着改，照样全绿）。
+
+**决策**：
+
+1. **容差从基线文件里读，不在测试文件里另立一套。**
+   `fk_cases.json → tolerances.{frontend_vs_recorded_mm, ref_vs_mujoco_mm, threejs_vs_frontend_matrix}` /
+   `ik_cases.json → tolerances.closed_loop_mm`。测试用 `tolerance(doc, key, default)` 读取，
+   缺键时才用保守缺省 —— 方向**只能是收紧**。
+   ⇒ 容差是冻结契约的一部分；散落在测试里迟早与数据漂移，而漂移的方向通常是**变松**。
+
+2. **Python 侧只递 JSON，不解释任何运动学语义。**
+   IK 由**前端真实的 `ik.ts`** 解（经 `tests/sim/ikbridge.py` → `kinematics-bridge.mjs`，
+   Vite SSR 加载同一份源码）。一旦验收程序自己算几何，"独立判据"就没了 ——
+   它证明的只是"我又写了一遍、而且自洽"。
+
+3. **不只对末端，还要对每个关节锚点。**
+   MuJoCo 侧新增 `harness.mujoco_joint_origin_mm()`，覆盖 `robot.yaml` 的**全部关节**：
+   - 被动腕 `tool` 在 MJCF 里**没有 `<joint>` 元素** ⇒ 走"子连杆 body 的 `xpos`"这条**等价路径**
+     （生成器把 body 放在 `parent.length + origin.position` 处，两种取法得到同一个量）
+   - 叶关节 `gripper` 不参与末端定位，但仍是坐标系列的一部分
+
+   理由：TCP 偏差只是"结果"，锚点逐级对比才能指出**错在哪一节**；
+   而且这两类关节最容易在"只有 4 个关节"的心智模型里被整个漏掉。
+
+4. **扫描用一次批量调用。** 桥是"一次性 CLI"（每次调用起一个 node 进程），
+   `sweep1000` 逐点调用会起 1000 个进程。批量接口是唯一可行的形态。
+
+5. **探针泄漏判据要写清扫描范围。** 既有契约是 `dist/assets/*.js` **0 命中**；
+   `.js.map` 内联了源码文本（含 `import.meta.env.DEV` 守卫那一行），**必然含该字样**。
+   不写范围，下一个人会对着 `grep -r dist/` 的 1 命中重新排查一遍。
+
+**后果**
+
+- ✅ 前端 13 项 + MuJoCo 侧 9 项回归，全部对着**同一批** JSON
+- ✅ 实测（全部远优于容差）：`Joint→FK` 7.2e-13 mm · `Joint→Three.js` 7.1e-13 mm ·
+  `XYZ→IK→FK` 4.0e-13 mm · `Joint→MuJoCo` 5.0e-13 mm · 关节锚点 5.3e-13 mm ·
+  `XYZ→IK→MuJoCo` 4.0e-13 mm · `sweep1000` 1.2e-13 mm（失败 0，全 `elbow-up`）
+- ⚠️ 关节锚点辅助函数目前**有两份**（`test_fk.py` 局部版 + `harness.py` 共享版）：
+  为遵守"不得修改原有测试"，本阶段只新增未合并，已登记为 followups F3
+
+---
+
+## D72 · 最小抽象 = **包一层**，不是**重做一层**（`RobotDefinition` / `KinematicsEngine` / `IKResult`）
+
+**背景**：spec 要求"最小程度的架构抽象"，并明确禁止若干诱人的做法。
+动手前的审查（`docs/architecture/mearm-v1-baseline-analysis.md` §0）先给出一条结论：
+
+> **MeArm-3D 的现有实现已经是"一个 Robot Model + 一套运动学"的干净结构。**
+
+所以缺的不是架构。真要重做一层，只会把"抽象前后行为一致"变成一件需要大量解释的事。
+
+**决策**：只新增四个文件，全部**纯委托 / 纯类型**，一个算法行都不写。
+
+```text
+definition/RobotDefinition.ts        RobotModel 的**分节视图** + defineRobot() + isModel()
+kinematics/IKResult.ts               统一结果形状 + 适配器 fromMeArmIkResult()
+kinematics/KinematicsEngine.ts       能力声明 KinematicsCapability + 调用面接口
+kinematics/mearm/MeArmKinematics.ts  实现：forward/inverse 全部 forward 到 fk.ts / ik.ts
+```
+
+四条**刻意的**约束（每一条都是被"回归要有意义"逼出来的）：
+
+| 约束 | 为什么 |
+|---|---|
+| `links`/`joints`/`actuators`/`tcp`/`homePose`/`robotModel` 全是**原对象引用** | 一旦某天有人做深拷贝，"抽象前后一致"就不再是同一对象的两次读取。由 `expect(def.robotModel).toBe(model)` 钉住 |
+| **绝不复制 `effectiveJointAngle()`** | 渲染层 `buildRobotObject3D.ts` 与 `fk.ts` **共用**该函数（前者直接 import 后者）—— 这是 Phase 3 能到 8.7e-14 mm 的根本原因。抽象层只准 re-export / 委托（风险 R1） |
+| `orientationError` 恒为 **`null`**（不是 `0`） | 本机没有姿态自由度。填 `0` 会**同时骗过调用方和测试**（看起来"姿态误差为零"）。失败时 `positionError` 同样是 `null` |
+| 未知 `prefer` **显式抛错** | `ik.ts` 对无法识别的 `prefer` 会**静默退化**为 `elbow-up`。透传会让"抽象层传错参数"变成一条安静的、结果仍然"正确"的路径 |
+
+**不做的事（spec 明令）**：不改 `ik.ts` 成 `GenericIK`；不给求解器加 5/6DOF 位姿参数；
+不把 `solveIk` 的返回改成 spec 示例字段名（会破坏既有 2000 组闭环断言与 e2e 探针，
+正解是**适配**不是替换）；不为贴合建议目录树而大规模重命名。
+
+**判据**：抽象层调用与直接调用**逐位一致**（`Object.is` 全 true，237 例差异 0），
+不是"接近"。见 `frontend/tests/unit/kinematicsEngine.test.ts`（14 项）与
+`frontend/tests/sim2sim/`、`tests/sim2sim/`。
+
+---
+
+## D71 · MeArm-V1 黄金数据：把**行为**落盘，判据从"两套实现互相比对"改成"与冻结时一致"
+
+**背景**：本项目既有测试大多是「**当场算两遍、互相比对**」（FK 参考实现 vs MuJoCo、
+前端 FK vs Three.js）。那能证明"两套实现对得上"，**证明不了"今天的行为和上周一样"** ——
+重构之后两套实现可能一起变，判据照样全绿。
+
+**决策**：为 MeArm-V1 落一份**行为快照**（characterization baseline），
+作为第一个正式 Robot Model 的伴生数据。
+
+```text
+tests/baseline/mearm-v1/
+  joint_cases.json      116 例   公共输入：零位/HOME · 各关节 min/mid/max · 全最小/全最大 · 100 组随机
+  fk_cases.json         116 例   tcpFrontend（前端 fk.ts）/ tcpRef + framesRef（fkref.py）/ tcpMujoco
+  ik_cases.json         121 例   可达 115 + 越界 3 + 方位角越限 3；含分支/残差/错误码
+  workspace_cases.json  121 例   可达性 / 错误码 / 2R 几何量 / 矢状面距离
+```
+
+采集器 `tools/gen_mearm_v1_baseline.py` 的四条原则：
+
+1. **期望值一律实跑采集，绝不手算。** 前端侧经 `kinematics-bridge.mjs`（Vite SSR 加载
+   **同一份** `fk.ts` / `ik.ts`）；MuJoCo 侧走 `reset()`（纯 `mj_forward`，不引入重力/接触噪声）。
+2. **固定 seed `20260914`**，全流程可复现；唯一允许变动的是 `generated_at`。
+   `--check` 逐位复现已提交文件（重构后自证用）。
+3. **随机只作补充**：主数据集是显式枚举的定点用例（spec §6）。
+4. **落盘 12 位小数**（`-0.0 → 0.0`）：远严于最小容差 `1e-9`，同时 JSON 稳定、diff 友好。
+
+模型标识（`robot.model: MeArm-V1` / `version: 1.0.0`）是**只读元数据**，
+不在 `freeze_baseline.py` 的语义核心白名单内 ⇒ 语义核心哈希不变，
+仅 L1 整文件记录漂移（属"放行"情形，`--update` 刷新即可）。
+
+**后果**
+
+- ✅ 「抽象前后行为一致」从一句口号变成一条可执行断言
+- ✅ 随机/环境相关的不确定性被隔离：黄金数据负责"与昨天一致"，扫描负责"入参空间更宽"
+- ⚠️ 有意改变行为时**必须重新生成并说明原因**（`--check` 会逐字段列出差异）
+- ⚠️ 用例边界刻意包含**超限位位形**（`elbow = 0°`）：它在真机限位外，但 FK 是纯几何求值，
+  这条同时充当"竖直段 = 60+80+80、水平段 = 40"的**独立几何常量核对**
+
+---
 
 ## D70 · 爪被连杆锁成**水平** ⇒ `tool` 改**被动关节**；MuJoCo 必须用 **tendon + equality** 锁绝对角
 

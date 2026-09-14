@@ -84,3 +84,29 @@ def sagittal_distance_mm(info: Mapping[str, Any], target: Sequence[float]) -> fl
     return float(
         np.hypot(r - float(g["pivotR"]) - off_r, float(target[2]) - float(g["pivotZ"]) - off_z)
     )
+
+
+def mujoco_joint_origin_mm(sim, robot, jid: str) -> np.ndarray:
+    """某个**关节坐标系原点**的世界坐标（mm）—— 从 **MuJoCo 侧**取。
+
+    调用前必须已经 `sim.reset(joints)`：本函数只读 `data`，不推进任何东西。
+
+    ⚠️ 固定关节（`robot.yaml` 里 `type: fixed`）在 MJCF 里**没有 `<joint>` 元素**
+    （见 `gen_model.py`：`if joint is not None and not joint.is_fixed` 才写 joint），
+    所以按关节名查会拿到 −1。但两条路径取到的是**同一个量**：生成器把 body 放在
+    `parent.length + origin.position` 处，可动关节的 anchor 就是这个 body 原点，
+    固定关节的坐标系原点也是这个 body 原点。所以可动关节读 `xanchor`，
+    固定关节读**子连杆 body 的 `xpos`**（与 `test_fk.py::joint_origin_mm` 同一条规则）。
+    """
+    import mujoco
+
+    joint = robot.joint(jid)
+    if joint.is_fixed:
+        i = mujoco.mj_name2id(sim.model, mujoco.mjtObj.mjOBJ_BODY, joint.child_link)
+        if i < 0:
+            raise KeyError(f"MJCF 里找不到 body {joint.child_link!r}（关节 {jid!r}）")
+        return np.asarray(sim.data.xpos[i], dtype=float) * 1000.0
+    i = mujoco.mj_name2id(sim.model, mujoco.mjtObj.mjOBJ_JOINT, jid)
+    if i < 0:
+        raise KeyError(f"MJCF 里找不到 joint {jid!r}")
+    return np.asarray(sim.data.xanchor[i], dtype=float) * 1000.0

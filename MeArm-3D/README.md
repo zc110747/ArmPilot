@@ -128,8 +128,9 @@ MeArm-3D/
 │   ├── model-structure.md        # ★ 显式几何（plate/servo/details）与运动学的边界
 │   ├── hardware-measurement.md   # ★★ 真机实测记录：角色映射 / 绝对角解耦 / 标定 / 不确定度
 │   ├── ARCHITECTURE_ANALYSIS.md  # ★ MuJoCo 轨 Phase 1：自由度清点 / 五种角度对照 / 接入方案
-│   ├── decisions.md              # 设计决策 ADR（**D1–D70，最新在前**；D48–D54 = MuJoCo 物理轨 · D55 = 真值冻结 · D56/D57 = 纹理校正与采集判定 · D63–D69 = 照片纹理与外观 · **D70 = 被动腕关节**）
+│   ├── decisions.md              # 设计决策 ADR（**D1–D73，最新在前**；D48–D54 = MuJoCo 物理轨 · D55 = 真值冻结 · D56/D57 = 纹理校正与采集判定 · D63–D69 = 照片纹理与外观 · D70 = 被动腕关节 · **D71–D73 = MeArm-V1 基线冻结 / 最小抽象 / Sim2Sim 回归纪律**）
 │   ├── texture-capture-guide.md  # ★ 图像采集指南（拍哪块板 / 大面朝向 / 采集闭环 / 四项硬性要求 / 自查清单）
+│   ├── architecture/             # ★★ MeArm-V1 基线冻结三件套（现状分析 / 验收结论 / 无关问题登记）
 │   └── images/                   # 界面截图（armpilot-console.png 由 e2e 自动重出；
 │                                 #   armpilot-phase11-13.png 由 tests/e2e/screenshot.mjs 出）
 ├── protocol/serial-v1.md         # ★ 串口 / WS 协议基线（§4 固件侧待 Phase 9；§5 上位机侧 Phase 8 已实现）
@@ -177,10 +178,14 @@ MeArm-3D/
 │   ├── internal/device/       # sim.go（假固件）· serial.go（真串口）· mujoco.go（★ Python 子进程）
 │   ├── internal/wsserver/     # 标准库 RFC6455 服务端 · 路由 · 广播 · 两层心跳
 │   └── README.md              # 架构图 · 与 MeArm-RemoteControl 的分工 · 测试矩阵
-└── tests/sim/                 # ★ MuJoCo 轨验收（pytest，147 项 / 12 文件）
-    ├── harness.py             #   共用采样/求值工具（FK 与 IK 两条判据不各写一份）
-    ├── ikbridge.py            #   前端运动学 CLI 桥的 Python 门面
-    └── test_*.py              #   模型 / 重力 / 执行器 / 限位 / 碰撞 / 协议 / FK / IK / 系统级
+├── tests/sim/                 # ★ MuJoCo 轨验收（pytest，147 项 / 12 文件）
+│   ├── harness.py             #   共用采样/求值工具（FK 与 IK 两条判据不各写一份）
+│   ├── ikbridge.py            #   前端运动学 CLI 桥的 Python 门面
+│   └── test_*.py              #   模型 / 重力 / 执行器 / 限位 / 碰撞 / 协议 / FK / IK / 系统级
+├── tests/baseline/mearm-v1/   # ★ MeArm-V1 黄金测试数据（行为快照；**由生成器产出，禁止手写**）
+│   └── {joint,fk,ik,workspace}_cases.json   # 116 / 116 / 121 / 121 例，seed 20260914
+└── tests/sim2sim/             # ★ Sim2Sim 回归 · MuJoCo 侧（9 项；读上面那批 JSON）
+    └── test_mearm_v1_baseline_mujoco.py     # Joint→MuJoCo · XYZ→IK→MuJoCo · 固定 seed 扫描
 ```
 
 ## 4. 快速开始
@@ -388,15 +393,20 @@ AI · 机器学习 · 强化学习（PPO/SAC）· 自训练 · 视觉识别 · �
 **状态 · STATUS** → **链路误差 · LINK ERROR**（Phase 11：Command→Actual 逐关节偏差条 +
 误差趋势 sparkline + 健康结论）→ **模型 · ROBOT MODEL**。</sub>
 
-## 6. 当前验收数据（Phase 1–14 + MuJoCo 轨 M1–M10）
+## 6. 当前验收数据（Phase 1–15 + MuJoCo 轨 M1–M10）
 ```
 类型检查      tsc -b                    0 error
-单元测试      vitest run                318 / 318 PASS（24 文件；含 13 项几何回归 · 24 项 IK · 19 项拖动平面 ·
+单元测试      vitest run                345 / 345 PASS（26 文件；含 13 项几何回归 · 24 项 IK · 19 项拖动平面 ·
                                        13 项目标语义 · 30 项 wsProtocol · 33 项 WebSocketTransport ·
                                        17 项自动连接意图与切换时序 · 12 项 mode↔transport 联动 ·
-                                       19 项链路误差语义 · 4 项幽灵臂渲染 · 20 项示教轨迹 · 17 项示教回放）
+                                       19 项链路误差语义 · 4 项幽灵臂渲染 · 20 项示教轨迹 · 17 项示教回放 ·
+                                       14 项抽象层接口（KinematicsEngine/IKResult，含逐位等价）·
+                                       13 项 Sim2Sim 基线回归（前端侧，见 Phase 15））
 后端单测      go test ./...             65 / 65 PASS（5 包：robot · protocol · device · controller · wsserver）
                                         + go vet 干净 · gofmt -l 无输出
+物理 / 跨端   pytest tests/sim          147 passed（12 文件）
+              pytest tests/sim2sim       9 passed（MuJoCo 侧 Sim2Sim：Joint→MuJoCo · XYZ→IK→MuJoCo ·
+                                       关节锚点（含被动腕）· 工作空间 · sweep500 / sweep1000）
 浏览器 e2e    node tests/e2e/ui-smoke   88 / 88 PASS（含 25 项 Phase 8 真实 WebSocket 端到端
                                         + 4 项 Phase 10.6 Real Robot 准入拒绝 + 7 项 Phase 11 误差面板
                                         + 6 项 Phase 12 幽灵臂 + 19 项 Phase 13 示教录制/回放）
@@ -408,6 +418,12 @@ IK 拖动连续性 300 点就近跟随             最大误差 9.210e-14 mm，�
 拖动轨迹      400 点穿越工作空间边界      边界定位到一格（1.5mm）内；越界段关节**零变化**
 真实鼠标拖拽  无头 Edge + CDP 真实事件    Δ 17.23 mm；被锁轴 Z **逐位相同**（109.22362788339143）
 测试探针      生产构建产物                JS bundle 中 `__armPilot` **0 命中**（dev-only 门控生效；`data-testid` 是有意保留的稳定选择器）
+                                       ⚠️ 扫描范围是 `dist/assets/*.js` —— `.js.map` 内联了源码文本，必然含该字样，不算命中
+Sim2Sim·前端  黄金基线 116 + 121 例        与冻结时的行为逐位一致：Joint→FK 7.2e-13 mm · Three.js 7.1e-13 mm
+                                       · XYZ→IK→FK 4.0e-13 mm · **抽象层等价 237 例差异 0**（D71）
+Sim2Sim·MuJoCo 黄金基线 116 + 121 例        Joint→MuJoCo 5.0e-13 mm · 关节锚点（含被动腕）5.3e-13 mm
+                                       · XYZ→IK→MuJoCo 4.0e-13 mm · 工作空间 115/3/3 全 match（D71）
+黄金数据可复现 gen_mearm_v1_baseline.py   4 个 JSON **逐位复现**（seed 20260914；`--check`）
 运行态       真实浏览器（swiftshader）   FK↔3D = 3.18e-14 mm @ 初始位姿
 几何↔运动学  抹掉全部 geometry/details   endEffectorPosition 逐位不变
 真机一致性    HOME 位（四舵机全 90°）    虚拟臂渲染姿态与实拍照片目视一致

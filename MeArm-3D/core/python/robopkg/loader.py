@@ -168,6 +168,7 @@ _DECLARED_PATHS: dict[str, object] = {
     "model.config": lambda m: m.model.config,
     "model.physics": lambda m: m.model.physics,
     "model.generated_by": lambda m: m.model.generated_by,
+    "model.urdf": lambda m: m.model.urdf,
     "simulation.mjcf": lambda m: m.simulation.mjcf,
     "simulation.generated_by": lambda m: m.simulation.generated_by,
     "kinematics.engine.entry": lambda m: m.kinematics.engine_entry,

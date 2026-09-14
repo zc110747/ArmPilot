@@ -30,6 +30,15 @@ model:
   config: robot-package/mearm-v1/model/robot.yaml
   # 物理量真值：本机为我们自己估算 ⇒ 这份文件本身即真值（顶层形态，无 driver 段）
   physics: robot-package/mearm-v1/physics/physics.yaml
+  # 整合版标准 URDF（**生成物**）：由 gen_urdf.py 从 config + physics 派生，
+  # 把几何/运动学/惯量/接触/标定/HOME 合并进一份标准机器人描述文件。
+  # 它是 3D / ROS / MoveIt 等标准工具消费的整合模型；不进内容哈希（spec §19）。
+  urdf: robot-package/mearm-v1/urdf/mearm-v1.urdf
+  # URDF 也是**产物**：由 gen_urdf.py 从 robot.yaml + physics.yaml 派生。
+  # 与 simulation.generated_by（MJCF）对称 —— 两条生成链都要声明生成器，
+  # 契约测试 test_generated_by_points_at_a_real_generator_inside_its_package 会校验它
+  # 真实存在且住在包内（生成器搬走但清单没改会被立即拦下）。
+  generated_by: robot-package/mearm-v1/tools/gen_urdf.py
 
 simulation:
   # MeArm 的 MJCF 是**产物**：由 gen_model.py 从 robot.yaml 派生。
@@ -48,7 +57,7 @@ kinematics:
     entry: robot-package/mearm-v1/kinematics/engine.ts
   fk:
     # engine = 用 Core 的通用链式 FK（读 RobotModel 的几何）。
-    # 证据：SO-ARM101 的 forward() 也纯委托同一份 fk.ts ⇒ 它确实是通用的。
+    # 证据：通用 FK 引擎被多台机器人复用（纯委托同一份 fk.ts）⇒ 它是通用的。
     type: engine
   ik:
     # MeArm 的逆解是**它自己的**：平面 2R + 偏航的解析解，
@@ -93,6 +102,7 @@ tests:
   #   于是"工具搬走了但清单没改"会立刻报错，而不是等人去猜。
   tools:
     - robot-package/mearm-v1/tools/gen_model.py
+    - robot-package/mearm-v1/tools/gen_urdf.py
     - robot-package/mearm-v1/tools/gen_mearm_v1_baseline.py
     - robot-package/mearm-v1/tools/mearm_hw.py
     - robot-package/mearm-v1/tools/capture_texture.py

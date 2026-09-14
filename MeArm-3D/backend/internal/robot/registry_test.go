@@ -45,7 +45,7 @@ func TestSelectorDefaultIsPresent(t *testing.T) {
 func TestSelectorIDListIsSorted(t *testing.T) {
 	sel := loadSelector(t)
 	got := sel.IDList()
-	if got != "mearm-v1 / so-arm101" {
+	if got != "mearm-v1" {
 		t.Errorf("IDList() = %q", got)
 	}
 	// 再解析一次，确认稳定
@@ -54,12 +54,15 @@ func TestSelectorIDListIsSorted(t *testing.T) {
 	}
 }
 
-// 三端共用的选择器必须同时声明两台机器人 —— 少一台说明有人只改了前端 / Python。
-func TestSelectorDeclaresBothRobots(t *testing.T) {
+// 选择器声明的每一台机器人都必须能被加载（数据驱动，不写死型号名）。
+func TestSelectorDeclaresRobots(t *testing.T) {
 	sel := loadSelector(t)
-	for _, id := range []string{"mearm-v1", "so-arm101"} {
-		if _, ok := sel.Robots[id]; !ok {
-			t.Errorf("选择器缺少 %q（三端共用的那份声明里必须有它）", id)
+	if len(sel.Robots) == 0 {
+		t.Fatal("选择器未声明任何机器人")
+	}
+	for id := range sel.Robots {
+		if _, err := sel.Entry(id); err != nil {
+			t.Errorf("选择器声明的 %q 无法加载: %v", id, err)
 		}
 	}
 }
@@ -68,8 +71,7 @@ func TestSelectorDeclaresBothRobots(t *testing.T) {
 func TestSelectorPhysicsKind(t *testing.T) {
 	sel := loadSelector(t)
 	cases := map[string]string{
-		"mearm-v1":  "legacy",
-		"so-arm101": "driver",
+		"mearm-v1": "legacy",
 	}
 	for id, want := range cases {
 		entry, err := sel.Entry(id)
@@ -98,54 +100,6 @@ func TestSelectorIDDiffersFromModelID(t *testing.T) {
 	}
 	if entry.ID == m.ID {
 		t.Error("选择器 id 与模型 id 同名了 —— 那么本用例已失去意义，请更新它并检查反查逻辑")
-	}
-}
-
-// 第二台机器人的**事实**：6 铰链、6 舵机、`unit: joint` 的恒等标定。
-func TestLoadSecondRobot(t *testing.T) {
-	m, _, entry, err := LoadByID(selectorYAML(t), "so-arm101")
-	if err != nil {
-		t.Fatalf("LoadByID(so-arm101) 失败: %v", err)
-	}
-	if m.ID != "so-arm101" {
-		t.Errorf("model.ID = %q", m.ID)
-	}
-	if m.Name != "SO-ARM101" {
-		t.Errorf("model.Name = %q", m.Name)
-	}
-	want := []string{"shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll", "gripper"}
-	got := m.JointOrder()
-	if len(got) != len(want) {
-		t.Fatalf("关节数 = %d, 期望 %d（%v）", len(got), len(want), got)
-	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Errorf("JointOrder()[%d] = %q, 期望 %q", i, got[i], want[i])
-		}
-	}
-	// 舵机通道 S1..S6 连续（官方 MJCF 的 actuator 顺序）
-	if len(m.Actuators) != 6 {
-		t.Fatalf("执行器数 = %d, 期望 6", len(m.Actuators))
-	}
-	for i, a := range m.Actuators {
-		if a.Channel != i+1 {
-			t.Errorf("actuators[%d].Channel = %d, 期望 %d", i, a.Channel, i+1)
-		}
-		// `unit: joint` ⇒ 标定必须是恒等映射（Load 的一致性校验会拦住别的写法）
-		if !a.IsJointSpace() {
-			t.Errorf("%s: unit = %q, 期望 joint", a.ID, a.UnitOf())
-		}
-		if a.Offset != 0 || a.Scale != 1 || a.Reverse {
-			t.Errorf("%s: 关节空间执行器的标定必须恒等，实际 offset=%v scale=%v reverse=%v",
-				a.ID, a.Offset, a.Scale, a.Reverse)
-		}
-	}
-	// 选择器里声明的仿真资产必须都指向**官方**文件，且路径存在（LoadSelector 已校验存在性）
-	if !strings.Contains(entry.MJCFPath, "so-arm101") {
-		t.Errorf("MJCFPath = %q，不像官方模型路径", entry.MJCFPath)
-	}
-	if entry.TCPSite != "gripperframe" {
-		t.Errorf("TCPSite = %q, 期望 gripperframe（MJCF 里代表 TCP 的 site）", entry.TCPSite)
 	}
 }
 

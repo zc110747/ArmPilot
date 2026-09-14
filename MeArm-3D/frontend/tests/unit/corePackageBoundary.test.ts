@@ -168,7 +168,7 @@ describe('Core 不得依赖 robot-package（白名单外一律失败）', () => 
 
   it('包内实现不再从 Core 的旧位置出现（搬迁后不许留下"第二条路"）', () => {
     const stale = PACKAGE_IMPORTS.filter((i) =>
-      /robot\/kinematics\/(ik|mearm|soarm101)/.test(i.specifier),
+      /robot\/kinematics\/(ik|mearm)/.test(i.specifier),
     );
     expect(stale, '还在 import Core 里的旧版 IK/引擎路径；它们已经搬进包里').toEqual([]);
   });

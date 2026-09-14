@@ -26,7 +26,6 @@ import { describe, expect, it } from 'vitest';
 import { parse as parseYaml } from 'yaml';
 import {
   MEARM_V1_ROBOT_ID,
-  SO_ARM101_ROBOT_ID,
   isMovableJoint,
   listRegisteredEngineFiles,
   listRegisteredRobotIds,
@@ -42,7 +41,7 @@ interface ManifestLike {
   readonly name: string;
   readonly package: { readonly format: number; readonly version: string };
   readonly robot: { readonly type: string };
-  readonly model: { readonly config: string; readonly physics?: string };
+  readonly model: { readonly config: string; readonly physics?: string; readonly urdf?: string };
   readonly simulation: { readonly tcp_site: string; readonly mjcf?: string };
   readonly kinematics: {
     /**
@@ -112,7 +111,7 @@ const PACKAGE_IDS = Object.keys(MANIFESTS).sort();
 
 describe('Robot Package manifest 与选择器/引擎的三方一致性', () => {
   it('glob 确实扫到了包（否则下面所有断言都会"空集通过"）', () => {
-    expect(PACKAGE_IDS).toEqual([MEARM_V1_ROBOT_ID, SO_ARM101_ROBOT_ID].sort());
+    expect(PACKAGE_IDS).toEqual([MEARM_V1_ROBOT_ID]);
   });
 
   it('包集合 == 选择器声明的集合', () => {
@@ -207,29 +206,11 @@ describe('能力声明（manifest）必须与引擎的 capability 逐字段一�
       const joints = loadRobot(id).definition.joints;
       // ⚠️ 判据必须写成 `role ?? id`，与 Python 侧 `robotcfg.py` 的
       //    `role=str(j.get("role", j["id"]))` **同一条规则**。
-      //
-      //    起因是一处实测到的跨端分歧（本测试的首版就是被它顶红的）：
-      //      · `config/robots/so-arm101/robot.yaml` 里关节**没有** `role` 字段
-      //        （生成器只写 id / type —— 官方 URDF 里本来也没有"角色"这个概念）
-      //      · Python：`role` 缺省 = **关节 id** ⇒ `gripper` 在里面，`has_gripper = true`
-      //      · TS：`Joint.role` 可选，且 `JointRole` 是**封闭 5 值联合**（MeArm 专用）
-      //        ⇒ `role === undefined` ⇒ 推导出 `has_gripper = false`
-      //    两者对同一份文件给出相反结论 ⇒ 契约测试必须先用**同一条规则**判事实，
-      //    否则它测的是"两端各自的实现"，而不是"这份 manifest 说得对不对"。
-      //
-      //    这条分歧本身已作为缺陷单独登记（前端 `jointByRole(model,'gripper')`
-      //    对 SO-101 返回 `undefined`、`gripperJointId()` 返回 `null`），
-      //    **不在本次重构里顺手修** —— 它要动 `JointRole` 这个公共类型，属于独立决策。
       const hasGripper = joints
         .filter(isMovableJoint)
         .some((j) => (j.role ?? j.id) === 'gripper');
       expect(caps.gripper, `${id}: manifest.gripper`).toBe(hasGripper);
     }
-  });
-
-  it('SO-101 的夹爪关节确实以 id 形式存在（契约测试的判据前提）', () => {
-    const joints = loadRobot(SO_ARM101_ROBOT_ID).definition.joints.filter(isMovableJoint);
-    expect(joints.map((j) => j.id)).toContain('gripper');
   });
 
   it('orientation: true 的包必须真的有姿态能力（否则上层会去下姿态断言）', () => {
@@ -238,31 +219,6 @@ describe('能力声明（manifest）必须与引擎的 capability 逐字段一�
       if (!caps.orientation) continue;
       expect(loadRobot(id).kinematics.capability.supportsOrientation).toBe(true);
     }
-  });
-});
-
-describe('SO-ARM101：能力留白是诚实的（不伪造 IK）', () => {
-  it('manifest 声明 position=false / ik=false，且 ik 实现类型是 none 且**没有 entry**', () => {
-    const m = MANIFESTS[SO_ARM101_ROBOT_ID]!;
-    expect(m.capabilities.ik).toBe(false);
-    expect(m.capabilities.position).toBe(false);
-    expect(m.kinematics.ik.type).toBe('none');
-    expect(m.kinematics.ik.entry).toBeUndefined();
-  });
-
-  it('引擎的 capability 与此一致：solverKind=none / supportsOrientation=false', () => {
-    const cap = loadRobot(SO_ARM101_ROBOT_ID).kinematics.capability;
-    expect(cap.solverKind).toBe('none');
-    expect(cap.supportsOrientation).toBe(false);
-  });
-
-  it('inverse() 的失败是"说得出为什么"的失败（NOT_IMPLEMENTED + 空解 + null 残差）', () => {
-    const r = loadRobot(SO_ARM101_ROBOT_ID);
-    const out = r.kinematics.inverse([200, 0, 100] as const);
-    expect(out.success).toBe(false);
-    expect(out.error).toBe('NOT_IMPLEMENTED');
-    expect(out.joints).toEqual({});
-    expect(out.positionError).toBeNull();
   });
 });
 

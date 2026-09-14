@@ -31,7 +31,7 @@
  * cd frontend
  * node tests/tools/kinematics-bridge.mjs --in req.json --out res.json
  * node tests/tools/kinematics-bridge.mjs --info --out model.json     # 只导出模型元信息
- * node tests/tools/kinematics-bridge.mjs --robot so-arm101 --info --out model.json
+ * node tests/tools/kinematics-bridge.mjs --robot mearm-v1 --info --out model.json
  * ```
  *
  * `--robot` 指定机器人 id（= `config/robots.yaml` 的 key）；省略时用选择器的 `default`。

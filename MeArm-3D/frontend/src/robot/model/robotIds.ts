@@ -7,7 +7,6 @@
  *
  * ```text
  *   kinematics/mearm/MeArmKinematics.ts      ← 引擎的缺省加载目标
- *   kinematics/soarm101/SoArm101Kinematics.ts
  *   registry/RobotRegistry.ts                ← 工厂表的 key
  * ```
  *
@@ -24,5 +23,3 @@
  * ⚠️ 但**不要**反过来让 yaml 去读常量：选择器必须能在不碰代码的情况下增删机器人。
  */
 export const MEARM_V1_ROBOT_ID = 'mearm-v1';
-
-export const SO_ARM101_ROBOT_ID = 'so-arm101';

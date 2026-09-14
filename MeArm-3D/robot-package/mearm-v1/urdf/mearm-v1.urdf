@@ -1,0 +1,127 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  ⚠️ 本文件由 robot-package/mearm-v1/tools/gen_urdf.py 生成 —— 请勿手工编辑。
+     真值来源: robot-package/mearm-v1/model/robot.yaml (mearm / mARM, 6 连杆 / 4 自由度 + 1 被动关节)
+     物理参数: robot-package/mearm-v1/physics/physics.yaml
+     重新生成: python robot-package/mearm-v1/tools/gen_urdf.py
+-->
+<robot name="mearm" xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <material name="mearm_dark"><color rgba="0.1373 0.1569 0.1882 1"/></material>
+  <material name="mearm_servo"><color rgba="0.1843 0.2118 0.2667 1"/></material>
+  <material name="mearm_steel"><color rgba="0.1686 0.2039 0.2745 1"/></material>
+  <material name="mearm_jaw"><color rgba="0.1686 0.1961 0.2353 1"/></material>
+  <material name="mearm_bolt"><color rgba="0.08627 0.102 0.1294 1"/></material>
+  <link name="base_link">
+    <inertial><origin xyz="0 0 0.006"/><mass value="0.08"/><inertia ixx="4.74933333e-05" ixy="0" ixz="0" iyy="6.15733333e-05" iyz="0" izz="0.000103733333"/></inertial>
+    <collision name="base_link_col"><origin xyz="0 0 0.01"/><geometry><box size="0.047 0.041 0.01"/></geometry></collision>
+    <visual name="base_link_vis"><origin xyz="0 0 0.0035" rpy="0 0 0"/><geometry><box size="0.094 0.082 0.007"/></geometry><material name="mearm_dark"/></visual>
+    <visual name="base_link_vis0"><origin xyz="0.037 0.031 0.0085" rpy="0 0 0"/><geometry><cylinder radius="0.0042" length="0.003"/></geometry><material name="mearm_bolt"/></visual>
+    <visual name="base_link_vis1"><origin xyz="-0.037 0.031 0.0085" rpy="0 0 0"/><geometry><cylinder radius="0.0042" length="0.003"/></geometry><material name="mearm_bolt"/></visual>
+    <visual name="base_link_vis2"><origin xyz="0.037 -0.031 0.0085" rpy="0 0 0"/><geometry><cylinder radius="0.0042" length="0.003"/></geometry><material name="mearm_bolt"/></visual>
+    <visual name="base_link_vis3"><origin xyz="-0.037 -0.031 0.0085" rpy="0 0 0"/><geometry><cylinder radius="0.0042" length="0.003"/></geometry><material name="mearm_bolt"/></visual>
+    <visual name="base_link_vis4"><origin xyz="0 0 0.0195" rpy="0 0 0"/><geometry><box size="0.0228 0.0122 0.0225"/></geometry><material name="mearm_servo"/></visual>
+  </link>
+    <link name="column_link">
+      <inertial><origin xyz="0 0 0.03"/><mass value="0.056"/><inertia ixx="1.68e-05" ixy="0" ixz="0" iyy="1.68e-05" iyz="0" izz="3.73333333e-06"/></inertial>
+      <collision name="column_link_col"><origin xyz="0 0 0.04"/><geometry><capsule radius="0.014" length="0.012"/></geometry></collision>
+      <visual name="column_link_vis"><origin xyz="0 0 0.034" rpy="0 0 0"/><geometry><box size="0.066 0.06 0.007"/></geometry><material name="mearm_dark"/></visual>
+      <visual name="column_link_vis0"><origin xyz="0 0.013 0.049" rpy="0 0 0"/><geometry><box size="0.03 0.006 0.022"/></geometry><material name="mearm_dark"/></visual>
+      <visual name="column_link_vis1"><origin xyz="0 -0.013 0.049" rpy="0 0 0"/><geometry><box size="0.03 0.006 0.022"/></geometry><material name="mearm_dark"/></visual>
+      <visual name="column_link_vis2"><origin xyz="0 0 0.06" rpy="-1.57079633 0 0"/><geometry><box size="0.0228 0.0122 0.0225"/></geometry><material name="mearm_servo"/></visual>
+    </link>
+    <joint name="base" type="revolute">
+      <parent link="base_link"/>
+      <child link="column_link"/>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <axis xyz="0 0 1"/>
+      <limit lower="-1.04719755" upper="1.04719755" effort="0.1765" velocity="10"/>
+    </joint>
+      <link name="upper_arm_link">
+        <inertial><origin xyz="0 0 0.04"/><mass value="0.037"/><inertia ixx="1.97333333e-05" ixy="0" ixz="0" iyy="1.97333333e-05" iyz="0" izz="2.46666667e-06"/></inertial>
+        <collision name="upper_arm_link_col"><origin xyz="0 0 0.04"/><geometry><capsule radius="0.013" length="0.054"/></geometry></collision>
+        <visual name="upper_arm_link_vis"><origin xyz="0 0.014 0.037" rpy="0 0 0"/><geometry><box size="0.022 0.005 0.074"/></geometry><material name="mearm_dark"/></visual>
+        <visual name="upper_arm_link_vis0"><origin xyz="0 -0.014 0.037" rpy="0 0 0"/><geometry><box size="0.022 0.005 0.074"/></geometry><material name="mearm_dark"/></visual>
+        <visual name="upper_arm_link_vis1"><origin xyz="0 0.0175 0" rpy="0 0 0"/><geometry><cylinder radius="0.0055" length="0.004"/></geometry><material name="mearm_steel"/></visual>
+        <visual name="upper_arm_link_vis2"><origin xyz="0 -0.0175 0" rpy="0 0 0"/><geometry><cylinder radius="0.0055" length="0.004"/></geometry><material name="mearm_steel"/></visual>
+        <visual name="upper_arm_link_vis3"><origin xyz="0 0 0.068" rpy="0 0 0"/><geometry><box size="0.022 0.028 0.005"/></geometry><material name="mearm_dark"/></visual>
+        <visual name="upper_arm_link_vis4"><origin xyz="0 0 0.08" rpy="-1.57079633 0 0"/><geometry><box size="0.0228 0.0122 0.0225"/></geometry><material name="mearm_servo"/></visual>
+      </link>
+      <joint name="shoulder" type="revolute">
+        <parent link="column_link"/>
+        <child link="upper_arm_link"/>
+        <origin xyz="0 0 0.06" rpy="0 0 0"/>
+        <axis xyz="0 1 0"/>
+        <limit lower="-0.106354827" upper="0.863151347" effort="0.1765" velocity="10"/>
+      </joint>
+        <link name="forearm_link">
+          <inertial><origin xyz="0 0 0.04"/><mass value="0.019"/><inertia ixx="1.01333333e-05" ixy="0" ixz="0" iyy="1.01333333e-05" iyz="0" izz="1.26666667e-06"/></inertial>
+          <collision name="forearm_link_col"><origin xyz="0 0 0.04"/><geometry><capsule radius="0.011" length="0.058"/></geometry></collision>
+          <visual name="forearm_link_vis"><origin xyz="0 0.0135 0.034" rpy="0 0 0"/><geometry><box size="0.018 0.005 0.068"/></geometry><material name="mearm_dark"/></visual>
+          <visual name="forearm_link_vis0"><origin xyz="0 -0.0135 0.034" rpy="0 0 0"/><geometry><box size="0.018 0.005 0.068"/></geometry><material name="mearm_dark"/></visual>
+          <visual name="forearm_link_vis1"><origin xyz="0 0.0165 0" rpy="0 0 0"/><geometry><cylinder radius="0.005" length="0.004"/></geometry><material name="mearm_steel"/></visual>
+          <visual name="forearm_link_vis2"><origin xyz="0 -0.0165 0" rpy="0 0 0"/><geometry><cylinder radius="0.005" length="0.004"/></geometry><material name="mearm_steel"/></visual>
+          <visual name="forearm_link_vis3"><origin xyz="0 0 0.064" rpy="0 0 0"/><geometry><box size="0.018 0.022 0.005"/></geometry><material name="mearm_dark"/></visual>
+          <visual name="forearm_link_vis4"><origin xyz="0 0.0135 0.074" rpy="0 0 0"/><geometry><box size="0.018 0.005 0.012"/></geometry><material name="mearm_dark"/></visual>
+          <visual name="forearm_link_vis5"><origin xyz="0 -0.0135 0.074" rpy="0 0 0"/><geometry><box size="0.018 0.005 0.012"/></geometry><material name="mearm_dark"/></visual>
+        </link>
+        <joint name="elbow" type="revolute">
+          <parent link="upper_arm_link"/>
+          <child link="forearm_link"/>
+          <origin xyz="0 0 0.08" rpy="0 0 0"/>
+          <axis xyz="0 1 0"/>
+          <mimic joint="shoulder" multiplier="-1" offset="1.96556497"/>
+          <limit lower="1.10241362" upper="2.0719198" effort="0.1765" velocity="10"/>
+        </joint>
+          <link name="tool_link">
+            <inertial><origin xyz="0 0 0.02"/><mass value="0.022"/><inertia ixx="2.93333333e-06" ixy="0" ixz="0" iyy="2.93333333e-06" iyz="0" izz="1.46666667e-06"/></inertial>
+            <collision name="tool_link_col"><origin xyz="0 0 0.02"/><geometry><capsule radius="0.012" length="0.016"/></geometry></collision>
+            <visual name="tool_link_vis"><origin xyz="0 0 0.006" rpy="0 0 0"/><geometry><box size="0.022 0.026 0.011"/></geometry><material name="mearm_dark"/></visual>
+            <visual name="tool_link_vis0"><origin xyz="0 0 0.026" rpy="0 1.57079633 0"/><geometry><box size="0.0228 0.0122 0.0225"/></geometry><material name="mearm_servo"/></visual>
+            <visual name="tool_link_vis1"><origin xyz="0 0 0.04" rpy="0 0 1.57079633"/><geometry><cylinder radius="0.0032" length="0.032"/></geometry><material name="mearm_steel"/></visual>
+          </link>
+          <joint name="tool" type="revolute">
+            <parent link="forearm_link"/>
+            <child link="tool_link"/>
+            <origin xyz="0 0 0.08" rpy="0 0 0"/>
+            <axis xyz="0 1 0"/>
+            <mimic joint="elbow" multiplier="-1" offset="1.57079633"/>
+            <limit lower="-0.501123472" upper="0.468382702" effort="0" velocity="0"/>
+          </joint>
+          <link name="tcp"/>
+            <joint name="tcp_fixed" type="fixed">
+              <parent link="tool_link"/>
+              <child link="tcp"/>
+              <origin xyz="0 0 0.04"/>
+            </joint>
+            <link name="jaw_link">
+              <inertial><origin xyz="0 0 0.017"/><mass value="0.0033"/><inertia ixx="2.2e-07" ixy="0" ixz="0" iyy="2.2e-07" iyz="0" izz="2.2e-07"/></inertial>
+              <collision name="jaw_link_col"><origin xyz="0 0 0"/><geometry><capsule radius="0.005" length="0.02"/></geometry></collision>
+            </link>
+            <joint name="gripper" type="revolute">
+              <parent link="tool_link"/>
+              <child link="jaw_link"/>
+              <origin xyz="0 0 0.04" rpy="0 0 0"/>
+              <axis xyz="1 0 0"/>
+              <limit lower="0" upper="1.57079633" effort="0.1765" velocity="10"/>
+            </joint>
+
+  <!-- ============================================================
+       armpilot 扩展块：URDF 标准格式表达不了的量集中于此。
+       标准 URDF 解析器会忽略本块；ArmPilot 加载器从这里读
+       舵机标定 / HOME / 外观。真值仍来自 robot.yaml + physics.yaml。
+       ============================================================ -->
+  <armpilot>
+    <actuators>
+      <actuator name="servo_9" joint="base" channel="9" offset="90" scale="1" reverse="false"/>
+      <actuator name="servo_7" joint="shoulder" channel="7" offset="88.776" scale="1.44018" reverse="false"/>
+      <actuator name="servo_8" joint="elbow" channel="8" offset="359.61" scale="2.39401" reverse="true"/>
+      <actuator name="servo_6" joint="gripper" channel="6" offset="40" scale="1" reverse="false"/>
+    </actuators>
+    <home_pose>
+      <joint name="base" deg="0"/>
+      <joint name="shoulder" deg="0.849893763"/>
+      <joint name="elbow" deg="112.618577"/>
+      <joint name="gripper" deg="50"/>
+    </home_pose>
+  </armpilot>
+</robot>

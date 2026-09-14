@@ -45,20 +45,3 @@ robots:
       mjcf: simulation/mujoco/mearm.xml
       # TCP site 名（MeArm 的 mearm.xml 里就是 "tcp"）
       tcpSite: tcp
-
-  so-arm101:
-    name: SO-ARM101
-    # 官方模型派生（TheRobotStudio/SO-ARM100 @ eecbe3e0）——
-    # 由 robot-package/so-arm101/tools/gen_so_arm101_robot_yaml.py 生成，**禁止手改**。
-    config: robot-package/so-arm101/model/robot.yaml
-    # 物理量真值 = **官方 MJCF**（顶层带 `driver:` 段 ⇒ 该文件不复制任何物理量，
-    # 只放 ArmPilot 自己的驱动参数 + 审计快照）。
-    physics: robot-package/so-arm101/physics/physics.yaml
-    simulation:
-      # 直接吃**官方 MJCF 原样**（不生成、不改一行）——
-      # meshdir="assets" 指向同目录的 assets/，故官方模型零修改即可加载。
-      mjcf: assets/models/so-arm101/official/so101_new_calib.xml
-      # 官方 MJCF 里代表 TCP 的是 `gripperframe` site（不是 body）。
-      # ⚠️ 它与 URDF 的 `gripper_frame_joint` 朝向相差 90°；取 MJCF 才能让
-      #    FK 与 MuJoCo 一致。依据见 assets/models/so-arm101/official/SOURCE.md §4.2。
-      tcpSite: gripperframe

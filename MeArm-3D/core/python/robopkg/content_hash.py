@@ -173,7 +173,11 @@ def compute_content_hash(manifest: Manifest) -> HashResult:
             return
         inputs.append(rel_norm)
 
-    add(manifest.model.config, is_generated=manifest.model.generated_by is not None, label="model.config")
+    # model.config（robot.yaml）是**唯一真值源**，永远进哈希，绝不视为产物 ——
+    # 即便 model.generated_by 被声明（它描述的是 model.urdf 的生成器，不是 model.config 的）。
+    add(manifest.model.config, is_generated=False, label="model.config")
+    # model.urdf 是**生成物**（由 model.generated_by 声明其生成器）：声明了就排除。
+    add(manifest.model.urdf, is_generated=manifest.model.generated_by is not None, label="model.urdf")
     add(manifest.model.physics, is_generated=False, label="model.physics")
     add(
         manifest.simulation.mjcf,

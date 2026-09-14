@@ -28,6 +28,15 @@
 - `mode`（simulation/real）**不是 UI 开关**：决定"要不要发给真实机械臂"，取值须校验全通过才改，
   失败要 pushLog 说明原因与修法（D41/D43）。
 - **机器人相关状态一律进 store**，组件不持局部副本（含 `teachTrack`）。
+- **整合版标准 URDF**：`robot-package/<id>/urdf/<id>.urdf` 由 `tools/gen_urdf.py` 从
+  `robot.yaml`+`physics.yaml` 派生（含 `<armpilot>` 扩展块，标准 URDF 解析器忽略未知顶层元素 ⇒ 整份仍合法）。
+  MJCF/URDF 皆为生成物；`manifest.model.urdf` 声明位置、`manifest.model.generated_by` 指向生成器。
+  ★ **`content_hash` 语义陷阱**：`model.generated_by` 描述的是「生成 **model.urdf** 的生成器」，
+  **不是** model.config（robot.yaml 永远是真值、永远进哈希）。`compute_content_hash` 里
+  `model.config` 必须 `is_generated=False`；`model.urdf` 才 `is_generated = model.generated_by is not None`。
+  给 mearm-v1 加 `model.generated_by` 后若误把 model.config 当生成物 ⇒ robot.yaml 被错误排除出哈希。
+- **三端改读 URDF（用户"整个系统解析执行也使用这个文件"）是大迁移，尚未做**：
+  前端 RobotModel/three.js、Go 控制器、Python 仿真从 robot.yaml 改读 URDF 扩展量在 `<armpilot>` 块；需单独立项。
 - ★ **包边界 + 测试通道，各配一条「能红」的守卫**（Phase 2 步④⑤，明细 `playbook.md` §8）：包内测试必须
   **真的被执行** —— Python 靠 `pytest.ini` `testpaths`（含 `robot-package`）、前端靠 `vite.config.ts`
   `test.include`（`'../robot-package/*/tests/**'`），守卫 `packageTestChannel.test.ts`；运动学引擎由

@@ -116,6 +116,10 @@ class ModelCfg:
     physics: str | None
     #: 非空 = 该 `config` 是**生成物**（由这个脚本从上游派生）⇒ 不进内容哈希
     generated_by: str | None
+    #: 非空 = 整合版标准 URDF（由 gen_urdf.py 从 config + physics 派生）；
+    #:  它把几何/运动学/惯量/接触/标定/HOME 合并进一份标准机器人描述文件，
+    #:  供 Three.js / ROS / MoveIt 等标准工具消费。**也是生成物，不进内容哈希。**
+    urdf: str | None
 
 
 @dataclass(frozen=True)
@@ -205,6 +209,10 @@ class Manifest:
     def mjcf_file(self) -> Path | None:
         return None if self.simulation.mjcf is None else to_abs(self.simulation.mjcf)
 
+    @property
+    def urdf_file(self) -> Path | None:
+        return None if self.model.urdf is None else to_abs(self.model.urdf)
+
 
 # ---------------------------------------------------------------------------
 # 解析
@@ -232,7 +240,7 @@ def parse_manifest(raw: Any, *, source_path: Path | None = None) -> Manifest:
     _unknown(robot, ("type",), f"{where}.robot")
 
     model_raw = _mapping(m.get("model"), f"{where}.model")
-    _unknown(model_raw, ("config", "physics", "generated_by"), f"{where}.model")
+    _unknown(model_raw, ("config", "physics", "generated_by", "urdf"), f"{where}.model")
 
     sim_raw = _mapping(m.get("simulation"), f"{where}.simulation")
     _unknown(sim_raw, ("mjcf", "generated_by", "tcp_site"), f"{where}.simulation")
@@ -275,6 +283,7 @@ def parse_manifest(raw: Any, *, source_path: Path | None = None) -> Manifest:
             config=_req_str(model_raw, "config", f"{where}.model"),
             physics=_opt_str(model_raw, "physics", f"{where}.model"),
             generated_by=_opt_str(model_raw, "generated_by", f"{where}.model"),
+            urdf=_opt_str(model_raw, "urdf", f"{where}.model"),
         ),
         simulation=SimulationCfg(
             mjcf=_opt_str(sim_raw, "mjcf", f"{where}.simulation"),

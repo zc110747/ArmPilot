@@ -48,7 +48,6 @@ from robopkg.manifest import MANIFEST_FORMAT, parse_manifest  # noqa: E402
 from robopkg.root import PROJECT_ROOT, repo_relative, selftest  # noqa: E402
 
 MEARM = "mearm-v1"
-SO101 = "so-arm101"
 
 #: 期望值表 —— **刻意放在测试里**（而不是 manifest 里）。
 #: 它是"人核对过的结论"，不是"运行时的真值来源"。
@@ -69,35 +68,6 @@ EXPECTED = {
         "hardware": True,
         "tcp_site": "tcp",
     },
-    SO101: {
-        "model_id": "so-arm101",
-        "model": "SO-ARM101",
-        "dof": 6,
-        "dof_joints": (
-            "shoulder_pan",
-            "shoulder_lift",
-            "elbow_flex",
-            "wrist_flex",
-            "wrist_roll",
-            "gripper",
-        ),
-        "qpos_joints": (
-            "shoulder_pan",
-            "shoulder_lift",
-            "elbow_flex",
-            "wrist_flex",
-            "wrist_roll",
-            "gripper",
-        ),
-        "passive_joints": (),
-        "actuators": 6,
-        "ik": False,
-        "ik_type": "none",
-        "position": False,
-        "simulation": True,
-        "hardware": False,
-        "tcp_site": "gripperframe",
-    },
 }
 
 
@@ -111,7 +81,7 @@ def test_path_anchor_selftest_passes() -> None:
 
 
 def test_both_packages_are_discovered() -> None:
-    assert list_package_ids() == [MEARM, SO101]
+    assert list_package_ids() == [MEARM]
 
 
 # ---------------------------------------------------------------------------
@@ -119,7 +89,7 @@ def test_both_packages_are_discovered() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("robot_id", [MEARM, SO101])
+@pytest.mark.parametrize("robot_id", [MEARM])
 def test_derived_facts_match_expectations(robot_id: str) -> None:
     exp = EXPECTED[robot_id]
     r = load_robot(robot_id)
@@ -144,14 +114,10 @@ def test_qpos_and_dof_are_different_concepts() -> None:
     assert r.dof == 4
     assert len(r.qpos_joints) == 5
     assert set(r.qpos_joints) - set(r.dof_joints) == {"tool"}
-    assert r.passive_joints == ("tool",)
-
-    s = load_robot(SO101)
-    assert s.dof == len(s.qpos_joints) == 6, "SO-101 无被动件/耦合 ⇒ 两个概念在这台上恰好相等"
-    assert s.passive_joints == ()
+    assert     r.passive_joints == ("tool",)
 
 
-@pytest.mark.parametrize("robot_id", [MEARM, SO101])
+@pytest.mark.parametrize("robot_id", [MEARM])
 def test_capabilities_agree_with_derivation(robot_id: str) -> None:
     exp = EXPECTED[robot_id]
     r = load_robot(robot_id)
@@ -165,23 +131,22 @@ def test_capabilities_agree_with_derivation(robot_id: str) -> None:
     assert r.manifest.kinematics.ik_type == exp["ik_type"]
 
 
-def test_no_robot_fabricates_ik() -> None:
-    """`ik: false` 的包**必须**是 `kinematics.ik.type == none` 且**没有 entry**。
+def test_ik_declaration_is_consistent() -> None:
+    """声明自洽：`ik: false` ⇔ `kinematics.ik.type == none` ⇔ `ik_entry is None`。
 
-    spec §8/§35：没有可靠依据就不要有逆解。此处把"能不能伪造"变成机器可检的约束 ——
-    只要有人把 `type: none` 改成 `custom` 并塞一个 entry，这条就会失败。
+    没有可靠依据就不要有逆解（spec §8/§35）。`ik: true` 必须指向一个真实存在的实现。
     """
-    m = load_manifest(SO101)
-    assert m.capabilities.ik is False
-    assert m.kinematics.ik_type == "none"
-    assert m.kinematics.ik_entry is None
-
-    # 反向：MeArm 有 IK，且必须指向一个真实存在的实现
-    mm = load_manifest(MEARM)
-    assert mm.capabilities.ik is True
-    assert mm.kinematics.ik_type == "custom"
-    assert mm.kinematics.ik_entry is not None
-    assert (PROJECT_ROOT / mm.kinematics.ik_entry).is_file()
+    for rid in list_package_ids():
+        m = load_manifest(rid)
+        caps_ik = m.capabilities.ik
+        none_type = m.kinematics.ik_type == "none"
+        no_entry = m.kinematics.ik_entry is None
+        assert caps_ik == (not none_type), f"{rid}: capabilities.ik 与 ik_type 矛盾"
+        assert none_type == no_entry, f"{rid}: ik_type=none 与 ik_entry 必须一致"
+        if caps_ik:
+            assert (PROJECT_ROOT / m.kinematics.ik_entry).is_file(), (
+                f"{rid}: 有 IK 却指向不存在的实现 {m.kinematics.ik_entry}"
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -238,14 +203,14 @@ def test_parser_rejects_format_mismatch() -> None:
 
 def test_validator_rejects_position_without_ik() -> None:
     """能力自洽：位置目标必须经逆解 ⇒ 没有逆解就不能声明位置能力。"""
-    raw = _good_raw(SO101)
+    raw = _good_raw(MEARM)
     raw["capabilities"]["position"] = True
     raw["capabilities"]["ik"] = False
-    m = parse_manifest(raw, source_path=PROJECT_ROOT / "robot-package" / SO101 / "manifest.yaml")
+    m = parse_manifest(raw, source_path=PROJECT_ROOT / "robot-package" / MEARM / "manifest.yaml")
     # 直接走能力检查（不落盘也能测）
     from robopkg.validator import ValidationReport, _check_kinematics_decl
 
-    rep = ValidationReport(robot_id=SO101)
+    rep = ValidationReport(robot_id=MEARM)
     _check_kinematics_decl(rep, m)
     codes = {i.code for i in rep.errors}
     assert "POSITION_WITHOUT_IK" in codes
@@ -297,12 +262,12 @@ def test_validator_flags_selector_without_package(monkeypatch: pytest.MonkeyPatc
     real_list = v.list_package_ids
 
     def fake_list() -> list[str]:
-        return [i for i in real_list() if i != SO101]
+        return [i for i in real_list() if i != MEARM]
 
     monkeypatch.setattr(v, "list_package_ids", fake_list)
     reports = {r.robot_id: r for r in v.validate_all()}
-    assert SO101 in reports
-    assert "SELECTOR_WITHOUT_PACKAGE" in {i.code for i in reports[SO101].errors}
+    assert MEARM in reports
+    assert "SELECTOR_WITHOUT_PACKAGE" in {i.code for i in reports[MEARM].errors}
 
 
 # ---------------------------------------------------------------------------
@@ -310,7 +275,7 @@ def test_validator_flags_selector_without_package(monkeypatch: pytest.MonkeyPatc
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("robot_id", [MEARM, SO101])
+@pytest.mark.parametrize("robot_id", [MEARM])
 def test_content_hash_is_deterministic(robot_id: str) -> None:
     a = compute_content_hash(load_manifest(robot_id))
     b = compute_content_hash(load_manifest(robot_id))
@@ -351,35 +316,15 @@ def test_content_hash_excludes_generated_artifacts() -> None:
     且带 `generated_by`）—— 不写死字符串，于是这条判据在搬迁后依然成立。
     """
     mearm_manifest = load_manifest(MEARM)
-    so101_manifest = load_manifest(SO101)
     assert mearm_manifest.simulation.generated_by, "MeArm 的 MJCF 必须声明为产物"
-    assert so101_manifest.model.generated_by, "SO-101 的 robot.yaml 必须声明为产物"
 
     mearm = compute_content_hash(mearm_manifest)
-    so101 = compute_content_hash(so101_manifest)
 
     gen_mearm = repo_relative(mearm_manifest.mjcf_file)
-    gen_so101 = repo_relative(so101_manifest.config_file)
     assert gen_mearm in mearm.excluded_generated
-    assert gen_so101 in so101.excluded_generated
 
     mearm_paths = {e.rel_path for e in mearm.entries}
-    so101_paths = {e.rel_path for e in so101.entries}
     assert gen_mearm not in mearm_paths
-    assert gen_so101 not in so101_paths
-
-
-def test_content_hash_includes_official_sources_of_so101() -> None:
-    """SO-101 的**上游**必须进哈希：官方官方 MJCF + URDF + 网格。
-
-    它的 robot.yaml 是生成物（被排除），若上游也不进哈希，
-    那"换了官方模型却没重新生成"这件事就**完全不可见** —— 包内容哈希不变、
-    陈旧检测放行、跑的还是旧模型。这是本条测试存在的唯一理由。
-    """
-    entries = {e.rel_path for e in compute_content_hash(load_manifest(SO101)).entries}
-    assert "assets/models/so-arm101/official/so101_new_calib.xml" in entries
-    assert "assets/models/so-arm101/official/so101_new_calib.urdf" in entries
-    assert len([p for p in entries if p.endswith(".stl")]) == 13, "13 个官方 STL 都必须在哈希里"
 
 
 def test_content_hash_covers_mearm_truth_files() -> None:
@@ -452,8 +397,8 @@ def test_every_declared_tool_path_exists() -> None:
         for p in declared_paths(rid, "tests.tools"):
             assert p.is_file(), f"{rid}.tests.tools 声明的 {p} 不是文件"
             checked += 1
-    assert checked >= 16, (
-        f"两包的工具清单合计应 ≥16 项（MeArm 14 + SO-101 2），实得 {checked} —— "
+    assert checked >= 14, (
+        f"MeArm 的工具清单应 ≥14 项（含 gen_urdf.py），实得 {checked} —— "
         "清单被删空的话这条测试会变成空转")
 
 
@@ -478,7 +423,7 @@ def test_generated_by_points_at_a_real_generator_inside_its_package() -> None:
                 f"{rid}.{key} = {p} 不在包 {pkg} 内 —— 生成器应当随包走")
             checked += 1
     assert checked >= 2, (
-        "至少应覆盖 MeArm 的 MJCF 生成器 + SO-101 的 robot.yaml 生成器，"
+        "至少应覆盖 MeArm 的 MJCF 生成器 + URDF 生成器两条生成链，"
         f"实得 {checked} —— 声明被删空的话这条测试会变成空转")
 
 

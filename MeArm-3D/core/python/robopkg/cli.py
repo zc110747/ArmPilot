@@ -4,7 +4,7 @@
 python core/python/robopkg/cli.py list
 python core/python/robopkg/cli.py show mearm-v1
 python core/python/robopkg/cli.py validate --all
-python core/python/robopkg/cli.py hash so-arm101
+python core/python/robopkg/cli.py hash mearm-v1
 ```
 
 退出码：`0` = 通过，`1` = 有错误。**不吞错误**（脚本调用方靠退出码判断）。

@@ -153,9 +153,9 @@ def test_matrix_covers_all_selector_robots(selector_robot_ids, bridge_factory):
 
 def test_sim2sim_matrix_public_entry_self_contained():
     """`sim2sim_matrix(id)` 自己起桥也能跑通（公开入口不依赖任何夹具）。"""
-    reports = sim2sim_matrix(["so-arm101"], n_random=0)
+    reports = sim2sim_matrix(["mearm-v1"], n_random=0)
     assert len(reports) == 1
-    assert reports[0].robot_id == "so-arm101"
+    assert reports[0].robot_id == "mearm-v1"
 
 
 # ---------------------------------------------------------------------------
@@ -197,30 +197,10 @@ def test_no_robot_fabricates_ik(selector_robot_ids, bridge_factory):
         assert "workspace" not in payload
         assert "geometry" not in payload
 
-    assert seen_none and seen_solver, (
-        "本用例的前提是『选择器里同时存在有逆解器与没有逆解器的机器人』；"
-        "只覆盖一种情形时它是空转的"
+    assert seen_solver, (
+        "本用例的前提是『选择器里至少存在有逆解器的机器人』；"
+        "若全都无逆解器，它无法验证有解机器人的 IK 用例"
     )
-
-
-def test_so_arm101_reports_no_solver_and_no_fabricated_numbers(bridge_factory):
-    """SO-ARM101 的具体事实（写成显式断言，避免上面的通用用例被"优化"掉）。"""
-    report = run_sim2sim("so-arm101", bridge=bridge_factory("so-arm101"), n_random=0)
-    assert report.capability.solver_kind == "none"
-    assert report.capability.positioning_dof == 5
-    assert report.capability.supports_orientation is False
-    assert report.joint_order == [
-        "shoulder_pan",
-        "shoulder_lift",
-        "elbow_flex",
-        "wrist_flex",
-        "wrist_roll",
-        "gripper",
-    ]
-    # 官方 MJCF 的 timestep 是 0.002（MeArm 是 0.001）—— 取自 MJCF 本身，不是配置抄写
-    assert report.timestep_s == pytest.approx(0.002)
-    # STS3215 空载 0.222 s/60° @12V ⇒ 270.27 °/s
-    assert report.max_velocity_deg_s == pytest.approx(270.27, rel=1e-6)
 
 
 # ---------------------------------------------------------------------------

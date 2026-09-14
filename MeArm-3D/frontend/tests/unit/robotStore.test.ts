@@ -91,6 +91,38 @@ describe('Phase 4 · 关节控制 → RobotState', () => {
     expect(store().commandJoints).toEqual(homeJointState(model));
   });
 
+  it('接管握手：命令对齐到机器现状（与"稳态回推只写 actual"是两件事）', () => {
+    const previous = store().commandJoints;
+    store().attachToActual({ base: 12, shoulder: 30, elbow: 120, gripper: 70 });
+
+    // command 与 actual **逐位相同** ⇒ 主臂与幽灵重合，画面不会多出一棵树
+    expect(store().commandJoints).not.toBe(previous); // toBe：确实换了引用
+    expect(store().commandJoints).toEqual(store().actualJoints);
+    expect(store().commandJoints.shoulder).toBe(30);
+    expect(store().controlSource).toBe('real');
+
+    // 位姿与目标都必须跟着走：目标不动的话拖动把手会停在页面假设的位置
+    expect(store().endEffector).toEqual(store().actualEndEffector);
+    expect(store().endEffector.position).toEqual(
+      endEffectorPosition(model, store().commandJoints),
+    );
+    expect(store().target[0]).toBeCloseTo(store().endEffector.position[0], 9);
+    expect(store().target[2]).toBeCloseTo(store().endEffector.position[2], 9);
+
+    // 日志记下"机器离页面假设有多远"—— 幽灵消失之后，这是唯一的追溯线索
+    const last = store().log[store().log.length - 1];
+    expect(last?.kind).toBe('sys');
+    expect(last?.text).toContain('接管');
+  });
+
+  it('接管握手同样受限位钳位（机器自报值不得写出非法命令）', () => {
+    store().attachToActual({ base: 999, shoulder: -999, elbow: 999, gripper: -999 });
+    expect(store().commandJoints.base).toBe(60);
+    expect(store().commandJoints.shoulder).toBe(jointById(model, 'shoulder')!.limits.min);
+    expect(store().commandJoints.elbow).toBe(jointById(model, 'elbow')!.limits.max);
+    expect(store().commandJoints.gripper).toBe(0);
+  });
+
   it('无连接时点 Real Robot 被拒绝：mode 保持 Simulation，但日志有拒绝原因', () => {
     const logBefore = store().log.length;
     store().setMode('real');

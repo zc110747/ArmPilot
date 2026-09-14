@@ -15,6 +15,12 @@
  *    `onState` 回调**只写 `actualJoints`**，绝不回写 `commandJoints`。
  *    若两边互相写，就形成 `命令 → 状态 → 命令` 的无限回环（spec §十九）。
  *
+ *    ⚠️ 唯一的例外是**首次接管的那一帧**：那时本地还没有任何命令，"回写"不构成
+ *    回环（一次性、且被 `suppressCommandSend` 拦住不下发），但对齐之后
+ *    ① 画面上不会多出一棵错开的半透明幽灵、② 面板显示的是机器真实姿态、
+ *    ③ 首次下发是"从机器现在的位置"出发而不是扑向页面假设的 HOME。
+ *    详见 `robotStore.attachToActual`。
+ *
  * 3. **状态登记 + 统计刷新**
  *    `onStatus` 映射到 store 的 connection；`poll()` 每 `STATS_POLL_MS` 拉一次统计，
  *    **脏检查后**才写 store（避免收敛后每 200ms 无谓触发 React 重渲染）。
@@ -114,6 +120,36 @@ export class TransportBridge {
   private disposed = false;
   /** 是否已经成功连接过一次（用于区分"首次连接"与"重连后补发命令"） */
   private hasConnectedOnce = false;
+  /**
+   * 首次接管握手待办（见 `handleState`）。
+   *
+   * 由 `handleStatus('connected')` 在**首次**连接时置起，被**第一帧回推**消费掉。
+   * 它存在的理由：`actualJoints` 是"机器现在在哪"的唯一来源，而页面在连上之前
+   * 只能假设 HOME。两者不一致时，页面会画出一棵错开的半透明幽灵、面板显示假姿态，
+   * 并且**首次下发会把真机整组扑向 HOME**（见 `robotStore.attachToActual` 注释）。
+   */
+  private attachPending = false;
+  /**
+   * 本次连接建立后，用户是否**已经下达过命令**。
+   *
+   * 为什么需要它：握手要等"第一帧回推"，而回推何时到达不由页面决定 ——
+   * 若后端（或 Mock 的 tick）慢一拍，用户完全可能先在滑杆上动了手。
+   * 那时**用户的意图必须优先**：接管只是"本地参照还没有值"时的兜底，
+   * 一旦有人表达了意图，再去对齐就会把刚下达的命令悄悄擦掉。
+   *
+   * 判定点与"命令变化 → 下发"是同一条订阅：能被当成意图下发的，就是意图。
+   */
+  private commandAuthoredSinceConnect = false;
+  /**
+   * 接管握手期间抑制一次「命令变化 → 下发」。
+   *
+   * `attachToActual()` 会写 `commandJoints`（把它对齐到机器现状），而上面那条
+   * store 订阅把"命令变化"一律当作用户意图去下发。**接管不是意图** ——
+   * 它只是把本地参照挪到机器此刻的位置，绝不能因此驱动机械臂。
+   * 该标志只在 `handleState` 的握手分支里短暂置起（zustand 的订阅是同步回调，
+   * try/finally 足以精确覆盖那一次 `set`）。
+   */
+  private suppressCommandSend = false;
   /** 被安全门拦下的下发次数（mode=simulation 却连着真机链路） */
   private blockedSince = 0;
 
@@ -172,7 +208,13 @@ export class TransportBridge {
     // 命令变化 → 节流下发。比较的是 `commandJoints` 的对象引用，
     // 而 store 每次改命令都会生成新对象，所以不会漏事件。
     this.unsubscribeStore = useRobotStore.subscribe((state, prev) => {
-      if (state.commandJoints !== prev.commandJoints) this.enqueue(state.commandJoints);
+      // 接管握手写的是"本地参照"，不是用户意图 —— 见 `suppressCommandSend`
+      if (this.suppressCommandSend) return;
+      if (state.commandJoints !== prev.commandJoints) {
+        // 走到这里就是用户意图（滑杆 / HOME / ZERO / 拖动）：接管握手必须让位
+        this.commandAuthoredSinceConnect = true;
+        this.enqueue(state.commandJoints);
+      }
     });
 
     this.pollHandle = this.timer.setInterval(() => this.poll(), STATS_POLL_MS);
@@ -200,6 +242,9 @@ export class TransportBridge {
     await this.transport.disconnect();
     this.pendingJoints = null;
     this.hasConnectedOnce = false;
+    this.attachPending = false;
+    this.commandAuthoredSinceConnect = false;
+    this.suppressCommandSend = false;
     this.blockedSince = 0;
 
     // ⚠️ 这里必须**显式**复位，不能指望 transport.disconnect() 发出的 disconnected 事件：
@@ -274,10 +319,31 @@ export class TransportBridge {
     void this.transport.sendJointState(joints);
   }
 
-  /** ⚠️ 回推只写 actualJoints —— 回写 command 即无限回环 */
+  /**
+   * 回推落地。
+   *
+   * 稳态：**只写 `actualJoints`** —— 回写 command 即无限回环。
+   * 例外：**首次接管的第一帧**走 `attachToActual`（见字段 `attachPending` 注释）。
+   */
   private handleState(state: RobotState): void {
     this.rxSince += 1;
-    this.store().setActualJoints(state.joints);
+    const store = this.store();
+    if (this.attachPending) {
+      // 只有"还没有任何意图"时才对齐。用户已经动过手 ⇒ 命令优先，
+      // 放弃握手（此后按稳态语义，让机器去追命令）。
+      const handshake = !this.commandAuthoredSinceConnect;
+      this.attachPending = false;
+      if (handshake) {
+        this.suppressCommandSend = true;
+        try {
+          store.attachToActual(state.joints);
+        } finally {
+          this.suppressCommandSend = false;
+        }
+        return;
+      }
+    }
+    store.setActualJoints(state.joints);
   }
 
   private handleStatus(detail: TransportStatusDetail): void {
@@ -292,11 +358,15 @@ export class TransportBridge {
         break;
       case 'connected': {
         store.setConnection(this.transport.kind, 'connected', this.describeCurrent());
-        // ⚠️ 只在**重连**时补发（首次连接不补）：断线期间用户可能已改过命令，
-        //    不补发会让虚拟臂与实际臂永久错开而 UI 看不出异常。
-        //    首次连接若也补发，会无端占用一次节流窗口，改变 Phase 7 的时序契约。
+        this.commandAuthoredSinceConnect = false;
         if (this.hasConnectedOnce) {
+          // ⚠️ 只在**重连**时补发：断线期间用户可能已改过命令，
+          //    不补发会让虚拟臂与实际臂永久错开而 UI 看不出异常。
           this.enqueue(store.commandJoints);
+        } else {
+          // 首次连接：既不补发命令（保持 Phase 7 时序契约），也不任由页面
+          // 假设位姿挂在那里 —— 等第一帧回推，用它把本地命令对齐到机器现状。
+          this.attachPending = true;
         }
         this.hasConnectedOnce = true;
         break;

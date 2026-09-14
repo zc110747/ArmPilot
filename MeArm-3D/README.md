@@ -128,7 +128,7 @@ MeArm-3D/
 │   ├── model-structure.md        # ★ 显式几何（plate/servo/details）与运动学的边界
 │   ├── hardware-measurement.md   # ★★ 真机实测记录：角色映射 / 绝对角解耦 / 标定 / 不确定度
 │   ├── ARCHITECTURE_ANALYSIS.md  # ★ MuJoCo 轨 Phase 1：自由度清点 / 五种角度对照 / 接入方案
-│   ├── decisions.md              # 设计决策 ADR（**D1–D73，最新在前**；D48–D54 = MuJoCo 物理轨 · D55 = 真值冻结 · D56/D57 = 纹理校正与采集判定 · D63–D69 = 照片纹理与外观 · D70 = 被动腕关节 · **D71–D73 = MeArm-V1 基线冻结 / 最小抽象 / Sim2Sim 回归纪律**）
+│   ├── decisions.md              # 设计决策 ADR（**D1–D74，最新在前**；D48–D54 = MuJoCo 物理轨 · D55 = 真值冻结 · D56/D57 = 纹理校正与采集判定 · D63–D69 = 照片纹理与外观 · D70 = 被动腕关节 · D71–D73 = MeArm-V1 基线冻结 / 最小抽象 / Sim2Sim 回归纪律 · **D74 = 首次接管握手（命令起点取机器现状）**）
 │   ├── texture-capture-guide.md  # ★ 图像采集指南（拍哪块板 / 大面朝向 / 采集闭环 / 四项硬性要求 / 自查清单）
 │   ├── architecture/             # ★★ MeArm-V1 基线冻结三件套（现状分析 / 验收结论 / 无关问题登记）
 │   └── images/                   # 界面截图（armpilot-console.png 由 e2e 自动重出；
@@ -148,6 +148,9 @@ MeArm-3D/
 │   ├── freeze_baseline.py        # ★ 冻结/校验运动学+物理真值（两级判据；改外观放行，改真值报错）
 │   ├── make_texture.py           # ★ 实拍照片 → 板件纹理（PCA 估四角 + homography 校正 + 归一化；--selftest）
 │   ├── capture_texture.py        # ★ 采集判定：摄像头抓帧 → 三态判定(ok/reject/undecidable) → 给出该往哪动
+│   ├── park_sim_pose.mjs         # ★ 造前提：把后端 sim/mujoco 停在**指定位姿**再断开
+│   │                             #   （复现"机器现状 ≠ 页面假设"类问题；**不含任何限位常量**，位姿由调用方给）
+│   ├── first_load_probe.mjs      # ★ 首帧取证：直连 CDP 取 `window.__armPilotFrames`（逐帧 roots/幽灵位姿）
 │   └── ws_probe.mjs · lan_e2e_probe.mjs   # WS / 局域网链路探针
 ├── assets/textures/mearm/        # ★ 板件纹理资产（raw/ = 原图 · tiles/ = 校正后的贴图）
 ├── frontend/
@@ -230,7 +233,7 @@ cd frontend
 npm install
 npm run dev            # 本机 http://localhost:5273；局域网 http://<本机IP>:5273
 npm run typecheck      # tsc -b，零错误
-npm test               # vitest（单元 + 验收），318 项 / 24 文件
+npm test               # vitest（单元 + 验收），351 项 / 26 文件
 npm run test:e2e       # 真浏览器冒烟（需先 npm run dev；见下方参数说明）
 npm run build          # 生产构建
 
@@ -396,20 +399,25 @@ AI · 机器学习 · 强化学习（PPO/SAC）· 自训练 · 视觉识别 · �
 ## 6. 当前验收数据（Phase 1–15 + MuJoCo 轨 M1–M10）
 ```
 类型检查      tsc -b                    0 error
-单元测试      vitest run                345 / 345 PASS（26 文件；含 13 项几何回归 · 24 项 IK · 19 项拖动平面 ·
+单元测试      vitest run                351 / 351 PASS（26 文件；含 13 项几何回归 · 24 项 IK · 19 项拖动平面 ·
                                        13 项目标语义 · 30 项 wsProtocol · 33 项 WebSocketTransport ·
                                        17 项自动连接意图与切换时序 · 12 项 mode↔transport 联动 ·
                                        19 项链路误差语义 · 4 项幽灵臂渲染 · 20 项示教轨迹 · 17 项示教回放 ·
                                        14 项抽象层接口（KinematicsEngine/IKResult，含逐位等价）·
-                                       13 项 Sim2Sim 基线回归（前端侧，见 Phase 15））
+                                       13 项 Sim2Sim 基线回归（前端侧，见 Phase 15）·
+                                       4 项首次接管握手（命令对齐机器现状 / 不下发 / 只一次 / 让位用户意图）·
+                                       2 项 attachToActual 单测（含限位钳位））
 后端单测      go test ./...             65 / 65 PASS（5 包：robot · protocol · device · controller · wsserver）
                                         + go vet 干净 · gofmt -l 无输出
 物理 / 跨端   pytest tests/sim          147 passed（12 文件）
               pytest tests/sim2sim       9 passed（MuJoCo 侧 Sim2Sim：Joint→MuJoCo · XYZ→IK→MuJoCo ·
                                        关节锚点（含被动腕）· 工作空间 · sweep500 / sweep1000）
-浏览器 e2e    node tests/e2e/ui-smoke   88 / 88 PASS（含 25 项 Phase 8 真实 WebSocket 端到端
-                                        + 4 项 Phase 10.6 Real Robot 准入拒绝 + 7 项 Phase 11 误差面板
-                                        + 6 项 Phase 12 幽灵臂 + 19 项 Phase 13 示教录制/回放）
+浏览器 e2e    node tests/e2e/ui-smoke   88 / 88 PASS（本脚本自起 8090 实例）
+                                       84 / 84 PASS（隔离端口 5276+8091 复用既有实例；「断线重连」4 项
+                                       按 skip 语义不计 —— 环境差异，不是代码回归）。含 25 项 Phase 8
+                                       真实 WebSocket 端到端 + 4 项 Phase 10.6 Real Robot 准入拒绝
+                                       + 7 项 Phase 11 误差面板 + 6 项 Phase 12 幽灵臂
+                                       + 19 项 Phase 13 示教录制/回放
 生产构建      vite build                1,332.32 kB (gzip 378.73 kB)
 FK↔Three.js  200 组随机关节状态         末端位置最大误差 8.673e-14 mm
                                        关节矩阵最大元素误差 8.527e-14

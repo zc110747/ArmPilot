@@ -157,6 +157,24 @@ interface RobotStore {
   setJoint(jointId: string, angleDeg: number): void;
   setCommandJoints(next: JointState): void;
   setActualJoints(next: JointState): void;
+  /**
+   * **接管握手**：首次连上链路时，把本地「命令起点」对齐到机器现状。
+   *
+   * 与 `setActualJoints` 的区别只有一处，但必须分清：`setActualJoints` 是
+   * **稳态回推**（只写 actual，绝不碰 command —— 写了就是 `命令→状态→命令` 回环）；
+   * 本动作是**一次性握手**，它同时写 command 与 actual，因为此刻**本地根本还没有命令**。
+   *
+   * 为什么必须有这一次握手 —— 三个后果，第三个最严重：
+   *   ① 首次加载画面上会多出一棵半透明的"实际臂幽灵"，与主臂错开 ⇒ 看起来像渲染重影；
+   *   ② 关节面板显示的是页面假设的 HOME，而机器其实在别处 ⇒ UI 在说假话；
+   *   ③ ★ **首次下发会是一记"跳变"**：命令侧仍是假设的 HOME，用户只是动了 1° 滑杆，
+   *      下发的却是 `HOME + 1°` 整组角 ⇒ 真机从"它现在的位置"直接扑向 HOME。
+   *      （真值只有 `config/robot.yaml` 一份，但"机器**现在**在哪"只有链路知道。）
+   *
+   * 只被 `transportBridge` 在**首次连接后的第一帧回推**上调用一次；
+   * 重连走的是既有的"补发当前命令"路径（那时用户已经有意图了，不能反过来被覆盖）。
+   */
+  attachToActual(next: JointState): void;
   goHome(): void;
   goZero(): void;
   /** 求解末端目标并驱动关节；返回 IK 原始结果供调用方分支 */
@@ -310,6 +328,44 @@ export const useRobotStore = create<RobotStore>((set, get) => {
         actualEndEffector: endEffectorPose(model, clipped),
         controlSource: 'real',
       });
+    },
+
+    attachToActual(next) {
+      const clipped = clipJointState(next);
+      const pose = endEffectorPose(model, clipped);
+
+      // 记下"机器实际离页面的假设有多远"：这个数就是用户此前看到的那只幽灵的
+      // 偏移量。写进日志而不是只留在画面上 —— 幽灵消失之后，这条记录是唯一
+      // 能事后回答"刚才到底是机器不在 HOME，还是渲染坏了"的东西。
+      const previous = get().commandJoints;
+      let worstDeg = 0;
+      let worstJoint = '';
+      for (const id of jointIds(model)) {
+        const delta = Math.abs((clipped[id] ?? 0) - (previous[id] ?? 0));
+        if (delta > worstDeg) {
+          worstDeg = delta;
+          worstJoint = id;
+        }
+      }
+
+      set({
+        commandJoints: clipped,
+        endEffector: pose,
+        // 与 setActualJoints 同一套裁剪与 FK，保证 command 与 actual **逐位相同**
+        actualJoints: clipped,
+        actualEndEffector: pose,
+        // 目标同步到"机器现在的位置"，否则拖动把手会停在页面假设那里
+        target: [pose.position[0], pose.position[1], pose.position[2]],
+        ikStatus: null,
+        controlSource: 'real',
+      });
+
+      get().pushLog(
+        'sys',
+        worstDeg < 1e-9
+          ? '接管：机器现状与页面初始位姿一致（无偏差）'
+          : `接管：以机器现状为命令起点 —— 与页面初始位姿最大相差 ${worstDeg.toFixed(3)}°（${worstJoint}）`,
+      );
     },
 
     goHome() {

@@ -24,11 +24,17 @@
   ⇒ 走 `skip()` 而非 `check()`，**不许把环境差异伪造成代码回归**。
 - 断言语义要分清：`defineRobot()` 是**视图**（`toBe` 钉同一对象）；`forwardKinematics()` 每次调用都
   **新构造**结果 ⇒ 只能逐位比数值（`toContain`/`toBe` 会假失败）。
+- ★ **逐帧记录器记得"是谁先跑"**（D74）：`useFrame` 回调**先于** `gl.render` ⇒ 读到的矩阵是
+  **上一帧画出去的**；首帧读到的空对象是**仪器伪影，不是 bug**（主臂那帧正确只因它每 0.25 s 显式
+  `updateMatrixWorld`）。**改探针前先分辨"真现象"与"采样时刻"**。
 
 ## §2 机制与关节判定速查
 
 - 命令下发：store `commandJoints` → `transportBridge` **尾沿合并 30~33Hz** → `RobotTransport`；
-  **回推只写 `actualJoints`**（回写 command 即无限回环）。
+  **回推只写 `actualJoints`**（回写 command 即无限回环）。**唯一例外 = 首次接管那一帧**（D74）：
+  `commandJoints` 初值是对机器现状的**假设**（= `homePose`）⇒ 首次 `connected` 置 `attachPending`，
+  由第一帧回推消费 → `attachToActual()` 对齐、**不下发**、**让位于用户意图**
+  （`commandAuthoredSinceConnect`）；重连仍走 D32「补发命令」。
 - 安全门：`mode === 'simulation'` **且**是真机链路（websocket + `device === 'serial'`）⇒ 拒发；
   mock / `device=sim` 照常放行（否则打死整条仿真闭环）。时钟：一切时间逻辑走 `TimerLike`。
 - 端口：后端 **8090**（`/ws/joint`、`/healthz`）与 `MeArm-RemoteControl` 的 8080 舵机级摇杆**并存**。

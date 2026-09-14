@@ -4,9 +4,12 @@
  * 与 `webSocketTransport.test.ts`（只测传输自身）的分工：
  *   本文件证明的是「**接线正确**」—— 把 WebSocketTransport 挂到 transportBridge 上之后：
  *     1. 命令节流生效（拖动不会把链路打爆）
- *     2. 回推只写 actualJoints（回环打破）
+ *     2. 稳态回推只写 actualJoints（回环打破）
  *     3. **重连后自动补发当前命令**（否则虚拟臂与实际臂永久错开）
  *     4. 首次连接不补发（不改变 Phase 7 的时序契约）
+ *     5. **首次接管**：第一帧回推是一次显式握手，把本地命令对齐到机器现状 ——
+ *        它既不下发命令、也不构成回环（一次性），但它是"首次加载画面上不会多出
+ *        一棵错位的半透明幽灵"的唯一保证，见 `robotStore.attachToActual`。
  *
  * 用 FakeSocket + FakeTimer：无真实网络、无真实等待。
  */
@@ -111,13 +114,18 @@ describe('WebSocket 接线 · 连接登记', () => {
 
   it('断开后复位：actual 拉回 command，统计清空', async () => {
     const h = await connected();
-    // 先制造一次滞后
+    // 第 1 帧被接管握手消费掉（命令对齐到机器现状 = 30），第 2 帧才是稳态滞后
     h.factory.last.deliver({
       version: 1,
       type: 'joint_state',
       joints: { ...home, shoulder: 30 },
     });
-    expect(useRobotStore.getState().actualJoints.shoulder).toBeCloseTo(30, 9);
+    h.factory.last.deliver({
+      version: 1,
+      type: 'joint_state',
+      joints: { ...home, shoulder: 40 },
+    });
+    expect(useRobotStore.getState().actualJoints.shoulder).toBeCloseTo(40, 9);
 
     await h.bridge.dispose();
     active = null;
@@ -125,7 +133,9 @@ describe('WebSocket 接线 · 连接登记', () => {
     expect(s.connection).toBe('disconnected');
     expect(s.transportDriven).toBe(false);
     expect(s.transportStats).toBeNull();
-    expect(s.actualJoints.shoulder).toBeCloseTo(home.shoulder, 9);
+    // 拉回的是**命令**（接管时对齐到的机器现状 30），而不是最后那次滞后值 40
+    expect(s.actualJoints.shoulder).toBeCloseTo(30, 9);
+    expect(s.actualJoints.shoulder).toBeCloseTo(s.commandJoints.shoulder, 9);
   });
 
   it('首次连接**不**补发命令（保持 Phase 7 时序契约）', async () => {
@@ -167,11 +177,82 @@ describe('WebSocket 接线 · 节流', () => {
   });
 });
 
-describe('WebSocket 接线 · 回环打破', () => {
-  it('joint_state 回推只写 actualJoints，commandJoints **引用不变**', async () => {
+describe('WebSocket 接线 · 首次接管握手', () => {
+  /**
+   * 非 HOME 的「机器现状」。
+   *
+   * 取值与真实复现一致：把后端 sim 停在 `{shoulder:-5, elbow:110, gripper:0}`
+   * （`tools/park_sim_pose.mjs`），再冷启动页面即可看到主臂在 HOME、幽灵在别处。
+   */
+  const parked = { ...home, shoulder: -5, elbow: 110, gripper: 0 };
+
+  it('★ 首次加载不得出现"错位的实际臂幽灵"：命令对齐到机器现状', async () => {
     const h = await connected();
+    const assumed = useRobotStore.getState().commandJoints;
+    expect(assumed.shoulder).toBeCloseTo(home.shoulder, 12); // 连上之前，页面只能假设 HOME
+
+    h.factory.last.deliver({ version: 1, type: 'joint_state', joints: parked });
+
+    const s = useRobotStore.getState();
+    // 主臂跟 command、幽灵跟 actual —— 两者不重合，画面上就是两棵树（重影）
+    for (const id of Object.keys(parked)) {
+      expect(s.actualJoints[id], id).toBeCloseTo(s.commandJoints[id], 12);
+    }
+    expect(s.commandJoints).not.toBe(assumed); // 确实换成了机器现状
+    expect(s.controlSource).toBe('real');
+
+    // 目标同步到机器现状，否则拖动把手会停在页面假设的位置
+    const tcp = endEffectorPose(model, parked).position;
+    expect(s.target[0]).toBeCloseTo(tcp[0], 9);
+    expect(s.target[2]).toBeCloseTo(tcp[2], 9);
+  });
+
+  it('握手只改本地参照，**不下发**任何命令（接管 ≠ 用户意图）', async () => {
+    const h = await connected();
+    h.factory.last.deliver({ version: 1, type: 'joint_state', joints: parked });
+    h.timer.advance(1000); // 足够放掉任何 trailing
+    expect(h.frames('joint_command')).toHaveLength(0);
+  });
+
+  it('用户先下达命令 ⇒ 接管让位（绝不擦掉用户意图）', async () => {
+    const h = await connected();
+    // 后端回推慢一拍时，用户完全可能先动滑杆
+    useRobotStore.getState().setJoint('shoulder', 12);
+    const authored = useRobotStore.getState().commandJoints;
+
+    h.factory.last.deliver({ version: 1, type: 'joint_state', joints: parked });
+
+    const s = useRobotStore.getState();
+    expect(s.commandJoints).toBe(authored); // toBe：引用级 —— 命令没被改写
+    expect(s.commandJoints.shoulder).toBeCloseTo(12, 9);
+    expect(s.actualJoints.shoulder).toBeCloseTo(parked.shoulder, 9); // 现状照常落地
+  });
+
+  it('握手只发生一次：之后的回推不再改动 commandJoints', async () => {
+    const h = await connected();
+    h.factory.last.deliver({ version: 1, type: 'joint_state', joints: parked });
+    const adopted = useRobotStore.getState().commandJoints;
+    h.factory.last.deliver({
+      version: 1,
+      type: 'joint_state',
+      joints: { ...home, shoulder: 20 },
+    });
+    expect(useRobotStore.getState().commandJoints).toBe(adopted); // toBe：引用级
+    expect(useRobotStore.getState().actualJoints.shoulder).toBeCloseTo(20, 9);
+  });
+});
+
+describe('WebSocket 接线 · 回环打破（稳态）', () => {
+  it('接管之后 joint_state 回推只写 actualJoints，commandJoints **引用不变**', async () => {
+    const h = await connected();
+    // 先消费掉接管握手，此后才是稳态 —— 顺带钉住"握手只发生一次"。
+    h.factory.last.deliver({
+      version: 1,
+      type: 'joint_state',
+      joints: { ...home, shoulder: 5 },
+    });
     const before = useRobotStore.getState().commandJoints;
-    for (let i = 0; i < 50; i += 1) {
+    for (let i = 1; i < 50; i += 1) {
       h.factory.last.deliver({
         version: 1,
         type: 'joint_state',

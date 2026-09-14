@@ -1,7 +1,7 @@
 # MeArm-3D · 项目长期记忆（索引）
 
 > **本文件只是索引**：铁律 + 验收命令 + 去哪找细节。明细在同目录 `playbook.md`，
-> 决策理由在 `docs/decisions.md`（D1–D73），验收数据在 `README.md` §6，每日过程在 `YYYY-MM-DD.md`。
+> 决策理由在 `docs/decisions.md`（D1–D74），验收数据在 `README.md` §6，每日过程在 `YYYY-MM-DD.md`。
 > ★ 注入阈值实测 ≈6.3k 字符，超出会被**静默截断**（2026-09-14 从单文件 10.6k 拆成「索引 + playbook」）。
 
 ## 一、唯一真值源（铁律）
@@ -34,6 +34,9 @@ $PY tools/gen_mearm_v1_baseline.py --check    # 黄金数据逐位复现（改�
 ```
 
 - **前端那套覆盖不到** MJCF / 纹理管线 / 文档↔脚本一致性 / 黄金基线 ⇒ 都在 pytest 里。
+- **造前提**：`node tools/park_sim_pose.mjs <wsUrl> --joints '{...}'` 把 sim 后端停到指定位姿
+  （文件内**不含任何限位/角度常量**，位姿由调用方给）。⚠️ **限位端点不可精确到达**——舵机整数度量化
+  后可能落到限位外被后端如实拒绝（`ERR JOINT …`）⇒ 取**限额内部**的值。
 - 环境硬约束（明细见 `playbook.md` §5）：`npx <tool>` 触发 WSL 黑名单 ⇒ 一律 `./node_modules/.bin/<tool>`；
   `(cmd &)` 后台进程只活到本次工具调用结束 ⇒ 起服务与跑 e2e 必须**在同一次调用里**；
   `/tmp/*.log` 重定向被沙箱拦 ⇒ 日志落 `.workbuddy/captures/`；e2e **必须隔离端口**（5276 + 8091）；
@@ -50,4 +53,5 @@ $PY tools/gen_mearm_v1_baseline.py --check    # 黄金数据逐位复现（改�
 | 运行环境与 Windows 工具陷阱（sort / grep `\b` / taskkill） | `playbook.md` §5 |
 | 协作约定与真机链路（COM16 / DTR 复位 / `--home`） | `playbook.md` §6 |
 | 冻结与基线决策理由 | `docs/decisions.md` D55 / D71–D73 |
+| **首帧"重影" / 幽灵臂类渲染问题**（D74） | ADR **D74** · `tools/park_sim_pose.mjs` + `tools/first_load_probe.mjs` · 跨项目 skill `webgl-first-frame-forensics` |
 | 未修的无关问题 F1–F9 | `docs/architecture/mearm-v1-followups.md` |

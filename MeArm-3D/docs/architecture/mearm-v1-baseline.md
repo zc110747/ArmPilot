@@ -22,7 +22,7 @@
 | ① | 模型版本标识（只读元数据，不进冻结白名单） | `config/robot.yaml` · `robotcfg.py` · `RobotModel.ts` |
 | ② | 黄金测试数据集 + 采集器 | `tests/baseline/mearm-v1/*.json` · `tools/gen_mearm_v1_baseline.py` |
 | ③ | 最小抽象层（4 个文件，纯委托零算法） | `frontend/src/robot/{definition,kinematics}/` |
-| ④ | Sim2Sim 回归（前端 9 文件 / 后端 3 文件） | `frontend/tests/sim2sim/` · `tests/sim2sim/` |
+| ④ | Sim2Sim 回归（前端 3 文件 / Python 侧 3 文件，另改 `tests/sim/harness.py`） | `frontend/tests/sim2sim/` · `tests/sim2sim/` |
 | ⑤ | 现状审查 + 验收结论 + 无关问题登记 | `docs/architecture/mearm-v1-*.md`（3 份） |
 
 **没有做的事（刻意的）**：
@@ -191,7 +191,7 @@ IK 用例另含**显式越界**（3 个：远超连杆总长 / 三轴同时远�
 
 ### 5.2 Sim2Sim 判据（spec §17）
 
-**前端侧** `frontend/tests/sim2sim/mearm-v1-baseline.test.ts`（14 项）
+**前端侧** `frontend/tests/sim2sim/mearm-v1-baseline.test.ts`（13 项）
 
 | 判据 | 规模 | 实测 max\|Δ\| | 容差 |
 |---|---|---|---|
@@ -262,7 +262,7 @@ spec §19 的字面要求是「旧代码 VS 新封装」，所以另立一条：
             RobotDefinition / KinematicsEngine / IKResult / MeArmKinematics（+ 导出）
 
 ③ test:     add MeArm-V1 sim2sim regression
-            前端 14 项 + MuJoCo 侧 9 项 + 基线文档 + followups
+            前端 13 项 + MuJoCo 侧 9 项 + 基线文档 + followups
 ```
 
 三个提交**各自可独立检出并通过对应判据**：① 之后黄金数据可复现、② 之后抽象层可用

@@ -13,8 +13,9 @@ rem  Design notes
 rem  ------------
 rem  * This file is intentionally pure ASCII. Chinese comments break the Windows
 rem    GBK console parser and have bitten us before.
-rem  * Model / calibration / limit truth lives ONLY in config\robot.yaml.
-rem    This script never duplicates, rewrites or overrides any of it.
+rem  * Model / calibration / limit truth lives ONLY in the robot package, reached
+rem    through config\robots.yaml (the single selector). This script never
+rem    duplicates, rewrites or overrides any of it.
 rem  * REAL mode drives physical servos. The arm WILL move.
 rem  * The serial port is read from backend\config.serial.yaml as-is. The script
 rem    deliberately does NOT rewrite YAML: doing so from a .bat mangles UTF-8
@@ -75,9 +76,10 @@ if not exist "%CFG_PATH%" (
   echo        %CFG_PATH%
   goto :end
 )
-if not exist "%ROOT%config\robot.yaml" (
-  echo [FAIL] Model truth file missing: config\robot.yaml
-  echo        Refusing to start: hardcoded fallbacks would silently diverge.
+if not exist "%ROOT%config\robots.yaml" (
+  echo [FAIL] Robot selector missing: config\robots.yaml
+  echo        This file points the backend at the model truth (robot-package).
+  echo        Refusing to start: without it the wrong robot could silently load.
   goto :end
 )
 
@@ -221,7 +223,7 @@ if /i "%MODE%"=="real" (
   echo   To drive the real arm, close these windows and rerun: start.bat --real
 )
 echo.
-echo   Truth file: config\robot.yaml ^(not modified by this script^)
+echo   Truth file: config\robots.yaml selector ^(not modified by this script^)
 echo.
 echo   Press any key to close this launcher window.
 echo   The two service windows keep running until you close them.
@@ -240,7 +242,7 @@ echo    start.bat --help   this message
 echo.
 echo  Ports: backend %WEB_PORT%, frontend %FE_PORT%
 echo  Serial port: read from backend\config.serial.yaml, edit it there
-echo  Truth file : config\robot.yaml ^(model / calibration / limits^)
+echo  Truth file : config\robots.yaml selects robot-package\mearm-v1\model\robot.yaml
 goto :end
 
 :end

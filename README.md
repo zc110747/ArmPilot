@@ -395,17 +395,6 @@ ArmPilot/
 
 ---
 
-## 11. 备注
-
-本项目完全由chatgpt 5.6 luna指导，使用Deepseek_V4.1_FLASH开发，提示词如下。
-
-- [ArmPilot：mARM 虚拟建模 + 真实机械臂同步控制系统](./docs/MeArm_3D_Prompter_01.md)
-- [ArmPilot 机械臂 3D 建模开发提示词](./docs/MeArm_3D_Prompter_02.md)
-- [ArmPilot MeArm：MuJoCo 真实物理仿真开发任务](./docs/MeArm_3D_Prompter_03.md)
-- [ArmPilot：MeArm-V1 基线冻结 + MeArm-3D 最小架构抽象 + Sim2Sim 回归](./docs/MeArm_3D_Prompter_04.md)
-- [ArmPilot：SO-ARM101 模型转换 + 后端配置驱动模型切换 + Sim2Sim 验证](./docs/MeArm_3D_Prompter_05.md)
-- [ArmPilot Robot Package + Working Robot 架构级重构](./docs/MeArm_3D_Prompter_06.md)
-
-## 12. License
+## 11. License
 
 [MIT](LICENSE) © 2026 听心跳的声音

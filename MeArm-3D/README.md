@@ -430,7 +430,7 @@ cd backend && ./bin/armpilot-backend.exe -robot so-arm101    # 后端换模型�
 # ── ② 前端（4 件套）────────────────────────────────────────────────────
 cd frontend
 ./node_modules/.bin/tsc -b --force                       # 0 error
-./node_modules/.bin/vitest run                           # 409 passed（含 13 项切换压力 + 12 项 SO-101 基线）
+./node_modules/.bin/vitest run                           # 425 passed（含 13 项切换压力 + 12 项 SO-101 基线 + 16 项 Robot Package 契约）
 ./node_modules/.bin/vite build                           # 产物中 __armPilot 命中 0
 # e2e 必须**隔离端口**（8090/5273 可能是用户正在驱动真机的实例，不能杀）：
 #   后端 8091（`-c .workbuddy/e2e-sim.yaml`）· 前端 5276（**不注入** VITE_AUTO_CONNECT）· CDP 9334
@@ -448,6 +448,13 @@ BACKEND_HTTP=http://127.0.0.1:8091 BACKEND_WS=ws://127.0.0.1:8091/ws/joint \
 <python> tools/gen_mearm_v1_baseline.py --check          # 4 份黄金数据逐位一致
 <python> tools/gen_so_arm101_robot_yaml.py --check       # SO-101 配置 ↔ 官方模型同步
 <python> tools/inspect_so101_physics.py --check          # SO-101 物理快照 ↔ 官方 MJCF（46 项）
+
+# ── ⑤ Robot Package 契约（Core / Package / Working Robot 重构 · Phase 1）────
+<python> core/python/robopkg/cli.py selftest             # 路径锚点自检（config/ core/ robot-package/）
+<python> core/python/robopkg/cli.py list                 # 列出全部包 + 能力位（caps=P-GISH / --G-S-）
+<python> core/python/robopkg/cli.py show so-arm101       # 推导结果（dof / 关节序 / 内容哈希）
+<python> core/python/robopkg/cli.py validate --all       # 四份声明互相对账（选择器 / manifest / robot.yaml / 包目录）
+<python> -m pytest core/tests -q                         # 25 passed（含「故意构造坏 manifest」的反面测试）
 ```
 
 > 说明：③ 里的 `--check` 类工具**只读**，它们失败只说明"今天的实现与冻结时不一致"，
@@ -480,9 +487,10 @@ SO-101 的残差**有根因、不是换算错误**：官方 URDF 把 `<origin rp
 |---|---|
 | `pytest tests/sim` | **161 passed**（15 文件；含统一矩阵 14 项） |
 | `pytest tests/sim2sim` | **9 passed**（MeArm 黄金基线回归） |
+| `pytest core/tests` | **25 passed**（Robot Package 契约；含「故意构造坏 manifest」的反面测试） |
 | `go build` / `go vet` / `go test` | 0 问题 / 0 问题 / **75 passed・0 FAIL** |
 | `tsc -b --force` | **0 error** |
-| `vitest run` | **409 passed**（29 文件；含切换压力 13 项 + SO-101 基线 12 项） |
+| `vitest run` | **425 passed**（30 文件；含切换压力 13 项 + SO-101 基线 12 项 + Robot Package 契约 16 项） |
 | `vite build` | OK（13 个 SO-101 STL 进产物；`.js` 产物 `__armPilot` **0 命中**） |
 | `ui-smoke.mjs`（**隔离端口** 后端 8091 / 前端 5276 / CDP 9334） | **84 / 84 PASS · 0 FAIL**（含 Phase 8 真实 WS 往返 21 项；Phase 9 真机段为 opt-in，按设计跳过） |
 | 真值冻结 `freeze_baseline.py` | ✅ 运动学与物理真值与冻结基线一致 |

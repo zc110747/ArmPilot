@@ -1,0 +1,69 @@
+# =============================================================================
+# Robot Package · SO-ARM101
+# -----------------------------------------------------------------------------
+# 官方模型派生（TheRobotStudio/SO-ARM100 @ eecbe3e0）。官方 URDF / MJCF / STL
+# **逐字节原样**入库，禁止手改，也禁止凭照片重塑几何。
+#
+# ⚠️ 与 MeArm 的三处结构性差异（都是事实，不是配置项）：
+#    1. TCP 取 **MJCF** 的 `gripperframe`（URDF 的 gripper_frame_joint 朝向差 90°）
+#    2. 限位取 **MJCF** 满精度（URDF 截断到 6 位有效数字）
+#    3. 物理量真值 = **官方 MJCF**（本包不复制任何物理量）
+# =============================================================================
+
+id: so-arm101
+name: SO-ARM101
+
+package:
+  format: 1
+  version: 1.0.0
+  # 参与内容哈希的**上游源**（生成物不能重新生成的部分）：
+  # 官方 URDF（结构与轴）+ 官方网格目录（几何）。
+  # 它们变了 ⇒ SO-ARM101 的 robot.yaml 必须重新生成 ⇒ 包内容确实变了。
+  hash_sources:
+    - assets/models/so-arm101/official/so101_new_calib.urdf
+    - assets/models/so-arm101/official/assets
+
+robot:
+  type: robotic_arm
+
+model:
+  # ⚠️ 生成物：由 tools/gen_so_arm101_robot_yaml.py 从官方模型派生 ⇒ **禁手改**。
+  #    它因此不进内容哈希；它的**上游**（官方 URDF + 网格）由 package.hash_sources 纳入。
+  config: config/robots/so-arm101/robot.yaml
+  generated_by: tools/gen_so_arm101_robot_yaml.py
+  # 驱动参数是我们的（`driver:` 段），但物理量真值在官方 MJCF ⇒ 这份文件算**源**
+  physics: config/robots/so-arm101/physics.yaml
+
+simulation:
+  # 官方 MJCF **原样**（meshdir="assets" 指向同目录，故官方模型零修改即可加载）。
+  # 它不是产物 ⇒ **进**内容哈希（官方文件逐字节入库，改了就是真变化）。
+  mjcf: assets/models/so-arm101/official/so101_new_calib.xml
+  # 官方 MJCF 里代表 TCP 的是 `gripperframe` site（不是 body）
+  tcp_site: gripperframe
+
+kinematics:
+  fk:
+    type: engine
+  ik:
+    # ★ 本体**没有**逆解，而且这件事是"说得清楚为什么"的：
+    #   SO-101 不是平面 2R（腕部另有 2 个自由度、各轴非共面串联）⇒ 抄 MeArm 的解析解必然错；
+    #   塞数值迭代则没有雅可比维数验证 / 收敛判据 / 工作空间边界 ⇒ 无法把"解"与"最优的错"分开。
+    #   所以 inverse() 返回 NOT_IMPLEMENTED（spec §8/§35：绝不伪造 IK）。
+    type: none
+
+capabilities:
+  # position 指"支持位置目标"（= 需要逆解）⇒ 本包**不能**用位置目标驱动，
+  # 只能关节空间定位。这是诚实的能力声明，不是缺陷。
+  position: false
+  orientation: false
+  gripper: true
+  ik: false
+  simulation: true
+  # 本项目里**没有** SO-101 真机链路（这是模型转换 + 仿真轨）
+  hardware: false
+
+tests:
+  cases: tests/baseline/so-arm101
+  tools:
+    - tools/gen_so_arm101_robot_yaml.py
+    - tools/inspect_so101_physics.py

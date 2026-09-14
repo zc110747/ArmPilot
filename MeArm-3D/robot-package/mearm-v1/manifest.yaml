@@ -1,0 +1,70 @@
+# =============================================================================
+# Robot Package · MeArm-V1（Golden Baseline）
+# -----------------------------------------------------------------------------
+# 本文件只放三样东西：**身份** / **能力声明** / **指针**。
+# 真值（尺寸 / 关节 / 限位 / 标定 / 物理量）一律在 model.config 指向的 robot.yaml 里。
+#
+# ⚠️ 刻意**不写** dof / actuator_count —— 它们能从 robot.yaml 推导。
+#    抄一份就是第二份真值，而它的漂移是静默的（改了关节表，这里的 4 不会自己变 5）。
+#    推导结果见 `python core/python/robopkg/cli.py show mearm-v1`；
+#    期望值写在 `core/tests/test_package_contract.py` 里。
+#
+# ⚠️ 本包是冻结基线：可以改的只有"怎么描述"，**不能改"它是什么"**。
+# =============================================================================
+
+id: mearm-v1
+name: MeArm-V1
+
+package:
+  # manifest 结构版本；不兼容改动必须 +1
+  format: 1
+  # 包封装版本 —— 与 robot.yaml 的 `robot.version`（模型版本）**正交**，两者都要对
+  version: 1.0.0
+
+robot:
+  type: robotic_arm
+
+model:
+  # 运动学 / 标定 / 限位真值（**唯一**真值源，三端共用）
+  config: config/robot.yaml
+  # 物理量真值：本机为我们自己估算 ⇒ 这份文件本身即真值（顶层形态，无 driver 段）
+  physics: config/physics.yaml
+
+simulation:
+  # MeArm 的 MJCF 是**产物**：由 gen_model.py 从 robot.yaml 派生。
+  # 它不是源 ⇒ 不进内容哈希（spec §19 要求忽略 generated）。
+  mjcf: simulation/mujoco/mearm.xml
+  generated_by: simulation/mujoco/gen_model.py
+  # TCP site 名（mearm.xml 里就是 tcp）
+  tcp_site: tcp
+
+kinematics:
+  fk:
+    # engine = 用 Core 的通用链式 FK（读 RobotModel 的几何）。
+    # 证据：SO-ARM101 的 forward() 也纯委托同一份 fk.ts ⇒ 它确实是通用的。
+    type: engine
+  ik:
+    # MeArm 的逆解是**它自己的**：平面 2R + 偏航的解析解，
+    # 且带 assertPlanar2R / assertPlanarWrist 适用性断言（不满足就直接拒绝）。
+    type: custom
+    entry: frontend/src/robot/kinematics/ik.ts
+
+capabilities:
+  # position = 支持**位置目标**（需要逆解）
+  position: true
+  # MeArm 是 4 DOF 位置型机构：roll/pitch/yaw 填了也没用（它压根不解析）
+  orientation: false
+  gripper: true
+  ik: true
+  simulation: true
+  # 本项目里有真机链路（串口 mARM）
+  hardware: true
+
+tests:
+  # 机器人**专属测试数据**（测试执行框架在 Core，spec §10）
+  cases: tests/baseline/mearm-v1
+  # 冻结真值文件：语义核心哈希的来源（改运动学/物理会被它拦下，改外观放行）
+  frozen: config/baseline-kinematics-physics.json
+  # 本包自带的校验/生成脚本
+  tools:
+    - tools/gen_mearm_v1_baseline.py

@@ -107,9 +107,12 @@ Go: device.MujocoDevice ──stdio(同一套 JR/OK JR/STATE 文本协议)──
 
 ```
 MeArm-3D/
-├── config/robot.yaml             # ★ 唯一模型定义（links / joints / actuators / home / tcp）
-├── config/physics.yaml           # ★ MuJoCo 物理参数（纯物理量，全 SI；**禁写限位与标定**）
+├── config/robots.yaml            # ★ 机器人**选择器**（只放 id/name/config；default: mearm-v1）
+├── config/robots/<id>/           # ★ 其他机器人的配置（so-arm101/{robot,physics}.yaml）
+├── config/robot.yaml             # ★ MeArm-V1 的唯一模型定义（links / joints / actuators / home / tcp）
+├── config/physics.yaml           # ★ MeArm 的 MuJoCo 物理参数（纯物理量，全 SI；**禁写限位与标定**）
 ├── config/baseline-kinematics-physics.json  # ★ 真值冻结基线（语义核心哈希；守卫见 D55）
+├── assets/models/                # ★ 外部 CAD 资源（so-arm101/official/：官方 URDF+MJCF+13 STL，逐字节原样）
 ├── simulation/                   # ★ MuJoCo 物理仿真后端（device.Device 第三实现）
 │   ├── README.md                 #   ★ 怎么跑 / 判据纪律 / 验收数据 / Level 声明
 │   └── mujoco/
@@ -128,9 +131,10 @@ MeArm-3D/
 │   ├── model-structure.md        # ★ 显式几何（plate/servo/details）与运动学的边界
 │   ├── hardware-measurement.md   # ★★ 真机实测记录：角色映射 / 绝对角解耦 / 标定 / 不确定度
 │   ├── ARCHITECTURE_ANALYSIS.md  # ★ MuJoCo 轨 Phase 1：自由度清点 / 五种角度对照 / 接入方案
-│   ├── decisions.md              # 设计决策 ADR（**D1–D74，最新在前**；D48–D54 = MuJoCo 物理轨 · D55 = 真值冻结 · D56/D57 = 纹理校正与采集判定 · D63–D69 = 照片纹理与外观 · D70 = 被动腕关节 · D71–D73 = MeArm-V1 基线冻结 / 最小抽象 / Sim2Sim 回归纪律 · **D74 = 首次接管握手（命令起点取机器现状）**）
+│   ├── decisions.md              # 设计决策 ADR（**D1–D76，最新在前**；D48–D54 = MuJoCo 物理轨 · D55 = 真值冻结 · D56/D57 = 纹理校正与采集判定 · D63–D69 = 照片纹理与外观 · D70 = 被动腕关节 · D71–D73 = MeArm-V1 基线冻结 / 最小抽象 / Sim2Sim 回归纪律 · D74 = 首次接管握手（命令起点取机器现状） · **D75 = 配置选模型 + 分派收敛到一张表 · D76 = SO-101 的三条真值取舍**）
 │   ├── texture-capture-guide.md  # ★ 图像采集指南（拍哪块板 / 大面朝向 / 采集闭环 / 四项硬性要求 / 自查清单）
 │   ├── architecture/             # ★★ MeArm-V1 基线冻结三件套（现状分析 / 验收结论 / 无关问题登记）
+│   │                             #   + so-arm101-phase0.md（多机器人轨 P0 只读分析 + D1–D6 决策点）
 │   └── images/                   # 界面截图（armpilot-console.png 由 e2e 自动重出；
 │                                 #   armpilot-phase11-13.png 由 tests/e2e/screenshot.mjs 出）
 ├── protocol/serial-v1.md         # ★ 串口 / WS 协议基线（§4 固件侧待 Phase 9；§5 上位机侧 Phase 8 已实现）
@@ -374,6 +378,40 @@ curl http://localhost:8090/healthz              # {"device":"mujoco","linked":tr
 
 **MuJoCo 轨实测汇总**：pytest **147 passed**（12 文件）· `go test` **65 / 65**（5 包）· vitest **318 passed**（24 文件）· e2e **88 / 88** · `tsc -b` 0 error ·
 `vite build` OK（JS 产物 `__armPilot` 0 命中）。
+
+### 多机器人轨（SO-ARM101）· 又一条独立轨
+
+> 目的：验证「**在完全不修改 MeArm-V1 核心模型**的前提下，ArmPilot 能否只靠配置
+> 加载第二台结构完全不同的机器人，并用同一套上层接口完成 3D / FK / MuJoCo / Sim2Sim**」。
+> MeArm-V1 是 **Golden Baseline**：冲突时**优先停止抽象，而不是改 MeArm**。
+
+| Phase | 内容 | 状态 | 验收证据 |
+|-------|------|------|----------|
+| **P0** | 只读分析关口 | ✅ | [`docs/architecture/so-arm101-phase0.md`](docs/architecture/so-arm101-phase0.md)：既有抽象盘点（`RobotDefinition` / `KinematicsEngine` / `IKResult` **已存在**，缺的是"选哪一份模型"的机制）、三处必改硬点（已定位到 file:line）、D1–D6 决策点 |
+| **P1** | 引入官方模型 | ✅ | `assets/models/so-arm101/official/` **14 个文件逐字节原样**（TheRobotStudio/SO-ARM100 @ `eecbe3e0`）· 13 个二进制 STL 共 16,129,292 B / 322,564 三角形 · `SOURCE.md` 记 26 个 sha256 + 两条勘误 + 一条裁决 · 保留官方目录布局（`meshdir="assets"`）⇒ **URDF 与 MJCF 都零修改加载**（实测 MuJoCo 3.13：`nq=6 nv=6 nu=6 nmesh=13`） |
+| **P2** | SO-101 RobotDefinition + 引擎 | ✅ | `config/robots/so-arm101/robot.yaml`（生成产物，`--check` 盯同步）· `SoArm101Kinematics`（FK 纯委托通用 `fk.ts`；**IK 诚实留白**）· `physics.yaml` **不复制任何数值**（真值 = 官方 MJCF）+ `tools/inspect_so101_physics.py --check` 复核 46 项（另做 5 组变异反验证） |
+| **P3** | 配置驱动的模型选择（**前端侧**） | ✅ | `config/robots.yaml` 选择器（只放 id/name/config）→ `robotConfigRegistry` → `loadRobotModel(id?)` → `RobotRegistry`（**唯一**分派表 + `assertRegistryCoverage()` 自检）。既有 22 处调用点显式化 ⇒ **既有 351 条断言逐条不变** · 新增 33 条 · vitest **384/384** · `tsc` 0 error · `pytest tests/sim` 147 + `tests/sim2sim` 9 · 4 份黄金数据**逐位一致** |
+| P3' | Go / Python 侧选择器 | ⬜ | 三端必须读**同一份** `config/robots.yaml`，禁止各自抄映射 |
+| P4–P8 | 3D 切换 · FK cases · MuJoCo 接入 · 统一 `runSim2Sim(robot)` · 切换压力回归 | ⬜ | — |
+
+**★ 三条必须在文档里声明的诚实边界（spec「不伪造」）**
+
+1. **SO-101 没有 IK。** `capability.solverKind = 'none'`，`inverse()` 返回
+   `ikFailure('NOT_IMPLEMENTED')`（`success:false` / `joints:{}` / **`positionError:null`**）。
+   不抄 MeArm 的平面 2R 解析解（SO-101 不是那种机构，解出来的角必然错，而 `positionError`
+   还会因为**用自己的 FK 自证**而显示成一个"很小的残差"）。同理 **workspace / 关节 cases 不得编造**。
+2. **SO-101 的物理量不是实测的，也不是我们估算的 —— 是官方 CAD 导出的。**
+   它比 MeArm 侧（公开规格 + 体积密度推算，Level 3→4）可信，但**仍不等于**对某台实机的标定：
+   官方没有独立标定段、质量来自 Onshape 导出而非称重。
+3. **官方 MJCF 没有地面 / 工作台，也没有相邻连杆的 `<contact><exclude>`。**
+   ⇒ 官方模型是"悬空"的，且**相邻连杆默认会互相碰撞**（它们在关节处必然几何重叠）。
+   ArmPilot 侧若要复现"臂↔台面"碰撞，只能**在运行期另挂**碰撞体 —— 这属于"改造官方模型"，
+   待 Phase 6 单独裁决（官方文件本身保持逐字节原样）。
+
+★ **FK ↔ MuJoCo 实测残差：位置 2.0~2.3 µm、旋转矩阵 ≤ 1.0e-5**（黄金值取自 `mj_forward()`
+读 `gripperframe` site ⇒ 两个独立实现**互证**而非自证）。该残差**有根因、不是换算错误**：
+官方 URDF 把 `<origin rpy>` 截断到 6 位有效数字（`1.5708` ≠ π/2），而 MJCF 的四元数归一化后
+恰好是 90° ⇒ 两份官方文件自身就有 ~2 µm 系统差。详见 ADR **D75/D76**。
 
 ### 本阶段明确**不实现**
 

@@ -1,37 +1,42 @@
-# MeArm-3D · 项目 playbook（长期记忆明细）
 
-> 由 `MEMORY.md`（索引）按需引用的明细。跨会话长期有效，改这里要同步 `MEMORY.md` 的入口表。
+## §7 多机器人轨（SO-ARM101）· 速查（2026-09-14 起）
 
-## §1 测试与探针纪律
+**通用层**（与具体机器人无关，MeArm / SO-101 共用）：
 
-- **探针只准用 `matrixWorld` / DOM 真实现象做证据，不许把数学再算一遍**（用 `FK(actual)` 证明"渲染了"
-  是自证：挂错树 / 可见性误关 / 全透明都会让断言全绿）。
-- **探针（含 `delete window.__xxx`）必须 `import.meta.env.DEV` 守卫**，否则字面量进生产包。
-- ★ **位置型读取（`rows[i].children[j]`）必须限定到同一容器**（D67 一）：`.sidebar table.grid tbody tr`
-  会同时命中 `ConnectionControl` 的"指标/值"表（排在 `StatusPanel` **前**）⇒ 一旦渲染，`rows[1]`
-  静默漂移到"丢帧/拒绝"行。用 `cardByTitle('状态 · Status')` 先限定。**"读到值" ≠ "读到想读的对象"。**
-  ⚠️ 这类探针**必须写成函数**（模块级模板字面量在 import 时求值 ⇒ `cardByTitle` 还在 TDZ ⇒ ReferenceError）。
-- **时间相关的多个读数必须合并在同一次 `cdp.evaluate`**（分两次 CDP 往返会让快收敛量读到归零值 ⇒ 间歇失败）。
-- ★ **端口预检不许用「分组 + `\b`」**（D65）：本机 GNU grep 3.0 里 `\b` 紧跟 `)` 失效，且**漏 `-E` 时
-  `(` `|` `)` 是字面字符** ⇒ 两缺陷叠加让预检**恒返回"干净"**。用字段级比较
-  `netstat -ano | tr -d '\r' | awk '$4=="LISTENING"{n=split($2,p,":"); if (p[n]==8090) print $5}'`；
-  `taskkill //PID` 亦**报错并静默失败** ⇒ 用 `taskkill -F -PID`（单横线）或 `Stop-Process`。
-- **`start.bat` 起的是"一对"进程**（D67 三）：真机后端（8090）+ 带 `VITE_AUTO_CONNECT=ws` 的 vite（5273），
-  只清一个还会踩。症状：e2e 读到 `Command 列跟随滑杆 — 0 / 0`、滞后类断言读到已收敛值。
-- **不许用推导量当独立判据**（D44：`TransportStats.moving = lagDeg > eps` 判"卡死"永远无结论）；
-  **没有正面证据不下断言**，宁可停在保守态（`tracking`）。
-- **e2e 有 SKIP 语义**（D65）：复用既有实例且 `device=serial` 时，「末端非 serial ⇒ 拒绝切换」前提不成立
-  ⇒ 走 `skip()` 而非 `check()`，**不许把环境差异伪造成代码回归**。
-- 断言语义要分清：`defineRobot()` 是**视图**（`toBe` 钉同一对象）；`forwardKinematics()` 每次调用都
-  **新构造**结果 ⇒ 只能逐位比数值（`toContain`/`toBe` 会假失败）。
-- ★ **逐帧记录器记得"是谁先跑"**（D74）：`useFrame` 回调**先于** `gl.render` ⇒ 读到的矩阵是
-  **上一帧画出去的**；首帧读到的空对象是**仪器伪影，不是 bug**（主臂那帧正确只因它每 0.25 s 显式
-  `updateMatrixWorld`）。**改探针前先分辨"真现象"与"采样时刻"**。
+- 选择链：`config/robots.yaml`（**只**放 id/name/config，禁止放参数）
+  → `model/robotConfigRegistry.ts`（`import.meta.glob` 构建期登记 yaml 原文）
+  → `model/loadRobotModel(id?)`（按 id 缓存；未知 id **抛错不回退**）
+  → `registry/RobotRegistry.ts`（**唯一**分派表：工厂表 + `assertRegistryCoverage()`）。
+- 业务代码**禁止** `if robot === ...`；"谁有 IK"由 `kinematics.capability` **声明**（数据）。
+- 叶子模块（防循环导入）：`model/configError.ts`（`RobotConfigError`，`source` 可传文件标签）、
+  `model/robotIds.ts`（`MEARM_V1_ROBOT_ID` / `SO_ARM101_ROBOT_ID`）。
+- `Actuator.unit`：`'deg'`（缺省，0..180 舵机行程）/ `'joint'`（关节空间，ctrlrange ≡ 关节 range）。
+  `ACTUATOR_LIMIT_180` 只在**非**关节空间生效。
+- `RotationConvention`：`'xyz'`（缺省，intrinsic，`Rx·Ry·Rz`）/ `'rpy'`（URDF `<origin rpy>`，
+  fixed-axis，`Rz·Ry·Rx`；three.js 侧用 Euler order `'ZYX'`，**数值原样只换 order**）。
+- mesh：`model/meshRegistry.ts` 只登记 **URL**（`?url` + eager）；渲染在
+  `RobotScene/meshObject.ts`，两条守卫（无 DOM 不加载 / key 未登记则 warnOnce + 回退）。
 
-## §2 机制与关节判定速查
+**SO-ARM101 专属**：
 
-- 命令下发：store `commandJoints` → `transportBridge` **尾沿合并 30~33Hz** → `RobotTransport`；
-  **回推只写 `actualJoints`**（回写 command 即无限回环）。**唯一例外 = 首次接管那一帧**（D74）：
+- 官方资产 `assets/models/so-arm101/official/`（**逐字节原样，禁止改**）；配置在
+  `config/robots/so-arm101/{robot.yaml,physics.yaml}`；生成器 `tools/gen_so_arm101_robot_yaml.py`。
+- ★ **物理量真值 = 官方 MJCF** ⇒ `physics.yaml` **不复制任何数值**，只放
+  真值声明 + 驱动参数 + 审计快照 + **官方未声明项**。
+  `tools/inspect_so101_physics.py --check` 从 **MjModel** 读生效值（**不是读 XML 文本** ——
+  XML 里 class 写的 `forcerange` 是 ±2.94，被 6 个 `<position>` 逐个覆盖成 ±3.35）。
+- ★ **两条 90° / 精度陷阱**：TCP 帧朝向取 **MJCF**（URDF `rpy=[0,π,0]` vs MJCF `quat=Ry(π/2)`）；
+  关节限位取 **MJCF 满精度**（URDF 截断到 6 位小数）。理由见 `SOURCE.md §4.2`。
+- ★ **FK↔MuJoCo 残差 2.0~2.3 µm / 旋转矩阵 1.0e-5** 的根因是**官方两份文件自身的精度差**
+  （URDF `rpy` 截断到 6 位有效数字 `1.5708`≠π/2；MJCF 四元数归一化后恰好 90°），
+  不是换算错误 ⇒ 测试容差 10 µm / 1e-4。
+- **能力声明**：`{positioningDof: 5, supportsOrientation: false, solverKind: 'none'}`；
+  `inverse()` → `ikFailure('NOT_IMPLEMENTED')`（`success:false` / `joints:{}` /
+  `positionError:null`）。**禁止**抄 MeArm 的平面 2R 解或塞数值解 —— 见 spec「不伪造」。
+- 官方**未声明**（别以为有）：无 floor/table、**无 `<contact><exclude>`**（相邻连杆会互相碰撞）、
+  无关节速度上限、无独立标定段、质量来自 CAD 非称重。
+- 执行器：官方 6 个 `<position>`、`gear=1` ⇒ **无 offset/scale/reverse 标定**（`unit: joint`）。
+环）。**唯一例外 = 首次接管那一帧**（D74）：
   `commandJoints` 初值是对机器现状的**假设**（= `homePose`）⇒ 首次 `connected` 置 `attachPending`，
   由第一帧回推消费 → `attachToActual()` 对齐、**不下发**、**让位于用户意图**
   （`commandAuthoredSinceConnect`）；重连仍走 D32「补发命令」。

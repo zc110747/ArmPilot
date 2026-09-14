@@ -19,6 +19,12 @@
 - `mode`（simulation/real）**不是 UI 开关**：它决定"要不要发给真实机械臂"，取值须校验全通过才改，
   失败要 pushLog 说明原因与修法（D41/D43）。
 - **机器人相关状态一律进 store**，组件不持局部副本（含 `teachTrack`）。
+- **多机器人轨（2026-09-14 起）**：`config/robots.yaml` 选择器（**只放 id/name/config**）
+  → `loadRobotModel(id?)` → `RobotRegistry`（唯一分派表，禁止业务代码 `if robot == ...`）。
+  第二台 = 官方 SO-ARM101，资产 `assets/models/so-arm101/official/`（**逐字节原样，禁止改**）。
+  ★ 它的**物理量真值 = 官方 MJCF**（`config/robots/so-arm101/physics.yaml` **不复制任何数值**）；
+  限位与 TCP 帧朝向均取 **MJCF**（URDF 那两份都不可信 —— 截断 / 差 90°）。
+  能力：`solverKind: 'none'`，`inverse()` 诚实返回 `NOT_IMPLEMENTED`（**禁止伪造 IK**）。
 
 ## 二、验收七件套
 
@@ -31,6 +37,8 @@ node tests/e2e/ui-smoke.mjs                   # 必须隔离端口
 $PY -m pytest tests/sim -q                    # ★ 跨端改动（config / geometry 类型）必跑
 $PY -m pytest tests/sim2sim -q                # Sim2Sim 基线回归（D71–D73）
 $PY tools/gen_mearm_v1_baseline.py --check    # 黄金数据逐位复现（改过运动学/物理必跑）
+$PY tools/gen_so_arm101_robot_yaml.py --check # SO-101 配置 ↔ 官方模型同步（改生成器/模型必跑）
+$PY tools/inspect_so101_physics.py --check    # SO-101 物理快照 ↔ 官方 MJCF（46 项）
 ```
 
 - **前端那套覆盖不到** MJCF / 纹理管线 / 文档↔脚本一致性 / 黄金基线 ⇒ 都在 pytest 里。
@@ -52,6 +60,7 @@ $PY tools/gen_mearm_v1_baseline.py --check    # 黄金数据逐位复现（改�
 | 测量方法论与能力边界（D34 / D37 / D47 / D59 / D64） | `playbook.md` §4 |
 | 运行环境与 Windows 工具陷阱（sort / grep `\b` / taskkill） | `playbook.md` §5 |
 | 协作约定与真机链路（COM16 / DTR 复位 / `--home`） | `playbook.md` §6 |
+| **多机器人轨（选择器 / 注册表 / mesh / SO-101 陷阱）** | `playbook.md` §7 |
 | 冻结与基线决策理由 | `docs/decisions.md` D55 / D71–D73 |
 | **首帧"重影" / 幽灵臂类渲染问题**（D74） | ADR **D74** · `tools/park_sim_pose.mjs` + `tools/first_load_probe.mjs` · 跨项目 skill `webgl-first-frame-forensics` |
 | 未修的无关问题 F1–F9 | `docs/architecture/mearm-v1-followups.md` |

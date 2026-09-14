@@ -3,7 +3,93 @@
 记录"为什么这么做"，尤其是**与原 spec 示例不一致**的地方，方便后续复盘与修改。
 每条都有编号，代码注释会引用编号（如 `D2`）。
 
-> 本文**最新条目在前**（D74 在最上，D1 在最下）。
+> 本文**最新条目在前**（D76 在最上，D1 在最下）。
+
+## D76 · SO-101 的三条真值取舍：**能读到"引擎实际用的值"就绝不读文本**；官方没声明的必须写出来
+
+**背景**：引入官方 SO-ARM101 时，同一批事实在官方**两份文件**（URDF / MJCF）里各有一份，
+且**数值不等**。选错会得到"看起来跑通了、但和仿真不是同一个机器人"的模型。
+
+**实测到的三处不一致**（全部逐位核对过，见 `assets/models/so-arm101/official/SOURCE.md §4.2`）：
+
+| 事实 | URDF | MJCF | 取谁 / 为什么 |
+|---|---|---|---|
+| TCP 帧朝向 | `gripper_frame_joint` 的 `rpy=[0,π,0]` | `gripperframe` site 的 `quat=Ry(π/2)` | **MJCF** —— 位置逐位相同、姿态**差 90°**。取 MJCF 后 FK↔MuJoCo 姿态差 **0.0007°**；取 URDF 则差 **90.0004°**。ArmPilot 的 MuJoCo 侧读的就是它 |
+| 关节限位 | `1.91986`（**截断到 6 位小数**） | `1.9198621771937616`（满精度，**正好 110°**） | **MJCF** —— MuJoCo **执行的是** `range`。取 MJCF 才能保证「配置里声明的区间 ≡ 仿真里生效的区间」 |
+| 物理量（kp/kv/forcerange/damping/质量） | 无 | 全都有 | **MJCF**，且 `physics.yaml` **一个数值都不复制** |
+
+**决策**：
+
+1. **限位 / TCP 帧 / 物理量一律取 MJCF**；`robot.yaml` 的 link/joint **几何**（origin / axis / mesh）
+   取 URDF（它是唯一把它们写全的来源），欧拉角用 `rotationConvention: rpy` **原样承载**
+   —— 换算成 intrinsic XYZ 会让 yaml 里出现一批在官方文件里**查不到的数**。
+2. `physics.yaml` **不复制任何物理量**：只放 ① 真值声明（含固定 commit 与 sha256）
+   ② ArmPilot 自己的驱动参数 ③ **审计快照** ④ **官方未声明的东西**。
+3. 审计快照由 `tools/inspect_so101_physics.py --check` 逐值复核，且**从 `MjModel` 读而不是读 XML 文本**
+   —— 这条不是洁癖：XML 的 `class` 里写 `forcerange="-2.94 2.94"`，而 6 个 `<position>`
+   **逐个覆盖**成 ±3.35；**文本会骗你，MjModel 不会**。
+4. **官方没声明的必须显式写出来**（`not_declared_by_official`）：无地面/工作台、**无 `<contact><exclude>` 对**
+   （⇒ 相邻连杆默认会互相碰撞）、无关节速度上限、无独立标定段、质量来自 CAD 而非称重。
+   把"缺失"写下来，否则缺失会被默认成"应该有、大概没问题"。
+
+**后果**
+- ✅ `inspect_so101_physics.py --check` 46 项吻合；**已做反向验证**（改 kp / damping / timestep /
+  mass / 删段五种变异全部被抓出）⇒ 它不是一条永远为真的断言。
+- ✅ FK↔MuJoCo 实测残差 **位置 2.0~2.3 µm、旋转矩阵 ≤ 1.0e-5**。
+- ⚠️ **该残差有根因、不是换算错误**：官方 URDF 把 `<origin rpy>` 截断到 **6 位有效数字**
+  （`1.5708` ≠ π/2、`3.14159` ≠ π），而 MJCF 里形如 `[0.707107,0,0.707107,0]` 的四元数
+  **归一化后恰好是 90°** ⇒ 两份文件自身就有 ~2 µm 的系统差。robot.yaml 的 origin 取自 URDF 原文
+  （可逐个复核），故保留该微差；测试容差取 10 µm / 1e-4（离实测 4~10 倍余量，仍足以拦住
+  "欧拉角约定用反"的 90° 与"origin 抄错"的 mm 级）。
+- ⬜ 官方 MJCF 没有 floor/table 也没有 exclude 对 ⇒ **Phase 6 要单独裁决**是否在**运行期**
+  （不改官方文件）补碰撞体与排除对，并实测是否出现自穿模伪接触。
+
+## D75 · 第二个机器人靠**配置选择**加载：选择器只做选择，分派收敛到**一张表**
+
+**背景**：spec 要求「只通过后端配置文件选择机器人，业务代码不得堆积 `if robot == ...`」，
+且 **MeArm-V1 是 Golden Baseline，冲突时优先停止抽象而不是改 MeArm**。
+
+**决策**：
+
+1. **三段链，各管一件事**：
+   ```text
+   config/robots.yaml              ← 只放 id / name / config（"有哪些、默认谁"）
+   model/robotConfigRegistry.ts    ← id → yaml 原文（import.meta.glob 构建期登记）
+   model/loadRobotModel(id?)       ← 按 id 缓存解析结果
+   registry/RobotRegistry.ts       ← ★ 唯一分派表：工厂表(definition → engine)
+   ```
+   选择器里放参数的诱惑很大（"顺手把限位也写这儿"），但那就制造了第二份真值 ⇒ **禁止**。
+2. **业务代码只问 `loadRobot(id)`**，拿到同一形状的 `definition + kinematics`；
+   「谁有 IK」由 `kinematics.capability` **声明**（数据），不由调用方去猜（逻辑）。
+   `assertRegistryCoverage()` 把"配置里加了一台、代码里没写引擎"变成**明确的错误**（测试钉住）。
+3. `loadRobotModel()` 无参 = 读选择器的 `default`（当前 `mearm-v1` ⇒ **行为与改前逐位相同**）；
+   同时把既有 **22 处**调用点**显式**写成 `loadRobotModel('mearm-v1')` ——
+   这是**参数化**而不是"改测试"：它们本来就只测 MeArm，写出来才不会被"将来改了 default"
+   静默换掉被测对象。**未知 id 抛错、不回退**：回退会让"id 写错一个字"表现成
+   "静默加载了另一台机器人"，而模型不对时所有 FK/限位判据都会失真却都能跑。
+4. **新增维度一律带缺省**，缺省值 = 既有语义：`RotationConvention`（缺省 `'xyz'`）、
+   `ActuatorUnit`（缺省 `'deg'`）、`MeshGeometry`（新增分支，不动既有 6 类）。
+   ⇒ 333→351 条既有断言**逐条不变**，`gen_mearm_v1_baseline.py --check` 4 份黄金数据**逐位一致**。
+5. **两个叶子模块**专为打断循环导入而抽（不是可有可无的重构）：
+   `model/configError.ts`（`RobotConfigError`）、`model/robotIds.ts`（机器人 id 常量）。
+   留在原处会形成 `loadRobotModel ↔ robotConfigRegistry` 与 `RobotRegistry ↔ 实现` 两个环
+   —— ESM 能容忍，但那是"靠使用时机的运气"，模块顶层用一次就是 TDZ 崩溃。
+6. **IK 诚实留白**：`SoArm101Kinematics.capability = {positioningDof: 5, supportsOrientation: false,
+   solverKind: 'none'}`，`inverse()` → `ikFailure('NOT_IMPLEMENTED')`
+   （`success:false` / `joints:{}` / **`positionError:null`**）。
+   不抄 MeArm 的平面 2R 解析解（SO-101 不是那种机构，解出来的角必然错，而 `positionError`
+   还会因为**用自己的 FK 自证**而显示成一个"很小的残差"）；也不塞数值解（无收敛性/工作空间依据）。
+   ⇒ **能诚实说"没实现"比伪造一个"看起来能用"的求解器重要。**
+
+**后果**
+- ✅ 新增 33 条断言（选择器 / 注册表一致性 / SO-101 定义 / FK↔MuJoCo / IK 诚实性 / MeArm 不变）
+  ⇒ 前端 **384/384**；`tsc` 0 error；`pytest tests/sim` 147 + `tests/sim2sim` 9 全绿。
+- ✅ 核心判据是**跨实现互证**而非自证：FK 的黄金值取自 `mj_forward()` 读 `gripperframe` site
+  （MuJoCo 给出的值），姿态用**旋转矩阵**比而非欧拉角（规避万向锁假失败）。
+- ⚠️ Go 侧 `internal/robot` 与 Python 侧 `robotcfg.py` 的选择器支持是 **Phase 3 剩余部分**：
+  三端必须读**同一份** `config/robots.yaml`，禁止各自抄一份映射表。
+- ⚠️ `loadRobot` 目前**尚未被 app 调用** ⇒ `SoArm101Kinematics` 与 `NOT_IMPLEMENTED`
+  在产物里被 tree-shake（实测命中 0）。这是预期的死代码消除，Phase 4 接入渲染层后即消失。
 
 ## D74 · 首次**接管握手**：命令起点必须来自"机器现状"，否则第一帧就会多画一棵"幽灵"
 

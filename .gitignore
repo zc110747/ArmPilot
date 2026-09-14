@@ -44,6 +44,10 @@
 
 # Kernel Module Compile Results
 *.mod*
+# ★ 例外：上面这条 `*.mod*` 会把 Go 的 go.mod 一起吞掉（本仓 MeArm-3D/backend 与
+#   MeArm-RemoteControl 都是 go module，go.mod 因而从未入库 ⇒ `go build` 直接报
+#   "cannot find main module"）。内核产物里不存在名为 go.mod 的文件，加例外是安全的。
+!go.mod
 *.cmd
 .tmp_versions/
 modules.order

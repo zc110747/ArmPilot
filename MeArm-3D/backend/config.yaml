@@ -39,7 +39,7 @@ device:
     # Python 解释器：必须指向**装了 mujoco 包**的那一个，否则启动握手会失败
     # （错误信息里会直接提示，不会表现为"设备可用但没有回执"）。
     # 本机可用值（隔离环境，py3.13 + mujoco 3.13 + numpy + pyyaml）：
-    python: "C:/Users/zc110/.workbuddy/binaries/python/envs/default/Scripts/python.exe"
+    python: "C:/Users/lx176/.workbuddy/binaries/python/envs/default/Scripts/python.exe"
     # 留空 = 按 ../simulation/mujoco/server.py → simulation/... 依次回退
     script: ""
     report_hz: 30          # STATE 上报频率（Hz）

@@ -27,6 +27,12 @@ type fakeArm struct {
 	closed  chan struct{}
 	once    sync.Once
 	silent  bool // true = 只收不回（模拟 bootloader 窗口 / 死机）
+	// dropAckOnSet: 含该子串的 SET 不回 ACK（模拟高频拖动下串口字节丢失，
+	// 导致第一条 SET 的 OK 迟到/丢失 —— 复现「gripper 第二条 SET 被牺牲」）。
+	dropAckOnSet string
+	// injectAfterSet: 回复 OK SET 之后再发这一行（模拟 IR 中断在 SET 窗口内插入的
+	// 异步 OK 报文，复现任务③-B：异步 OK 被误当 SET 应答）。
+	injectAfterSet string
 }
 
 func newFakeArm() *fakeArm {
@@ -68,6 +74,20 @@ func (f *fakeArm) Close() error {
 func (f *fakeArm) setSilent(v bool) {
 	f.mu.Lock()
 	f.silent = v
+	f.mu.Unlock()
+}
+
+// setDropAckOnSet 让含 sub 子串的 SET 命令不回 ACK（复现字节丢失场景）。
+func (f *fakeArm) setDropAckOnSet(sub string) {
+	f.mu.Lock()
+	f.dropAckOnSet = sub
+	f.mu.Unlock()
+}
+
+// setInjectAfterSet 让每条 SET 回执后再发一行（模拟 IR 中断插入的异步 OK 报文）。
+func (f *fakeArm) setInjectAfterSet(s string) {
+	f.mu.Lock()
+	f.injectAfterSet = s
 	f.mu.Unlock()
 }
 
@@ -124,6 +144,9 @@ func (f *fakeArm) handle(cmd string) {
 	}
 	switch strings.ToUpper(fields[0]) {
 	case "SET":
+		if f.dropAckOnSet != "" && strings.Contains(cmd, f.dropAckOnSet) {
+			return // 模拟该 SET 因字节丢失而没回 ACK（不 send 任何东西）
+		}
 		if (len(fields)-1)%2 != 0 || len(fields) < 3 {
 			f.send("ERR SYNTAX\r\n")
 			return
@@ -144,6 +167,9 @@ func (f *fakeArm) handle(cmd string) {
 			out += fmt.Sprintf(" S%d=%d", id, ang)
 		}
 		f.send(out + "\r\n")
+		if f.injectAfterSet != "" {
+			f.send(f.injectAfterSet)
+		}
 
 	case "STATUS", "?":
 		f.send(f.statusLine())
@@ -610,6 +636,81 @@ func TestServoKVRegexOnFirmwareStatusLine(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+
+// 根因回归（任务③）：gripper 在第二条 SET。若第一条 SET 的 ACK 因串口字节丢失
+// 而超时，原实现直接 return，gripper 的第二条 SET 永远不发 —— 真机上表现为
+// 「其他关节动了，gripper 有概率不执行」。修复后：任一条 SET 失败都继续下发
+// 其余 SET，gripper 不再被牺牲。
+func TestSerialJRGripperSentEvenIfFirstSetTimesOut(t *testing.T) {
+	fac := installFactory(t)
+	d := openTestSerial(t, testSerialConfig())
+	waitConnected(t, d, 3*time.Second)
+	drainLines(d, 200*time.Millisecond)
+
+	arm := fac.last()
+	// 第一条 SET 含通道 8（base/shoulder/elbow 三条，形如 `SET 9 .. 7 .. 8 ..`），
+	// 第二条只含 S6（gripper，`SET 6 ..`）。让含 ` 8 ` 的第一条 SET 不回 ACK，模拟字节丢失。
+	arm.setDropAckOnSet(" 8 ")
+
+	if err := d.WriteLine("JR 0 20 112.6 50"); err != nil {
+		t.Fatal(err)
+	}
+	// 等第一条超时（AckTimeoutMs=120）+ 第二条处理完成
+	time.Sleep(500 * time.Millisecond)
+
+	writes := arm.writtenLines()
+	var sets []string
+	for _, w := range writes {
+		if strings.HasPrefix(w, "SET") {
+			sets = append(sets, w)
+		}
+	}
+	foundGrip := false
+	for _, s := range sets {
+		if strings.HasPrefix(s, "SET 6") {
+			foundGrip = true
+		}
+	}
+	if !foundGrip {
+		t.Fatalf("第一条 SET 超时后，gripper 的第二条 SET 被牺牲（未下发）。写入=%v", sets)
+	}
+}
+
+// 回归（任务③-B）：固件有几条**异步**带 OK 前缀的报文（OK IR / OK IRSEQ），
+// 来自中断/遥控路径。它们绝不能被判成本条 SET 的应答，否则 OK JR/STATE 里的
+// gripper 等舵机角会被污染，且应答流错开一格级联。修复后 awaitAck 只认
+// `OK <what>`，异步行只转发不进 applied。
+func TestSerialAsyncOKNotMisattributedAsAck(t *testing.T) {
+	fac := installFactory(t)
+	d := openTestSerial(t, testSerialConfig())
+	waitConnected(t, d, 3*time.Second)
+	drainLines(d, 200*time.Millisecond)
+
+	arm := fac.last()
+	// 模拟 IR 数字键 4 在 SET 窗口内插入：`OK IR digit4 S6=62`（gripper 被遥控改成 62）
+	arm.setInjectAfterSet("OK IR digit4 S6=62\r\n")
+
+	if err := d.WriteLine("JR 0 0 112.6 90"); err != nil { // gripper 目标 90
+		t.Fatal(err)
+	}
+	okJR := waitLine(t, d, "OK JR", func(s string) bool {
+		return strings.HasPrefix(s, "OK JR")
+	}, 2*time.Second)
+	// OK JR 携带舵机角：gripper 目标 90（关节角）→ 钳位舵机角 130（offset 40 + scale 1）。
+	// 关键：绝不能是被异步 OK IR 污染的 S6=62。
+	if strings.Contains(okJR, "S6=62") {
+		t.Errorf("异步 OK IR 污染了 gripper：OK JR = %q（不应出现 S6=62）", okJR)
+	}
+	if !strings.Contains(okJR, "S6=130.00") {
+		t.Errorf("gripper 应为命令钳位舵机角 130.00：OK JR = %q", okJR)
+	}
+	// 异步事件必须被透传（forward），不能吞掉
+	if got := waitLine(t, d, "转发 OK IR", func(s string) bool {
+		return strings.Contains(s, "OK IR digit4 S6=62")
+	}, 2*time.Second); !strings.Contains(got, "OK IR digit4 S6=62") {
+		t.Errorf("异步 OK IR 未被转发：%q", got)
+	}
+}
 
 func drainLines(d Device, wait time.Duration) []string {
 	var out []string

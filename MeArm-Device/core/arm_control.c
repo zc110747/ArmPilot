@@ -90,21 +90,24 @@ void arm_stop(uint8_t id) {
     s->target = s->current;
 }
 
-/* Joystick / IR style single-step nudge: move current angle by `delta`
-   degrees, clamped to the servo's forced range, with no ramp. Both current
-   and target are updated so arm_tick() leaves it where it is. */
+/* Joystick / IR style single-step nudge: shift the desired angle by `delta`
+   degrees, clamped to the servo's forced range.
+ *
+ * ⚠️ 修任务③-A：原来 `s->target = s->current` 会把正在斜坡中的目标角**就地取消**
+ * （gripper 全行程约 800ms，这段时间内只要落进一帧 nudge——IR 按键 4/6 或摇杆
+ * A2 偶发漂移——命令就停在半路，表现正是「gripper 有概率不执行」）。
+ * 现改为基于 target 增量，且不改写 current：arm_tick() 的斜坡会把 current 平滑
+ * 拉向新目标，与 SET 命令的语义一致，斜坡中途的 nudge 只微调终点、不中断运动。 */
 void arm_nudge(uint8_t id, int8_t delta) {
     arm_servo_t *s = find(id);
     if (!s || delta == 0) return;
-    int v = (int)s->current + delta;
+    int v = (int)s->target + delta;
     uint8_t lo = servo_min_for(s->ch);
     uint8_t hi = servo_max_for(s->ch);
     if (v < lo) v = lo;
     if (v > hi) v = hi;
-    s->current = (uint8_t)v;
-    s->target  = s->current;
-    s->mode    = MODE_HOLD;
-    sync_to_servo(s);
+    s->target = (uint8_t)v;
+    s->mode   = MODE_HOLD;
 }
 
 bool arm_auto(uint8_t id) {

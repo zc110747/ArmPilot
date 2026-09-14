@@ -7,8 +7,12 @@
 #include <string.h>
 #include <stdio.h> /* vsnprintf_P */
 
-/* ---- ring buffers -------------------------------------------------------- */
-#define RX_BUF_SZ 64
+/* ---- ring buffers --------------------------------------------------------
+   ⚠️ 修任务③：RX 缓冲曾为 64B。后端每条 JR 拆成 2 条 SET（高频拖动时 ~33ms 一帧），
+   舵机大电流负载下主循环偶发繁忙，64B 会被写满而**静默丢字节** —— 这会让第一条
+   SET 解析错乱、OK 不来，进而 gripper 的第二条 SET 被牺牲（「有概率不执行」）。
+   放大到 256B（ATmega328P 有 2KB RAM，足够），单帧命令(~25B)可缓冲十余条。 */
+#define RX_BUF_SZ 256
 #define TX_BUF_SZ 128
 
 static volatile uint8_t rx_buf[RX_BUF_SZ];

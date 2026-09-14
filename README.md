@@ -350,13 +350,21 @@ ArmPilot/
 │   ├── web/static/               #    内嵌前端（three.js 双摇杆 + 角度面板 + 回显终端）
 │   └── tools/                    #    e2e-sim.js · tcp-test.js · headless-joystick-test.js
 └── MeArm-3D/                     # ③ 数字孪生 + 关节级后端 + 物理仿真
-    ├── config/                   #    robot.yaml（★唯一模型）· physics.yaml · 真值冻结基线
-    ├── frontend/                 #    React 19 + Three.js（robot / components / store / tests）
-    ├── backend/                  #    Go 关节级服务（robot / protocol / controller / device / wsserver）
-    ├── simulation/mujoco/        #    MJCF 生成器 + 模型 + 服务 + Viewer + 记录
-    ├── tests/sim/                #    MuJoCo 轨验收（pytest）
-    └── docs/                     #    坐标系 / 模型结构 / 真机实测 / ADR 决策记录 / 采集指南 / 串口协议基线
+    ├── config/                   # robots.yaml —— 只放「选择器指针」（默认机器人 id）
+    ├── robot-package/            # ★ 每台机器人一个包：模型真值 / 运动学 / 物理 / 测试 / 工具
+    │   ├── mearm-v1/             # model/robot.yaml（运动学真值）· physics/ · kinematics/ · tests/
+    │   └── so-arm101/            # 官方 SO-ARM101 资产（逐字节原样，禁止修改）
+    ├── core/                     # Core 层：robopkg（manifest / declared_path / 校验）· baseline · tools
+    ├── frontend/                 # React 19 + Three.js（robot / components / store / tests）
+    ├── backend/                  # Go 关节级服务（robot / protocol / controller / device / wsserver）
+    ├── simulation/mujoco/        # MJCF 生成器 + 模型 + 服务 + Viewer + 记录
+    ├── tests/sim/                # MuJoCo 轨验收（pytest）
+    └── docs/                     # 坐标系 / 模型结构 / 真机实测 / ADR 决策 / 采集指南 / 串口协议基线
 ```
+
+> ⚠️ **真值随包走**：`config/` 只剩**选择器**（`robots.yaml` 只有指针，没有数值）；
+> 运动学 / 标定 / 限位在 `robot-package/<id>/model/robot.yaml`，
+> 物理量在 `robot-package/<id>/physics/physics.yaml`。
 
 ---
 

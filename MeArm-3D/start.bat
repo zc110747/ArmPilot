@@ -324,6 +324,13 @@ echo   Bye.
 goto :end
 
 :usage
+rem Read the default robot id from the selector instead of hardcoding a model
+rem name. A hardcoded name keeps printing long after the default is switched,
+rem and it is exactly the kind of "second copy of the truth" this project bans.
+rem ROOT is already set above (line ~43), so this works on the --help path too.
+set "DEF_ROBOT="
+for /f "tokens=2" %%R in ('findstr /b /c:"default:" "%ROOT%config\robots.yaml" 2^>nul') do set "DEF_ROBOT=%%R"
+if not defined DEF_ROBOT set "DEF_ROBOT=?"
 echo.
 echo  ArmPilot MeArm-3D launcher
 echo.
@@ -334,7 +341,7 @@ echo    start.bat --help   this message
 echo.
 echo  Ports: backend %WEB_PORT%, frontend %FE_PORT%
 echo  Serial port: read from backend\config.serial.yaml, edit it there
-echo  Truth file : config\robots.yaml selects robot-package\mearm-v1\model\robot.yaml
+echo  Truth file : config\robots.yaml selects robot-package\%DEF_ROBOT%\model\robot.yaml
 goto :end
 
 :end

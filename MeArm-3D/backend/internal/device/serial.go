@@ -587,6 +587,7 @@ func (d *serialDevice) execJR(conn io.ReadWriteCloser, rawCh <-chan string, rest
 	}
 
 	applied := make(map[int]float64, len(pairs))
+	var firstErr string
 	for start := 0; start < len(pairs); start += maxPairsPerSet {
 		end := start + maxPairsPerSet
 		if end > len(pairs) {
@@ -602,13 +603,25 @@ func (d *serialDevice) execJR(conn io.ReadWriteCloser, rawCh <-chan string, rest
 			return
 		}
 		if err := d.awaitAck(rawCh, "SET", applied); err != nil {
-			d.emit(fmt.Sprintf("ERR %s（%s）", err.Error(), line))
-			return
+			// ⚠️ 修任务③（核心）：任一条 SET 的 ACK 超时/异常都**不能**牺牲后续 SET。
+			// 固件硬限制单条 SET ≤3 对（MAX_PAIRS=3），4 个执行器必须拆 2 条，
+			// gripper 恒定落在第二条。真机在高频拖动 + 舵机负载下偶发串口字节丢失，
+			// 会让第一条 SET 的 OK 迟到 → 原实现直接 return，gripper 永远不发，
+			// UI 上表现为「其他关节动了，gripper 有概率不执行」。
+			// 这里改为：记一笔错，继续下发其余 SET（gripper 一定发出），最后统一报错。
+			if firstErr == "" {
+				firstErr = fmt.Sprintf("%s（%s）", err.Error(), line)
+			}
+			continue
 		}
 	}
 
 	// OK JR 携带的是**已应用（钳位后）的舵机角**，供 controller 核对标定。
 	// 注意它**不是实际位置** —— 固件不知道舵机真的转到哪了。
+	if firstErr != "" {
+		d.emit(fmt.Sprintf("ERR %s", firstErr))
+		return
+	}
 	d.emit(protocol.EncodeOKJR(applied))
 	// STATE 同样只能表示"固件内部的目标值"（开环）。
 	d.emitStateFromServo(applied)
@@ -651,11 +664,18 @@ func (d *serialDevice) execReset(conn io.ReadWriteCloser, rawCh <-chan string) {
 
 // awaitAck 读到本指令的回执行（OK/ERR 开头），顺带收集其中的 `S<id>=<angle>`。
 //
-// 其余行（开机横幅、`# ` 异步事件）记录并跳过，不参与判定。
+// ⚠️ 修任务③-B：hit 必须严格匹配 `OK <what>`（如 `OK SET` / `OK RESET`），
+// 不能用宽泛的 `OK` 前缀。固件有几条**异步**却带 `OK` 前缀的报文
+// （`OK IR ...`、`OK IRSEQ ...`，见 ir_ctrl.c / ir_seq.c），它们来自中断/遥控
+// 路径，若被当成某条 SET 的应答，会让 OK JR/STATE 里的舵机角错乱，并把应答流
+// 错开一格。这些异步事件只能由 `d.forward` 透传，绝不能被当成应答。
+//
+// 非应答行（开机横幅、`# ` 异步事件、`OK IR*`）会被 await 内部转发，不参与判定。
 func (d *serialDevice) awaitAck(rawCh <-chan string, what string, applied map[int]float64) error {
+	want := "OK " + strings.ToUpper(what)
 	return d.await(rawCh, applied, func(line string) bool {
 		up := strings.ToUpper(line)
-		return strings.HasPrefix(up, "OK") || strings.HasPrefix(up, "ERR")
+		return strings.HasPrefix(up, want) || strings.HasPrefix(up, "ERR")
 	}, what)
 }
 
@@ -681,8 +701,11 @@ func (d *serialDevice) await(rawCh <-chan string, applied map[int]float64, hit f
 			if !ok {
 				return fmt.Errorf("串口已断开")
 			}
-			collectServoKV(line, applied)
 			if hit(line) {
+				// ⚠️ 修任务③-B：只在本指令的应答行上收集舵机角。
+				// 异步事件（OK IR / OK IRSEQ / 开机横幅）的 S 角绝不许进 applied，
+				// 否则会把 gripper 等通道的值污染掉。非应答行一律转发出去。
+				collectServoKV(line, applied)
 				if strings.HasPrefix(strings.ToUpper(line), "ERR") {
 					return fmt.Errorf("%s", line)
 				}

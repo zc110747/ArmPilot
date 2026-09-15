@@ -2,9 +2,10 @@
 
 **mARM 机械臂全栈平台** —— 从**裸机固件** → **串口 / Web 网关** → **数字孪生与真机同步控制**，
 用**一份模型定义**贯穿仿真与物理硬件。
+ 
 
-> ArmPilot is an open-source platform for robotic arm data collection, simulation, AI training,
-> motion planning, vision-based manipulation, and real-robot deployment.
+> MeArmPilot is an open-source robotic arm platform focused on simulation,   
+> real-robot control, data collection, and extensible robot development.
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Firmware](https://img.shields.io/badge/firmware-ATmega328P%20%C2%B7%20avr--libc-8a2be2)](MeArm-Device)

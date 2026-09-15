@@ -24,14 +24,14 @@ serial:
 web:
   enabled: true
   host: "0.0.0.0"     # 绑定 IP；0.0.0.0 = 本机所有网卡（含局域网）
-  port: 8080          # 浏览器访问 http://<本机IP>:8080
+  port: 9001          # 浏览器访问 http://<本机IP>:9001
   ws_path: "/ws"      # WebSocket 路径
 
 # ---- TCP 局域网转发（为其它设备/远程控制预留接口）----
 tcp:
   enabled: true
   host: "0.0.0.0"     # 绑定 IP；0.0.0.0 = 局域网可访问
-  port: 9001          # 其它设备 telnet/raw 连接此端口即可下发 arm-device 指令
+  port: 9002          # 其它设备 telnet/raw 连接此端口即可下发 arm-device 指令
 
 # 日志级别: debug / info / warn / error
 log_level: "info"

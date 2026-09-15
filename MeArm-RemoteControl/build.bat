@@ -14,6 +14,7 @@ echo [build] go vet ./...
 go vet ./...
 if errorlevel 1 (
     echo [build] FAILED: go vet
+    PAUSE
     exit /b 1
 )
 
@@ -21,9 +22,12 @@ echo [build] go build -o %OUT% .
 go build -o %OUT% .
 if errorlevel 1 (
     echo [build] FAILED: go build
+    PAUSE
     exit /b 1
 )
 
 for %%F in (%OUT%) do echo [build] OK: %OUT% - %%~zF bytes
 echo [build] done.
 endlocal
+
+PAUSE

@@ -38,26 +38,82 @@ arm-device/
 ├── core/      应用代码 (arm_control 运动控制, cmd 指令解析, joystick 硬件摇杆, ir_ctrl 红外控制, main)
 ├── third_party/  第三方库 (本版暂无)
 ├── library/   芯片官方库 (ATmega328P 设备头由 avr-libc/工具链提供，见其 README)
-├── scripts/   编译/下载脚本 (固定路径指向 D:\tools\agent-tools)
 ├── tools/     host_verify.py 上位机自动验证脚本 + test_ir_decode.py NEC 解码单测
+├── scripts/   编译/下载脚本 (build/flash/monitor/clean + _env 共用环境解析)
+├── start.bat  ← 项目根目录的唯一入口（双击即可）
 └── platformio.ini
 ```
+> `start.bat` 放在**项目根目录**（双击入口），其余脚本在 **`scripts\`** 子目录。
+> 每个脚本的每个退出路径前都有 `PAUSE`，窗口不会一闪而过；`start.bat` 串联调用下层脚本时
+> 传 `--no-pause`，只保留最外层一次暂停。
 
 ## 构建与下载
-工具链（avr-gcc / avrdude）由 PlatformIO 安装到 `D:\tools\agent-tools\platformio-core\packages`，
-脚本内已固定该根路径并自动解析版本子目录。
 
+### 一键脚本（推荐）
 ```bat
-scripts\build.bat          # 编译 + 链接 + 生成 firmware.hex + 打印 FLASH/RAM 占用
-scripts\build_upload.bat   # 一键编译并烧录到 COM4 (先 build 再 avrdude arduino/115200)
-scripts\build_upload.bat COM3   # 可指定端口
-scripts\upload.bat  [COM]  # 仅烧录 (firmware.hex 已存在时)
-scripts\monitor.bat        # 打开 COM4 115200 串口监视 (pio device monitor)
-scripts\clean.bat          # 清理 .build
+start.bat              # 一键：检查环境 → 编译（等价 scripts\build.bat）
+start.bat clean        # 全量重编（先清 .build）
+start.bat flash        # 一键：编译 → 烧录到 COM4
+start.bat flash COM3   # 同上，指定串口
+scripts\flash.bat      # 仅烧录 .build\firmware.hex 到 COM4
+scripts\flash.bat COM3 # 仅烧录，指定串口
+scripts\monitor.bat    # 打开串口监视 (pio device monitor, COM4 115200)
+scripts\build.bat      # 只编译（start.bat 内部调它）
+scripts\clean.bat      # 清理 .build
 ```
+> 在 Explorer 里双击 `start.bat` 即可；`scripts\` 下的脚本也可单独双击运行。
+> PowerShell 下写法：`.\start.bat`、`.\scripts\build.bat`。
+
+### 编译前自动依赖检查
+`start.bat` / `scripts\build.bat` / `scripts\flash.bat` 在动手之前会**先把所有缺失项一次列全**（不是缺一个报一个），
+并给出可直接复制的安装命令；缺依赖时退出码非 0，`flash.bat` 在预检失败时**绝不会碰板子**。
+
+```
+===========================================================================
+ [FAIL] Cannot build - 4 missing component(s)
+===========================================================================
+  Missing:
+  [REQUIRED] toolchain-atmelavr      AVR compiler package missing
+  [REQUIRED] avr-gcc.exe            C compiler missing
+  ...
+  How to fix
+  ----------
+    Option A - install with PlatformIO (recommended, one command):
+       pio pkg install --global --platform platformio/atmelavr
+    Option B - ask the WorkBuddy agent to install the dependencies.
+```
+
+- 编译只需 `avr-gcc / avr-g++ / avr-objcopy / avr-size`；**缺 `avrdude` 不阻塞编译**
+  （只作为 NOTE 提示，因为烧录才需要它）。
+- 首次准备工具链：`pio pkg install --global --platform platformio/atmelavr`
+  （需要 avrdude 时再 `pio pkg install --global --tool platformio/tool-avrdude`）。
+
+### 工具链路径解析
+由 `scripts\_env.bat` 统一解析，**不再硬编码盘符**，顺序为：
+1. `%PLATFORMIO_CORE_DIR%\packages`（显式覆盖）
+2. `%USERPROFILE%\.platformio\packages`（PlatformIO 标准安装位置）
+3. `D:\tools\agent-tools\platformio-core\packages`（旧布局兼容）
+
+并同时兼容两种包目录布局：扁平 `toolchain-atmelavr\bin\` 与嵌套
+`toolchain-atmelavr@<版本>\<版本>\bin\`。
+
+项目根目录 `PROJ` 也由它推导：脚本位于 `<PROJ>\scripts\`，故取自身目录的**父目录**，
+并要求父目录存在 `core\main.cpp` 作为工程标记（把脚本放回根目录也能正常工作）。
+`start.bat` 在根目录、工作脚本在 `scripts\`，两者分别用 `BATDIR` / `SCRDIR` 区分。
+
+> ⚠️ **PATH 回退有防护**：仅当 PlatformIO 包完全不存在时才回退到 PATH 上的
+> `avr-gcc`。本机 PATH 上 Microchip XC8 的 `avr-objcopy` 会被**显式拒绝**
+> （它属于另一个编译器家族），避免混用导致难以定位的链接/hex 失败。
+
 > 所有脚本为**纯英文 `.bat`**（无中文，无 UTF-8 BOM），在 **cmd 与 PowerShell 中均可直接运行**
-> （PowerShell 下 `.\scripts\build.bat` 即可，不受执行策略限制；未使用 `.ps1`）。
-> 工具链根路径固定为 `D:\tools\agent-tools\platformio-core\packages`，脚本自动解析版本子目录。
+> （PowerShell 下 `.\start.bat` 即可，不受执行策略限制；未使用 `.ps1`）。
+>
+> **每个退出路径（成功与失败）前都带 `PAUSE`**，因此可直接在资源管理器里双击运行，不会一闪而过；
+> 当 `start.bat` 串联调用下层脚本时，会传 `--no-pause` 抑制子脚本的暂停，只保留最外层一次。
+>
+> ⚠️ **`%~dp0` 必须在 `shift` 之前取走**：`shift` 会把 `%1` 挪进 `%0`，而 `%~dp0` 派生自 `%0`，
+> 因此 `shift` 之后再读 `%~dp0` 已经不是本脚本所在目录（无参数时会退化成当前目录解析）。
+> 各脚本一律先 `set "BATDIR=%~dp0"` 再做参数解析。
 
 ## 串口指令协议（COM4，换行结束）
 - `SET <id> <角度>`：单舵机到角度（id ∈ 6/7/8/9），如 `SET 9 120`

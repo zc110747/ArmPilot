@@ -1,73 +1,112 @@
-# MeArm-3D · 项目 playbook（长期记忆明细）
-
-> 由 `MEMORY.md`（索引）按需引用的明细。跨会话长期有效，改这里要同步 `MEMORY.md` 的入口表。
-
 ## §1 测试与探针纪律
 
-- **探针只准用 `matrixWorld` / DOM 真实现象做证据，不许把数学再算一遍**（用 `FK(actual)` 证明"渲染了"
-  是自证：挂错树 / 可见性误关 / 全透明都会让断言全绿）。
-- **探针（含 `delete window.__xxx`）必须 `import.meta.env.DEV` 守卫**，否则字面量进生产包。
-- ★ **位置型读取（`rows[i].children[j]`）必须限定到同一容器**（D67 一）：`.sidebar table.grid tbody tr`
-  会同时命中 `ConnectionControl` 的"指标/值"表（排在 `StatusPanel` **前**）⇒ 一旦渲染，`rows[1]`
-  静默漂移到"丢帧/拒绝"行。用 `cardByTitle('状态 · Status')` 先限定。**"读到值" ≠ "读到想读的对象"。**
-  ⚠️ 这类探针**必须写成函数**（模块级模板字面量在 import 时求值 ⇒ `cardByTitle` 还在 TDZ ⇒ ReferenceError）。
-- **时间相关的多个读数必须合并在同一次 `cdp.evaluate`**（分两次 CDP 往返会让快收敛量读到归零值 ⇒ 间歇失败）。
-- ★ **端口预检不许用「分组 + `\b`」**（D65）：本机 GNU grep 3.0 里 `\b` 紧跟 `)` 失效，且**漏 `-E` 时
-  `(` `|` `)` 是字面字符** ⇒ 两缺陷叠加让预检**恒返回"干净"**。用字段级比较
-  `netstat -ano | tr -d '\r' | awk '$4=="LISTENING"{n=split($2,p,":"); if (p[n]==8090) print $5}'`；
-  `taskkill //PID` 亦**报错并静默失败** ⇒ 用 `taskkill -F -PID`（单横线）或 `Stop-Process`。
-- **`start.bat` 起的是"一对"进程**（D67 三）：真机后端（8090）+ 带 `VITE_AUTO_CONNECT=ws` 的 vite（5273），
-  只清一个还会踩。症状：e2e 读到 `Command 列跟随滑杆 — 0 / 0`、滞后类断言读到已收敛值。
-- **不许用推导量当独立判据**（D44：`TransportStats.moving = lagDeg > eps` 判"卡死"永远无结论）；
-  **没有正面证据不下断言**，宁可停在保守态（`tracking`）。
-- **e2e 有 SKIP 语义**（D65）：复用既有实例且 `device=serial` 时，「末端非 serial ⇒ 拒绝切换」前提不成立
-  ⇒ 走 `skip()` 而非 `check()`，**不许把环境差异伪造成代码回归**。
-- 断言语义要分清：`defineRobot()` 是**视图**（`toBe` 钉同一对象）；`forwardKinematics()` 每次调用都
-  **新构造**结果 ⇒ 只能逐位比数值（`toContain`/`toBe` 会假失败）。
-- ★ **逐帧记录器记得"是谁先跑"**（D74）：`useFrame` 回调**先于** `gl.render` ⇒ 读到的矩阵是
-  **上一帧画出去的**；首帧读到的空对象是**仪器伪影，不是 bug**（主臂那帧正确只因它每 0.25 s 显式
-  `updateMatrixWorld`）。**改探针前先分辨"真现象"与"采样时刻"**。
+- **测试必须能红**：新加的守卫要么先构造一个会失败的场景验证它能红，要么等于没加。
+- ★★ **`TransportStats.moving` 不能用来判"卡死"**（D44）：`moving = lagDeg > arrivedEps()`，
+  它是 **lag 的同义重写** ⇒ `stalled` **永远不可能**出现。判据必须自己从**时间序列**得出：
+  只有「命令已静止 ≥ `STALL_HOLD_MS`(700ms)」**且**「趋势不再下降（flat/growing）」才判 `stalled`；
+  `unknown`（样本不足）/ `shrinking`（仍在收敛）一律 `tracking` ——
+  **宁可提示"还在追"，也不误报异常**。
+- **趋势判定用四分位中位数**，不用首末值/均值：回推序列混有掉帧与量化台阶，
+  **个别异常帧就能把结论翻面**，而"误报卡死"会让人去查并不存在的问题。
+- **恒假的检查比没有检查更危险**（D65）：`netstat | grep -E "..." | grep -E ":(5173|5273|8090)\b"`
+  两个独立缺陷叠在一行（**漏 `-E`** ⇒ `(` `|` `)` 是字面字符 ⇒ 正则**恒不命中**；
+  补 `-E` 后 **`\b` 紧跟 `)`** 在 GNU grep 3.0 下失效）⇒ 预检**恒返回"干净"**，
+  把"我没查"伪装成"我查过了"。可靠写法：字段级 `awk '$4=="LISTENING"{...}'`。
+- **复用真机后端会把「前提不成立」读成「代码回归」**（D65/D40/D43）：
+  8090 上有上一轮遗留的 `device=serial` 后端时，"**允许**切换 Real Robot"才是**正确行为**。
+  这是**环境差异**，不是回归 ⇒ 每次 e2e 前必须确认后端是**干净 sim**。
+- **探针的两类静默失真**（D67）：
+  ① **读错表** —— `.sidebar table.grid` 不止一张（`ConnectionControl` 的"指标/值"表排在
+  `StatusPanel` 关节表**之前**），全局 `querySelectorAll` 会命中错的那张 ⇒ 必须**限定作用域**；
+  ② **滞后读数拆成多次 CDP 往返** —— 慢环境里读到的是**已收敛值**，让"滞后瞬间"断言假 FAIL
+  ⇒ 一次往返取齐所有量。
+  ★ 另加 `start.bat` 的**残留进程对**问题：残留后端会让页面 Actual 由 WS 回推驱动。
+- **e2e 必须隔离端口**（5276 + 8091），起服务与跑 e2e **必须在同一次工具调用里**
+  （`(cmd &)` 后台进程只活到本次调用结束）。
+- **`mode` 跨批次残留**：上一批点过 Real Robot 会带进下一批 ⇒ 每批开头显式复位。
 
 ## §2 机制与关节判定速查
 
-- 命令下发：store `commandJoints` → `transportBridge` **尾沿合并 30~33Hz** → `RobotTransport`；
-  **回推只写 `actualJoints`**（回写 command 即无限回环）。**唯一例外 = 首次接管那一帧**（D74）：
-  `commandJoints` 初值是对机器现状的**假设**（= `homePose`）⇒ 首次 `connected` 置 `attachPending`，
-  由第一帧回推消费 → `attachToActual()` 对齐、**不下发**、**让位于用户意图**
-  （`commandAuthoredSinceConnect`）；重连仍走 D32「补发命令」。
-- 安全门：`mode === 'simulation'` **且**是真机链路（websocket + `device === 'serial'`）⇒ 拒发；
-  mock / `device=sim` 照常放行（否则打死整条仿真闭环）。时钟：一切时间逻辑走 `TimerLike`。
-- 端口：后端 **8090**（`/ws/joint`、`/healthz`）与 `MeArm-RemoteControl` 的 8080 舵机级摇杆**并存**。
-- ★ **可动关节的唯一判定：`joint.type === 'revolute'`**（**不是** `!== 'fixed'`），三端同源
-  （`isMovableJoint()` / Go `JointOrder()` / Python `is_dof`）。`nq = 5` 而自由度 = 4
-  （被动腕 `tool` 有 qpos 但被 `<tendon><fixed>` + `<equality><tendon>` 锁死）；
-  `joint_ids`（qpos 序）**≠** `dof_ids`（状态帧序），混用会得到五元组 JR。
-- ★ `elbow` 存**离开天顶的绝对倾角**（HOME 112.6185771989°），MuJoCo `hinge qpos` 是**相对父 body 的局部角**
-  ⇒ `relative = value + gain × otherValue` **只在 `units.JointAngleMap` 一处**转换。
-- **抽象层性质**（D72）：`defineRobot()` 是对 `RobotModel` 的**分节视图**（所有字段是原对象引用，`toBe` 钉住，
-  零转换零拷贝）；`orientationError` 恒 `null`（本机无姿态自由度，填 `0` 会同时骗过调用方与测试）；
-  `IKResult` 失败时 `positionError: null`；`MeArmKinematics` 是**零算法纯委托**，仅对未知 `prefer` 显式抛错。
-- **独立裁判机制**：`tests/sim/ikbridge.py` → `frontend/tests/tools/kinematics-bridge.mjs` 用 Vite SSR
-  加载器加载**同一份** `ik.ts`/`fk.ts`；Python 侧只递 JSON、**不解释任何运动学语义**。
+**关节轴**（D2，有意改写 spec 示例 yaml 的 axis 字段）：
+`base = [0,0,1]`（绕竖直轴偏航）· `shoulder/elbow/tool = [0,1,0]`（XZ 平面内俯仰）·
+`gripper = [1,0,0]`（爪沿 ±Y 分开）。
+⚠️ spec §八 示例给的是 `base=[0,1,0]` / `shoulder,elbow=[0,0,1]`，与 §九「Z：上下」**矛盾** ——
+按后者取值才得到竖直平面内的 2R 机构；照前者是**水平 SCARA**，与 meArm 完全不符。
+
+**`nq = 5`**：`base / shoulder / elbow / tool / gripper`。其中 **`tool` 是 passive**
+（`type: passive`，`limit.min === limit.max`）。⚠️ 它**不进入** JointState / UI 滑杆 / JR 协议
+⇒ JR 仍是**四元组**，`docs/serial-v1.md` 与固件**一个字都不用改**（D70）。
+
+**绝对角 vs 局部角**（最关键的一条）：
+- `elbow` 存的是**绝对倾角**（θ=0 指天顶），真机由独立舵机 S8 经**平行四连杆**驱动
+  ⇒ 与肩角**解耦**，用 `coupling: {joint: shoulder, gain: -1}` 表达（D16）。
+  串联网里的**局部旋转** = `112.62 + (−1) × shoulder`。
+- `tool` 是**被动关节**（D70）：爪的绝对倾角同样被连杆锁住（**近似恒水平**），
+  `limit = 90..90` + `coupling{gain:-1}` 到 `elbow` ⇒ 爪绝对倾角 ≡ 90°，
+  **与 J2/J3 都无关**。
+- ⚠️ **`elbow` 的合法域是「斜的」**（D49）：它与 shoulder 耦合，而 **MuJoCo hinge `range`
+  只能表达轴对齐的盒** ⇒ 没有任何单一 `range` 能表达它。
+  - 局部角外接区间 = `[108.4415−49.4549, 141.8582+6.0937] = [58.9866, 147.9519]`
+  - 取下界配肩角下界：`θe = 58.9866 + (−6.0937) = 52.89°` < 108.4415° ✗ **越界**
+  - 求"内切"：下界 114.5352 > 上界 92.4033 ⇒ **空集**
+  ⇒ **若只靠 range，MuJoCo 会照常执行 `(shoulder=−6°, elbow=53°)`**（它只看到局部角 59° 在盒内），
+  而真机 S8 结构上**转不到**那个绝对角。
+  **架构**：`robot.yaml` = **唯一限位真值**；`physics.yaml` 的 `range_padding_deg` 只承担
+  **数值保护**（防止积分器发散），**不承担语义**。
+- **`link.length` 是机构尺寸的唯一真值**（D1）：一根连杆沿**其近端关节坐标系**的 +Z 伸展
+  `length`，末端即下一关节坐标系原点 ⇒ **改 `length` 即改机构尺寸**，无需同步改任何关节字段。
+- ⚠️ **改 `length`/轴限位/耦合/标定 ⇒ 报错**（冻结基线语义核心哈希，D55）；
+  改 `links[].geometry`/`details` ⇒ **放行**（纯外观）。
 
 ## §3 外观 / 纹理轨（D56–D69）· 速查
 
-> 完整口径在 `docs/decisions.md` D56–D69 + `docs/texture-capture-guide.md`。
-
-- 定义：`robot.yaml → links[].geometry.texture` 填 key（相对 `assets/textures/`），`textureRegistry.ts`
-  用 `import.meta.glob` 静态登记 ⇒ **新增纹理只丢文件，无需改代码**；
-  两个必要守卫：① 无 DOM 不加载（`TextureLoader` 要 `document`，vitest 是 node 环境）；
-  ② key 未登记 ⇒ `console.warn` + 回退纯色（**贴图失败是静默的**，只有测试能兜住）。
-- ★★ **`RoundedBoxGeometry` 的 UV = "每面各自铺满 [0,1]"、与长宽比无关** ⇒ 不能整块挂一张图，
-  **必须按面用材质数组**（大面贴照片、其余四面保持板色）。`materialIndex`
-  `0=+X 1=-X 2=+Y 3=-Y 4=+Z 5=-Z`，6 个 group 覆盖全部顶点。⚠️ 它是**非索引几何**（`g.index === null`）
-  ⇒ group 的 `start/count` 是**顶点范围**，按索引遍历直接 `TypeError`。
-- **定位**：两个大面的 Δu/Δv 必有一个相反（盒体展开的必然）⇒ 同一张照片**必有一面需要镜像**。
-- ★★ **`TextureLoader` 的 `flipY` 默认 `true`** ⇒ **图像顶行 ⇔ `uv_v = 1`**（不是 0）。不报错、类型检查
-  也查不出，漏掉会让所有 v 方向推理**整体反号**。⚠️ **定朝向不许靠目视/推断** ⇒ 用**四象限探针纹理**定案。
-- ★ **绝不改回 `scene.environment`**：它全局，且 three 用 `scene.environmentIntensity` **覆盖**
-  `material.envMapIntensity`（仅当 `material.envMap === null`）⇒ 逐材质关反射**根本不生效**。
-  逐材质方案（`plateEnvironment.ts` 程序化 PMREM，零外部 HDR）底座 ×1.0000。
+- ★★ **PIL 的 `Image.transform(QUAD)` 不能用于透视校正**（D56）—— 它引入 **+12~17px 的
+  静默平移**（刻度线真值 `[185,370,554]` → `[197,387,567]`；而四角估计误差只有 `1.00px`）。
+  用 `make_texture.py` 的自实现 `homography` 重采样（同四角同 round-trip ⇒ **精确命中**）。
+- ★★ **近黑照片纹理「看不见」的根因是 8bit 量化，不是曝光**（D64）：
+  照片按**白色桌面**曝光 ⇒ 黑亚克力落在 **1~3 码值**（`upper_arm_link` ≤3 占 **72.2%**、
+  `forearm_link` **77.0%**），经 three 的 sRGB→线性（`sRGB(2) → 0.0006`）⇒ 渲染 `L≈0.08`。
+  **七成以上像素在量化台阶上，提亮只是把台阶一起放大**（推到 L≈60 需 **+6.2 EV**，
+  那时板面摊成 41/60/74 **三级平台**，比纯黑更假）。
+  **解法是逐材质 `envMap`**，⚠️ **不要**改回 `scene.environment`（全局的，实测把底座蓝板点亮 ×3.3757；
+  且 three 在 `envMap===null && scene.environment!==null` 时**用 scene.environmentIntensity
+  覆盖 material.envMapIntensity** ⇒ 逐材质"关环境反射"在全局方案下**根本不生效**）。
+  ⚠️ **真正能把板面细节送进数据的是拍摄端**（对板测光/补光重拍）。
+- ★ **局部轴 ≠ 世界轴**（D57）：plate 的**大面法向 = `size` 里最小那一维**，但"局部薄轴"
+  **不能**直接当"世界方向"写进指南 —— 曾有 2/6 张据此拍错。
+  摆动平面 = X–Z（`base` 轴 = 世界 Z，`shoulder`/`elbow` 轴 = 世界 Y）⇒ **相机在 −Y 一侧**；
+  ⚠️ `tool_link` 局部 Z → 世界 X。
+  ⇒ **别背轴向，拿实物转一圈找面积最大的面。**
+- ★ **采集判定「说不该说的话」比不量不说更贵**（D57）：产物是**给操作者的行动指令**，
+  指令错了**不会报错** —— 人会照着错的指令调很久也调不好。
+- **提高分辨率只有物理靠近一条路**（D58）：`base` 旋转是**零和**（远端 ×1.08 但板法向偏 20°
+  ⇒ 投影缩短 `cos20°=0.94` ⇒ 净 1.015，还白搭透视）；肩/肘摆动**改变不了 `px/mm`**
+  （摆动平面 X–Z **平行于像平面**）。
+  ⚠️ **"自动分割出单块板"不可行**：板/立柱/底座/舵机/控制板**同一种黑**且**由螺栓物理相连**
+  ⇒ **不存在"只含一块板"的连通域**（暗像素占整帧 25.7%，左下象限高达 65%）。
+- **「带区间的搜索」必须显式检测最优解是否贴边**（D59）：最优落在区间端点 2% 以内
+  ⇒ **该值不是测量结果，是区间的人为截断**（`s = 3.80` 就是这么来的）。
+  **两个读数矛盾时，先查区间是不是设窄了，别急着改模型。**
+- **纯几何推理走不通时改用「致动并观察」（motion-diff）**（D59）：动一个关节 → 拍前后两帧 → 差分
+  ⇒ **差分区域 = 该关节及其下游零件**，不依赖任何相机/位姿假设。
+  ⚠️ 但**给不出干净的单板四角** ⇒ 只做归属判定 + 粗定位。
+- ⚠️⚠️ **`mujoco.Renderer(model, height, width)` —— 顺序是 (height, width)**（D61）：
+  传反**不报错、不告警**，却让**所有目视结论都错** ⇒ **工具调用的参数语义必须先验证。**
+- ★ **三态 `ok` / `reject` / `undecidable`；「判不了」≠「不合格」**（D61/D57）
+  ⇒ 此时**禁止**输出"像结论"的数字。
+- **孔洞掩膜**（D62）：实板**镂空** vs 模型**实心 box** ⇒ 把非板面区域填成**板面色**。
+- **前端接入照片纹理按「面材质数组」**（D63）：一条被 `flipY` 掀翻的朝向推理 ——
+  用**面材质数组**而不是翻转贴图。
+- **夹爪按实拍照片反解平面轮廓**（D66）：`type: jaw` 一条连续闭合折线 +
+  三条由几何自洽给出的派生关系。形体特征：根部**整圈方齿齿轮盘**（齿轮直径/爪长 = 246/359 = **0.69**，
+  模型 24/34 = 0.71）· **两片爪齿轮互相啮合** · 内侧缘约 **9 个浅密锯齿** ·
+  外侧缘出盘后**先收窄一次**（"脖子"约在 1/3 处）· 末端**斜切收尖**。
+- **视口**（D68）：产品渲染式灰底 + 板件统一**近黑** + 世界轴**默认关**。
+- **「空洞」补料**（D69）：小臂侧板到腕点缺 **12.5mm** 料 ⇒ 用**沿臂推导覆盖区间**定位 +
+  用**无贴图 `box` 补料**填充（**不是**拉伸主板）。
+  ⚠️ 必须追加到 `details` **末尾**：`load_plate_sizes` 用 `enumerate(details)` 的**下标**做别名
+  （`forearm_brace` = index 3），插中间会把后续下标整体挤错。
+环境纹理由程序化 RoomEnvironment + PMREM 生成，不依赖任何外部 HDR 资产（实测：只作用于 `plateTexture` 材质，底座蓝板 ×1.0000）。
 - 几何铁律：plate 大面法向 = `size` 里**最小那一维**；摆动平面 = X–Z（`base` 轴 = 世界 Z，
   `shoulder`/`elbow` 轴 = 世界 Y）⇒ **相机在 −Y 一侧**。⚠️ **局部轴 ≠ 世界轴**（`tool_link` 局部 Z → 世界 X）
   ⇒ **别背轴向，拿实物转一圈找面积最大的面。**
@@ -439,3 +478,134 @@ C5（`role` 跨端语义分歧）· C6（`project_plates.py` 硬编码板件尺�
 > 最终复现未跑。恢复硬件后按 `.workbuddy/captures/gripper_noexec_hunt.py` 验证
 > （直连串口、复刻 execJR 命令形状、读真实 `current`）。A/B 两缺陷触发源是 IR/摇杆，
 > 与用户「从未碰遥控」不符，但主因（execJR 牺牲第二条 SET）是纯拖动场景即可触发。
+
+
+## §10 CAD / STEP 数据接入（2026-09-15 起）
+
+**结论**：STEP 可作**外观源**，**禁止**作运动学真值源。`robot.yaml` 一个数字都没改。
+
+### 10.1 铁律：读复杂标准格式一律用参考实现
+
+自研正则解析器读 `3d-structure/mearm3Dasm.STEP` 时误判「只有层级没有几何、0/241 可达」
+并写成 `BLOCKED`。用户指出「不要自己写解析器，用完整开源项目」——**用户对**。
+换 **OCCT**（`cadquery-ocp` 8.0.1.0.0，`STEPCAFControl_Reader` + `XCAFPrs_DocumentExplorer`）
+读同一文件 ⇒ `nodes=111 leaves=103 with_geometry=111 servos=4`，**111/111 全有几何**。
+
+- **铁律**：自研工具给出**否定性结论**（「文件坏了」/「数据缺」）时，
+  **必须先用参考实现复核**，否则会把**工具的能力边界**误报成**数据的缺陷**。
+- 自研解析器静默丢弃的三处（修完一处还会被下一处继续骗，**不要试图逐个打补丁**）：
+  ① **复杂实例** `#1385 =( A(...) B(...) C() );`（多子类型并列、无单一类型名）；
+  ② **嵌套括号引用** `FACE_OUTER_BOUND('NONE',(#101436),.T.)`（`refs()` 漏 list 就断链）；
+  ③ **编码**（法语名 + 中文占位标签交替）。
+  ★ 特别警示：修好 ① 后**实体计数已对齐（154708 / 0 缺失）但几何仍为 0** ——
+  「计数对齐」**不等于**「解析正确」，不能拿它当验收判据。
+
+### 10.2 唯一保留的工具
+
+`core/tools/step_report.py`（OCCT）。输出装配树 + 命名件 + world AABB + 舵机输出轴：
+
+```bash
+PYTHONIOENCODING=utf-8 "$PY" core/tools/step_report.py \
+  robot-package/mearm-v1/3d-structure/mearm3Dasm.STEP \
+  --json .workbuddy/captures/step_report.json
+# 预期: nodes=111 leaves=103 with_geometry=111 servos=4
+```
+
+❌ 已删除（产出过错误结论 / 已被吸收）：`parse_step_assembly.py`、`step_world_geometry.py`、
+`step_occt_tree.py`、`step_joint_axes.py`。
+
+### 10.3 OCP / pybind 绑定陷阱（写脚本必踩）
+
+| 陷阱 | 正解 |
+|---|---|
+| `Bnd_Box.Get()` 报 `Unable to convert ... -> Bnd_Box::Limits` | 取 6 个 `CornerMin()/CornerMax()` 分轴访问 |
+| `XCAFPrs_DocumentExplorer.Flags_s()` 不存在 | 用**模块级** `XCAFPrs_DocumentExplorerFlags_None` |
+| `exp.IsCurrentLeafNode()` 不存在 | 用 `not node.IsAssembly` |
+| `TopoDS.Face_s` | 用 `TopoDS.Face`（`Face_s` 是 OCP 旧命名） |
+| 叶片标签名是 `NAUO*`（无名） | 真名在 **`node.RefLabel`**（`IsNull()` 才回落 `node.Label`） |
+| `TDF_LabelSequence` 不在 `OCP.TDF` | 在 `OCP.collections.Sequence_TDF_Label` |
+| 舵机输出轴与舵盘轮毂/让位孔混在一起 | 按半径阈值分离：轴 R=6.20 / 轮毂 R≈2.85 / M3 让位 R<0.8 ⇒ 取 R≥4.0 |
+
+### 10.4 从 CAD 读关节轴：SG90 输出轴 = 关节旋转轴
+
+在 4 个 `microservoSG90` 实体上枚举圆柱面（`BRepAdaptor_Surface` + `GeomAbs_Cylinder`），
+每个舵机的输出轴都命中 **3 个共轴圆柱面**（R=6.20），一致性很高、非偶然面。
+
+**实测（世界系，mm，Z-up）**：
+
+| 编号 | 轴方向 `d` | 轴上一点 `p` | 角色（推定） |
+|---|---|---|---|
+| 0 | `[0,-1,0]` | `[-14.731, 25.400, 155.975]` | 肩 |
+| 1 | `[0,0,1]` | `[  8.705,-13.165,  53.100]` | 底座（外侧） |
+| 2 | `[0,0,1]` | `[ 13.693,  0.746,  53.100]` | 底座（内侧） |
+| 3 | `[0,1,0]` | `[-89.986, 35.788, 232.587]` | 肘 或 夹取 |
+
+**轴间关系**：0↔3 **平行（0.00°）、间距 107.39** ｜ 1↔2 **平行（0.00°）、间距 14.78** ｜
+其余两两 **90°**。轴向**全部与 `robot.yaml` 吻合**（base `[0,0,1]`；shoulder/elbow/tool `[0,1,0]`）
+⇒ **`KINEMATIC_STRUCTURE_CONFLICT = NO`**。
+
+### 10.5 ★★ 肩轴 ∥ 肘轴 ⇒ 平行四连杆的 CAD 结构实证
+
+轴 0（肩）与轴 3（肘）**严格平行**、间距 107.39 —— 这是**平行四连杆**的定义性几何签名。
+⇒ `robot.yaml` 的 `elbow.coupling = {shoulder, gain: -1}` 此前只是 **2026-09-13 照片反解**的
+经验拟合（拟合残差 ~19%，yaml 自陈「硬拟合 ≈ −0.81」），**现在升级为结构事实**。
+（可选：在 yaml 注释补「已由 CAD 几何实证」；**注释不触发**冻结基线。）
+
+### 10.6 ⚠️ 为什么 `length` **不可**由 STEP 反推（别浪费时间再试）
+
+**已证明 STEP 姿态 ≠ 零点位**：yaml 零点位下 shoulder=0（大臂竖直）+ elbow=112.62
+⇒ 肩肘两轴应差 **22.6°**；CAD 实测 **0.00°** ⇒ 建模时大臂与小臂**共线**。
+因此 STEP 给的是「**该姿态下**的瞬时轴间距」，而需要的是「**零点位**沿各杆 +Z 的伸展」。
+拿 107.39 写 `upper_arm_link.length` 会**立刻破坏 FK/IK + 冻结基线**。
+
+- 「底板→肩轴 106 mm」同理**语义不同**：它含舵机体 29.8 + 转盘板(58×3×58) + 立柱板(90.7×3×145)，
+  而 `column_link.length = 60` 是「转盘→肩的纯伸展」。
+- spec §9 明令**禁止**用 mesh 包围盒当连杆长度（包围盒含端盖/横撑/倒角，系统性偏大）。
+- **唯一正当路径**：**标尺实拍**（`docs/hardware-measurement.md` §7 Phase 4.5）。
+  SCAD 没有、也无法替代这条路。
+
+### 10.7 遗留 UNCERTAIN（Level 1–2）
+
+| # | 待办 | 闭合方式 | 状态 |
+|---|---|---|---|
+| T1 | 关节 `+θ` 旋向符号（STEP 的轴是无向直线，不含零位信息） | 保持 yaml 现有符号（实拍反解） | 保持 |
+| T2 | 4 段 `length` | 标尺实拍 | 待实拍 |
+| ~~T3~~ | ~~轴 1 与 2 是两根平行竖轴、间距仅 14.78 mm 的身份~~ | **用户 2026-09-15 确认：固定件，不需考虑** | ✅ **CLOSED** |
+| T4 | 夹爪铰轴销 R≈3.2（yaml `details` 写 `radius: 3.2`）被提取阈值 R≥4.0 漏掉 | 阈值降到 3.0 复扫 | 低优先 |
+
+> ✅ **T3 已由用户裁定为固定件** ⇒ 底盘上那两根平行竖轴（间距 14.78 mm）**不是自由度**、
+> 不进运动链、外观阶段可**如实照搬 CAD 形状**。5 关节拓扑确认无遗漏。
+
+
+### 10.8 外观阶段的边界（Phase 1 待办，本次未执行）
+
+| 允许改 | 禁止改（**动了就要停下问用户**） |
+|---|---|
+| `links[].geometry.*` / `links[].details.*` / `appearance.*` | `links[].length` / `joints[].*` / `actuators[].*` / `robot.homePose` / **`robot.tcp`** |
+
+- 冻结基线判据是**语义核心哈希**（D55），白名单只含 `id/name/units/tcp/homePose` + 运动学/物理量
+  ⇒ **`geometry` / `details` 不在其中**，改外观**不会**让 `test_baseline_frozen.py` 报红。
+- ⚠️ 但 **`tcp` 在**白名单里 ⇒ 外观阶段**绝不要**顺手改 `robot.tcp`。
+- ⚠️ **不得**按视觉外观重新划分 `links`（spec §14–17 + 用户明确要求）：
+  显示分组**必须**沿用现有 6 个 link 边界，只换每个 link 内部的几何形状。
+
+## §11 验收七件套（完整命令）
+
+```bash
+# ── 前端三件（在 frontend/ 下执行）──
+cd frontend
+./node_modules/.bin/tsc -b --force            # 0 error
+./node_modules/.bin/vitest run                # 全绿（含 ../robot-package/*/tests/*.test.ts）
+./node_modules/.bin/vite build                # dist/assets/*.js 中 __armPilot 命中 0（*.js.map 必然含，不算）
+node tests/e2e/ui-smoke.mjs                   # 必须隔离端口
+# ── Python 六件（★ 必须在**仓库根**执行）──
+$PY -m pytest -q                              # ★ 走 pytest.ini testpaths：core/tests + tests + robot-package
+$PY core/tools/run_sim2sim.py --all           # ★ 统一 Sim2Sim 矩阵（选择器全部机器人，D77）
+$PY robot-package/mearm-v1/tools/gen_mearm_v1_baseline.py --check    # 黄金数据逐位复现（改运动学/物理必跑）
+$PY robot-package/so-arm101/tools/gen_so_arm101_robot_yaml.py --check # SO-101 配置 ↔ 官方模型同步
+$PY robot-package/so-arm101/tools/inspect_so101_physics.py --check   # SO-101 物理快照 ↔ 官方 MJCF（46 项）
+$PY core/python/robopkg/cli.py validate --all # 选择器 / manifest / 真值 / 包目录 四方对账
+```
+
+**实测基线**（2026-09-15）：`pytest -q` = **196 passed** · `test_baseline_frozen.py` = **11 passed** ·
+`cli.py validate --all` = 通过。

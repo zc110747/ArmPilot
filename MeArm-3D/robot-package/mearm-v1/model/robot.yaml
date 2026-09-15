@@ -136,7 +136,12 @@ links:
     length: 0
     geometry:
       type: plate
-      size: [94, 82, 7]
+      # 尺寸取自 STEP (OCCT `Bnd_OBB` 有向包围盒, 件 "4"): 62.86 × 48.10 × 3.00。
+      # ★ 板厚 3.0 是**全局实测值**: 该装配体 30 块严格轴对齐薄板的厚度**全部是 3.00**,
+      #   即开源 meArm 套件的标准亚克力料厚。改前写的 7 是估计值, 无实据。
+      # ⚠️ 只改 size, **不改 position** —— STEP 未携带"地面在哪"的语义,
+      #   装配基准无法从几何自证(见 docs/APPEARANCE_PARAMETERS.md §3)。
+      size: [62.86, 48.1, 3]
       cornerRadius: 5
       position: [0, 0, 3.5]
       color: "#232830"
@@ -158,14 +163,18 @@ links:
     length: 60
     geometry:
       type: plate
-      size: [66, 60, 7]
+      # 转盘（CAD 件 "2"）: 实测 58.00 × 58.00 × 3.00（正方形, 板厚 3.0）。
+      # 改前 [66,60,7] 是估计值。
+      size: [58, 58, 3]
       cornerRadius: 4
       position: [0, 0, 34]
       color: "#232830"
     details:
-      # 两片立柱侧板（夹住 S9 舵机体）
-      - { type: plate, size: [30, 6, 22], cornerRadius: 2, position: [0, 13, 49], color: "#232830" }
-      - { type: plate, size: [30, 6, 22], cornerRadius: 2, position: [0, -13, 49], color: "#232830" }
+      # 两片立柱侧板（CAD 件 "11" / "7"）: 实测 51.83×21.47 / 51.96×21.63, 厚 3.0。
+      # 两者尺寸差 0.1mm 属建模误差, 取同值 52 × 21.6 保持左右对称。
+      # ⚠️ 这是**显示尺寸**的更正; 改前 [30,6,22] 无实测依据。
+      - { type: plate, size: [52, 21.6, 3], cornerRadius: 2, position: [0, 13, 49], color: "#232830" }
+      - { type: plate, size: [52, 21.6, 3], cornerRadius: 2, position: [0, -13, 49], color: "#232830" }
       # S7 肩舵机：装在立柱顶，输出轴沿 Y（肩关节轴）
       - type: servo
         rotation: [-90, 0, 0]

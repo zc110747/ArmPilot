@@ -1,10 +1,9 @@
 {
-  "note": "本文件是「运动学 + 物理」真值的冻结基线。判据是 *_core_sha256（语义核心），整文件 sha256 仅作记录。改外观几何（links[].geometry / details）不会触发失败；改 length / 限位 / 耦合 / 标定 / 质量 / 摩擦会。重新冻结：python tools/freeze_baseline.py --update\n（robot/robot_id 与 files 的键 = 该包 manifest 里声明的真值路径；robot_id=mearm-v1，robot.yaml=robot-package/mearm-v1/model/robot.yaml，physics.yaml=robot-package/mearm-v1/physics/physics.yaml）",
-  "frozen_at": "2026-09-14 14:43:08 +0800",
-  "robot_id": "mearm-v1",
+  "note": "本文件是「运动学 + 物理」真值的冻结基线。判据是 *_core_sha256（语义核心），整文件 sha256 仅作记录。改外观几何（links[].geometry / details）不会触发失败；改 length / 限位 / 耦合 / 标定 / 质量 / 摩擦会。重新冻结：python core/tools/freeze_baseline.py --update",
+  "frozen_at": "2026-09-15 16:50:21 +0800",
   "files": {
     "robot-package/mearm-v1/model/robot.yaml": {
-      "sha256": "d03551929ea98b035a1853f498f92e25acba23e1180c4cfe749dd999a22c81bf",
+      "sha256": "c0f4b3aef266d06f2ee7036cfd40a53b43576ca8c19ade1d04f54c3d6ef67e5e",
       "kinematic_core_sha256": "f64e49ce56a50e90afab7f84394a1a091c57238e095f6b26c1f75d942fe06ee1",
       "frozen_fields": {
         "robot": [
@@ -47,8 +46,8 @@
       ]
     },
     "robot-package/mearm-v1/physics/physics.yaml": {
-      "sha256": "ea0c01f5a746ee88ad2a597a12900a5c451ede61393b8dca51ac5743f09d6487",
-      "physics_core_sha256": "cd1e167d3a7ace46ce9f46bdef8289f67a9031dec8d8c05a46be8300dcb1b70d",
+      "sha256": "c5390e09a1003cfcf27699a059032b2ed52407aaa8fc62e8b2fd7886c3abcaa9",
+      "physics_core_sha256": "31c60be81120726938619e0d120e50baf629ba3d287a3ea7b93c3294e2c16e99",
       "frozen_sections": [
         "timestep",
         "solver",
@@ -65,6 +64,7 @@
       ]
     }
   },
+  "robot_id": "mearm-v1",
   "kinematic_summary": {
     "robot": {
       "id": "mearm",
@@ -357,7 +357,7 @@
       },
       "bodies": {
         "base_link": {
-          "mass": 0.08,
+          "mass": 0.0266,
           "com": [
             0.0,
             0.0,
@@ -371,7 +371,7 @@
           ]
         },
         "column_link": {
-          "mass": 0.056,
+          "mass": 0.0336,
           "com": [
             0.0,
             0.0,

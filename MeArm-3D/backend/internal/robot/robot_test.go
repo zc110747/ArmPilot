@@ -136,7 +136,7 @@ func TestValidate(t *testing.T) {
 		{"肘角取 95（真机不可达区间）", map[string]float64{"elbow": 95}, "ERR JOINT elbow 95.00 (limit 108.44..141.86)"},
 		{"肩角超出上限", map[string]float64{"shoulder": 60}, "ERR JOINT shoulder 60.00 (limit -6.09..49.45)"},
 		{"底座超出下限", map[string]float64{"base": -90}, "ERR JOINT base -90.00 (limit -60.00..60.00)"},
-		{"夹爪超上限", map[string]float64{"gripper": 120}, "ERR JOINT gripper 120.00 (limit 0.00..90.00)"},
+		{"夹爪超上限", map[string]float64{"gripper": 120}, "ERR JOINT gripper 120.00 (limit 10.00..100.00)"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -152,7 +152,7 @@ func TestValidate(t *testing.T) {
 
 	// 边界值必须放行（限位是闭区间）
 	edge := map[string]float64{
-		"base": 60, "shoulder": 49.454929245, "elbow": 108.4414852068, "gripper": 0,
+		"base": 60, "shoulder": 49.454929245, "elbow": 108.4414852068, "gripper": 10,
 	}
 	if v := m.Validate(edge); v != nil {
 		t.Errorf("边界值应放行，却得到 %v", v)

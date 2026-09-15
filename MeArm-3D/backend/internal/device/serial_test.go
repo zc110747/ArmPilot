@@ -428,8 +428,10 @@ func TestSerialClampedEchoSurvivesInOKJR(t *testing.T) {
 	waitConnected(t, d, 3*time.Second)
 	drainLines(d, 200*time.Millisecond)
 
-	// 夹爪 200° → 舵机 40+200 = 240 → 固件钳到硬限位 130
-	if err := d.WriteLine("JR 0 0 112.6185771989 200"); err != nil {
+	// 夹爪 -200° → 舵机 140-(-200) = 340 → 固件钳到硬限位上限 130。
+	// ⚠️ gripper 是 reverse 映射（servo = -θ + 140，ADR D80）：θ 越小舵机角越大，
+	//    所以"越界往上钳"要用电**负**的关节角；反过来写会钳到下限 40，测的东西就变了。
+	if err := d.WriteLine("JR 0 0 112.6185771989 -200"); err != nil {
 		t.Fatal(err)
 	}
 	okJR := waitLine(t, d, "OK JR", func(s string) bool {
@@ -696,13 +698,13 @@ func TestSerialAsyncOKNotMisattributedAsAck(t *testing.T) {
 	okJR := waitLine(t, d, "OK JR", func(s string) bool {
 		return strings.HasPrefix(s, "OK JR")
 	}, 2*time.Second)
-	// OK JR 携带舵机角：gripper 目标 90（关节角）→ 钳位舵机角 130（offset 40 + scale 1）。
+	// OK JR 携带舵机角：gripper 目标 90（关节角）→ 舵机角 50（reverse: -90 × 1 + 140）。
 	// 关键：绝不能是被异步 OK IR 污染的 S6=62。
 	if strings.Contains(okJR, "S6=62") {
 		t.Errorf("异步 OK IR 污染了 gripper：OK JR = %q（不应出现 S6=62）", okJR)
 	}
-	if !strings.Contains(okJR, "S6=130.00") {
-		t.Errorf("gripper 应为命令钳位舵机角 130.00：OK JR = %q", okJR)
+	if !strings.Contains(okJR, "S6=50.00") {
+		t.Errorf("gripper 应为命令舵机角 50.00：OK JR = %q", okJR)
 	}
 	// 异步事件必须被透传（forward），不能吞掉
 	if got := waitLine(t, d, "转发 OK IR", func(s string) bool {

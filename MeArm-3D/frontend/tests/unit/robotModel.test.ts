@@ -157,7 +157,7 @@ describe('Phase 1 · RobotModel 加载与自洽性', () => {
     expect(servo[9]).toBeCloseTo(90, 6); // base    :  0        × 1      + 90
     expect(servo[7]).toBeCloseTo(90, 6); // shoulder:  0.849894 × 1.44018 + 88.776
     expect(servo[8]).toBeCloseTo(90, 6); // elbow   : -112.618577 × 2.39401 + 359.61（reverse）
-    expect(servo[6]).toBeCloseTo(90, 6); // gripper : 50       × 1      + 40
+    expect(servo[6]).toBeCloseTo(90, 6); // gripper : -50      × 1      + 140（reverse）
   });
 
   it('TCP 只由定位关节决定（不参考夹爪关节）', () => {

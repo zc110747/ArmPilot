@@ -4,7 +4,7 @@
 > 但**不动 Web UI、不动协议、不动现有链路一行代码**。
 >
 > 快速命令：`python simulation/mujoco/run.py --demo`（Viewer）·
-> `python simulation/mujoco/gen_model.py`（重新生成 MJCF）·
+> `python robot-package/mearm-v1/tools/gen_model.py`（重新生成 MJCF）·
 > `cd MeArm-3D && <python> -m pytest tests/sim -q`（106 项验收）
 
 ---
@@ -13,7 +13,7 @@
 
 **当前模型是 Level 3→4（参数化物理仿真），不是 Level 5（真实机械臂标定模型）。**
 
-`config/physics.yaml` 里**没有任何一个数字来自对本台 meArm 的实测**：
+`robot-package/mearm-v1/physics/physics.yaml` 里**没有任何一个数字来自对本台 meArm 的实测**：
 
 | 标记 | 含义 | 举例 |
 |------|------|------|
@@ -27,7 +27,7 @@
 - ✅ 「运动学定义（FK/IK）与物理引擎对同一个模型的解释是否一致」
 - ❌ 「真机在 0.3 s 内会转到 20°」（真机的摩擦、间隙、舵机死区、电池电压都没建模）
 
-**"已标定"这件事被做成了机器可检查的**：`config/physics.yaml` 的
+**"已标定"这件事被做成了机器可检查的**：`robot-package/mearm-v1/physics/physics.yaml` 的
 `calibration.calibrated` 必须为 `false`，且七个可标定量段全为空
 （`tests/sim/test_simulation.py::test_level_declaration_is_machine_checkable`）。
 要把它改成 `true`，必须先有真实实验数据 —— 测试会拦住没有数据支撑的顺手改动。
@@ -57,7 +57,7 @@ Go 侧起一个 `python server.py` 子进程，用**与固件逐字节相同的�
 
 | 文件 | 职责 | 关键点 |
 |------|------|--------|
-| `gen_model.py` | `robot.yaml` + `physics.yaml` → `mearm.xml` | **MJCF 是产物，禁止手工编辑**；重跑即覆盖 |
+| `../../robot-package/mearm-v1/tools/gen_model.py` | `robot.yaml` + `physics.yaml` → `mearm.xml` | **MJCF 是产物，禁止手工编辑**；重跑即覆盖。⚠️ 生成器随包走（Phase 2），**不在本目录** |
 | `mearm.xml` | 生成的 MJCF（9.2 KB · **nq=5 njnt=5** nbody=8 ngeom=34 nu=4 neq=1 ntendon=1） | 真值来自 yaml，改硬件参数要重新生成。⚠️ **nq=5 ≠ 自由度 4**：被动腕 `tool` 是 hinge（有 qpos）但不是自由度 |
 | `robotcfg.py` | 读 `robot.yaml` / `physics.yaml` | **不设默认值兜底，缺字段就报错** |
 | `units.py` | 单位（mm↔m、deg↔rad）与**角度语义**转换 | `elbow` 绝对角 ↔ hinge 局部角只在这一个文件里换算 |
@@ -77,7 +77,7 @@ Go 侧起一个 `python server.py` 子进程，用**与固件逐字节相同的�
 ```bash
 PY=~/.workbuddy/binaries/python/envs/default/Scripts/python.exe    # 需 mujoco / pyyaml / pytest
 
-$PY simulation/mujoco/gen_model.py                  # 重新生成 mearm.xml（改 yaml 后必跑）
+$PY robot-package/mearm-v1/tools/gen_model.py       # 重新生成 mearm.xml（改 yaml 后必跑）
 $PY simulation/mujoco/run.py --demo                 # 打开 MuJoCo Viewer 跑 6 段演示
 $PY simulation/mujoco/run.py --headless --demo --duration 6.5     # 无头，打印统计行
 $PY simulation/mujoco/run.py --pose "0 20 130 50" --duration 5    # 指定目标位形
@@ -144,8 +144,9 @@ curl http://localhost:8090/healthz                  # {"device":"mujoco","linked
 ## 5. 验收数据（Phase 1–10，spec §36 / §42）
 
 ```
-生成器        gen_model.py              9240 B · nq=5 nv=5 njnt=5 nbody=8 ngeom=34 nu=4 nexclude=5 neq=1 ntendon=1
-模型总质量    Σ body_mass               0.2173 kg
+生成器        gen_model.py              9316 B · nq=5 nv=5 njnt=5 nbody=8 ngeom=34 nu=4 nexclude=5 neq=1 ntendon=1
+模型总质量    Σ body_mass               0.1415 kg（2026-09-15：base/column 的 `[估算]` 质量按
+                                         STEP 实测几何重算，0.2173 → 0.1415；见 physics.yaml §4）
 HOME 位稳态   MuJoCo                     TCP=[115.03, 0, 109.22] mm · ncon=0（无伪接触）
 重力测试     无驱动 3s（有/无重力对照）  Δ shoulder 32.095° / elbow 30.990°；Δ base = Δ gripper = 0.000°
                                         （被动腕把爪锁平后 gripper 铰轴变为世界竖直 ⇒ 与 base 一样重力矩恒为 0）
@@ -221,6 +222,6 @@ AI · LLM · Agent · 强化学习（PPO/SAC）· 自训练 · 视觉学习 · �
 
 - `docs/ARCHITECTURE_ANALYSIS.md` —— Phase 1 架构勘察（自由度清点、五种角度对照、接入方案）
 - `docs/decisions.md` **D48–D54** —— 本目录的关键决策
-- `config/robot.yaml` —— 运动学真值（唯一来源）
-- `config/physics.yaml` —— 物理参数（**只放物理量**，禁写限位与标定）
+- `robot-package/mearm-v1/model/robot.yaml` —— 运动学真值（唯一来源；Phase 2 起随包走）
+- `robot-package/mearm-v1/physics/physics.yaml` —— 物理参数（**只放物理量**，禁写限位与标定）
 - `docs/model-structure.md` —— 显示几何与运动学层的边界

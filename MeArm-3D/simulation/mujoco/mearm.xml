@@ -30,21 +30,21 @@
       <geom name="table_top" class="world" type="box" size="0.11 0.11 0.015" rgba="0.62 0.55 0.42 1"/>
     </body>
     <body name="base_link" pos="0 0 0">
-      <inertial pos="0 0 0.006" mass="0.08" diaginertia="4.74933333e-05 6.15733333e-05 0.000103733333"/>
+      <inertial pos="0 0 0.006" mass="0.0266" diaginertia="1.57915333e-05 2.04731333e-05 3.44913333e-05"/>
       <geom name="base_link_coll" class="collision" type="box" size="0.047 0.041 0.01" pos="0 0 0.01" rgba="0.15 0.85 0.45 0.35"/>
-      <geom name="base_link_vis" class="visual" type="box" size="0.047 0.041 0.0035" pos="0 0 0.0035" quat="1 0 0 0" rgba="0.137 0.157 0.188 1"/>
+      <geom name="base_link_vis" class="visual" type="box" size="0.03143 0.02405 0.0015" pos="0 0 0.0035" quat="1 0 0 0" rgba="0.137 0.157 0.188 1"/>
       <geom name="base_link_vis0" class="visual" type="cylinder" size="0.0042 0.0015" pos="0.037 0.031 0.0085" quat="0.70710678 0.70710678 0 0" rgba="0.0863 0.102 0.129 1"/>
       <geom name="base_link_vis1" class="visual" type="cylinder" size="0.0042 0.0015" pos="-0.037 0.031 0.0085" quat="0.70710678 0.70710678 0 0" rgba="0.0863 0.102 0.129 1"/>
       <geom name="base_link_vis2" class="visual" type="cylinder" size="0.0042 0.0015" pos="0.037 -0.031 0.0085" quat="0.70710678 0.70710678 0 0" rgba="0.0863 0.102 0.129 1"/>
       <geom name="base_link_vis3" class="visual" type="cylinder" size="0.0042 0.0015" pos="-0.037 -0.031 0.0085" quat="0.70710678 0.70710678 0 0" rgba="0.0863 0.102 0.129 1"/>
       <geom name="base_link_vis4" class="visual" type="box" size="0.0114 0.0061 0.01125" pos="0 0 0.0195" quat="1 0 0 0" rgba="0.184 0.212 0.267 1"/>
       <body name="column_link" pos="0 0 0">
-        <inertial pos="0 0 0.03" mass="0.056" diaginertia="1.68e-05 1.68e-05 3.73333333e-06"/>
+        <inertial pos="0 0 0.03" mass="0.0336" diaginertia="1.008e-05 1.008e-05 2.24e-06"/>
         <joint name="base" class="arm" axis="0 0 1" range="-1.08210414 1.08210414"/>
         <geom name="column_link_coll" class="collision" type="capsule" size="0.014 0.006" pos="0 0 0.04" rgba="0.15 0.85 0.45 0.35"/>
-        <geom name="column_link_vis" class="visual" type="box" size="0.033 0.03 0.0035" pos="0 0 0.034" quat="1 0 0 0" rgba="0.137 0.157 0.188 1"/>
-        <geom name="column_link_vis0" class="visual" type="box" size="0.015 0.003 0.011" pos="0 0.013 0.049" quat="1 0 0 0" rgba="0.137 0.157 0.188 1"/>
-        <geom name="column_link_vis1" class="visual" type="box" size="0.015 0.003 0.011" pos="0 -0.013 0.049" quat="1 0 0 0" rgba="0.137 0.157 0.188 1"/>
+        <geom name="column_link_vis" class="visual" type="box" size="0.029 0.029 0.0015" pos="0 0 0.034" quat="1 0 0 0" rgba="0.137 0.157 0.188 1"/>
+        <geom name="column_link_vis0" class="visual" type="box" size="0.026 0.0108 0.0015" pos="0 0.013 0.049" quat="1 0 0 0" rgba="0.137 0.157 0.188 1"/>
+        <geom name="column_link_vis1" class="visual" type="box" size="0.026 0.0108 0.0015" pos="0 -0.013 0.049" quat="1 0 0 0" rgba="0.137 0.157 0.188 1"/>
         <geom name="column_link_vis2" class="visual" type="box" size="0.0114 0.0061 0.01125" pos="0 0 0.06" quat="0.70710678 -0.70710678 0 0" rgba="0.184 0.212 0.267 1"/>
         <body name="upper_arm_link" pos="0 0 0.06">
           <inertial pos="0 0 0.04" mass="0.037" diaginertia="1.97333333e-05 1.97333333e-05 2.46666667e-06"/>
@@ -77,7 +77,7 @@
               <site name="tcp" pos="0 0 0.04" size="0.004" rgba="1 0.85 0.2 1" group="4"/>
               <body name="jaw_link" pos="0 0 0.04">
                 <inertial pos="0 0 0.017" mass="0.0033" diaginertia="2.2e-07 2.2e-07 2.2e-07"/>
-                <joint name="gripper" class="arm" axis="1 0 0" range="-0.034906585 1.60570291"/>
+                <joint name="gripper" class="arm" axis="1 0 0" range="0.13962634 1.78023584"/>
                 <geom name="jaw_link_coll" class="collision" type="capsule" size="0.005 0.01" pos="0 0 0" quat="0.70710678 0 0.70710678 0" rgba="0.15 0.85 0.45 0.35"/>
               </body>
             </body>
@@ -97,7 +97,7 @@
     <position name="servo_9" class="arm" joint="base" ctrlrange="-1.08210414 1.08210414"/>
     <position name="servo_7" class="arm" joint="shoulder" ctrlrange="-0.141261412 0.898057932"/>
     <position name="servo_8" class="arm" joint="elbow" ctrlrange="0.994603031 2.61715444"/>
-    <position name="servo_6" class="arm" joint="gripper" ctrlrange="-0.034906585 1.60570291"/>
+    <position name="servo_6" class="arm" joint="gripper" ctrlrange="0.13962634 1.78023584"/>
   </actuator>
   <tendon>
     <fixed name="tool_lock_tendon">

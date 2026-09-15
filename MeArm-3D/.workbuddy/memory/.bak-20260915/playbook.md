@@ -27,10 +27,6 @@
 
 ## §2 机制与关节判定速查
 
-> **状态管理铁律**：**机器人相关状态一律进 store，组件不持局部副本。**
-> 包括 `teachTrack`（示教轨迹）这类看起来"只属于某个面板"的运行时状态 ——
-> 组件持副本会导致 UI 与真机/仿真状态分叉，且切换机器人时不重置。
-
 **关节轴**（D2，有意改写 spec 示例 yaml 的 axis 字段）：
 `base = [0,0,1]`（绕竖直轴偏航）· `shoulder/elbow/tool = [0,1,0]`（XZ 平面内俯仰）·
 `gripper = [1,0,0]`（爪沿 ±Y 分开）。
@@ -675,76 +671,3 @@ try3..: 'OK STATS rx_drop=0 tx_drop=0'    ← 之后稳定
 
 **仍未复现用户症状**。下一步方向：① 用 `probe_gripper_ws.py` 旁听**真实前端**（而非脚本复刻）；
 ② 追问"不顺畅"的**物理表现**（卡顿/不到位/异响）；③ 考虑舵机**供电/电流**（堵转）这类非链路原因。
-
----
-
-## §13 改真值的连锁清单（D80 实践，**照抄这个顺序**）
-
-改 `robot.yaml` 的 `kinematics` / `actuators` 或 `physics.yaml` 的物理量时，
-**必须按序**完成下面 5 步，漏一步就会被守卫抓到（或更糟：静默不一致）。
-
-| # | 动作 | 判据 / 坑 |
-|---|---|---|
-| ① | 重生成产物：`tools/gen_model.py`（MJCF）+ `tools/gen_urdf.py`（URDF） | 产物过期 ⇒ `test_generated_mjcf_is_in_sync_with_config` 报红（**守卫正常工作**） |
-| ② | `core/tools/freeze_baseline.py --update` | ★ **冻结基线的键 = 真值文件的仓库相对路径** ⇒ `--update` 后**哈希必须逐位不变**；变了说明路径动了 |
-| ③ | 重采集黄金数据：`gen_mearm_v1_baseline.py` + `run_sim2sim.py --freeze` | 不重跑 ⇒ Sim2Sim 回归必红 |
-| ④ | 修**写死旧值的断言**（前端 + Go 都有） | ★ **能引用 `limits.min/max` 就别写死端点**，否则每次修订都制造假红 |
-| ⑤ | 同步文档（4 份：`serial-v1.md` / `coordinate-system.md` / `hardware-measurement.md` / `ARCHITECTURE_ANALYSIS.md`） | **文档↔配置一致性在 pytest 里盯** |
-
-### ★★ 最容易踩的一条：方向类标定会翻转"钳位端"
-
-改 `reverse`（或等价的方向翻转）时，**逐处检查"越界钳位"断言钳的是哪一端**。
-
-D80 实录：`servo_6` 由 `θ+40` 改为 `-θ+140` ⇒ **θ 越大舵机角越小**。
-`TestSerialClampedEchoSurvivesInOKJR` 原本用 `θ=200` 触发"钳到**上限**"，
-新映射下 `θ=200` 会钳到**下限** ⇒ 必须改用 **`θ=-200`** 才保持原意。
-
-⇒ 通则：**改方向后，把所有"越界用例"逐个重算一遍期望值**，
-不要只看"还报不报错"（报错方向反了照样是绿的）。
-
-### ★ 冻结基线的"语义核心"边界（D55）
-
-判据是**语义核心哈希**，不是整文件：
-
-- **放行**：改**外观**（`links[].geometry` / `details`）—— 换 STL 网格、改尺寸不报错
-- **报错**：改**运动学**（`length` / 轴限位耦合 / `actuators`）或**物理量** ⇒ 逐字段列差异
-
-### ★ `content_hash` 的语义陷阱
-
-`manifest.model.generated_by` 描述的是**「生成 model.urdf 的生成器」**，
-**不是** `model.config`（`robot.yaml` 永远是真值、永远进哈希）。
-
-实测位置 `core/python/robopkg/content_hash.py`：
-```python
-add(manifest.model.config, is_generated=False, label="model.config")            # L178 ← 必须 False
-add(manifest.model.urdf,   is_generated=manifest.model.generated_by is not None) # L180
-add(manifest.model.physics, is_generated=False, label="model.physics")           # L181
-```
-即：**只有 `model.urdf` / `simulation.mjcf` 这类产物才 `is_generated=True`**；
-`model.config`（robot.yaml）/ `model.physics` / 各 `entry` / `tests.cases` 一律 `False`。
-
-### ★ 已放弃的路线（别再试，省得重复劳动）
-
-| 路线 | 放弃理由（实测） |
-|---|---|
-| **CAD→URDF 直接接入** | `3d-structure/local_mu28fwc1_g8139u_urdf_stl/robot.urdf` **只有 1 link / 0 joint**、111 件未指派、且 **mm 尺寸配 m 原点的 1000× 单位错** ⇒ joint origin/rpy/axis/limit 全部**无输入可取** |
-| **STEP 反推 `length`** | 已证 **STEP 姿态 ≠ 零点位**（yaml 零点位下肩肘应差 22.6°，CAD 实测 0.00°=共线）⇒ 唯一路径是**标尺实拍** |
-| 自研 STEP 解析器 | 误判"0/241 可达"（见 §10 复盘）⇒ 一律用 OCCT |
-
-### ★ 夹爪（S6）真机标定：`S6=40 张开 / S6=130 闭合`（ADR D80）
-
-```yaml
-# robot.yaml · actuators.servo_6
-offset: 140
-scale: 1
-reverse: true        # servo = -θ + 140
-# joints.gripper.limit = 10..100   （由舵机硬限位 40..130 反算）
-```
-三端点自洽：`θ=10 → S6=130`（闭合）/ `θ=50 → S6=90`（**HOME，固件开机位**）/ `θ=100 → S6=40`（张开）。
-
-⚠️ **不能只翻 `reverse`**：`homePose.gripper=50` 必须反算出 S6=90，
-而旧关节限位 `0..90` 本身是照**旧（错）方向**定的 ⇒ **限位必须一并由舵机硬限位反算**。
-（只改 offset 的两种尝试都会撞车：`offset=130` ⇒ HOME 变 80；`offset=140` ⇒ 闭合端 140 超限。）
-
-⚠️ **遗留**：真机方向仅来自**用户口述**，**无相机判据**（`verify_pose.py` 没有爪开合反解）。
-要变成"可独立复核的读数"，需为夹爪设计近景拍摄 + 爪间距量化的标准流程。

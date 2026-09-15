@@ -25,6 +25,7 @@
    IRCLEAR                      erase all learned IR bindings
    RESET                       all servos -> 90
    STATUS | ?                  print S6..S9 angles + modes
+   STATS [CLEAR]               link drop counters (rx/tx), CLEAR zeroes them
    HELP                        print this help
    Rules: SET may address at most 3 motors. left(8) and right(7) MAY be
    combined (user: 左右舵允许同时工作). JOY/IR exist both as serial commands
@@ -139,6 +140,7 @@ static void send_help(void) {
     uart_puts(PSTR("  ADC                        print A0..A3 raw values (debug)\r\n"));
     uart_puts(PSTR("  RESET                      all -> 90 deg\r\n"));
     uart_puts(PSTR("  STATUS | ?                report angles + modes\r\n"));
+    uart_puts(PSTR("  STATS                      link drop counters (rx/tx) + clear\r\n"));
     uart_puts(PSTR("  HELP                       this text\r\n"));
 }
 
@@ -171,6 +173,27 @@ static void process_line(char *buf) {
     if (strcmp(verb, "HELP") == 0) { send_help(); return; }
     if (strcmp(verb, "?") == 0)    { arm_status(); return; }
     if (strcmp(verb, "STATUS") == 0) { arm_status(); return; }
+
+    /* ---- STATS: link-layer drop counters (修任务④-②的可读出口) -------------
+       ★ 这两条计数是"gripper 偶发不执行"从猜测变成**可核对读数**的关键：
+       链路丢字节原本零信号，只能靠"偶发"这种无法复现的描述。
+       现在压测时对比「发送条数 vs ACK 条数」的差值，若与 rx_drop 相符，
+       就证明丢的是**链路**而不是舵机/固件逻辑。
+       `STATS`      -> 只读
+       `STATS CLEAR`-> 读完后清零，便于"跑一轮压测，再看这一轮的增量"。
+       ⚠️ 8 位饱和计数：单轮压测若看到 255，说明丢得比计数能表达的更多，
+       不要把它读成"恰好 255"。 */
+    if (strcmp(verb, "STATS") == 0) {
+        uint8_t rx = uart_rx_drop_count();
+        uint8_t tx = uart_tx_drop_count();
+        uart_printf(PSTR("OK STATS rx_drop=%u tx_drop=%u\r\n"), rx, tx);
+        if (n >= 2 && strcmp(tok[1], "CLEAR") == 0) {
+            uart_clear_drop_counters();
+            uart_puts(PSTR("OK STATS CLEARED\r\n"));
+        }
+        return;
+    }
+
     if (strcmp(verb, "RESET") == 0)  { arm_reset(); uart_puts(PSTR("OK RESET -> 90\r\n")); arm_status(); return; }
 
     if (strcmp(verb, "STOP") == 0) {

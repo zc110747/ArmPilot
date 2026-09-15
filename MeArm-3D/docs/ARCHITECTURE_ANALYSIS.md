@@ -73,7 +73,7 @@ type Device interface {
 | 2 | `shoulder` | shoulder | revolute | `[0,1,0]` | **−6.0936827341 .. +49.454929245** | S7 |
 | 3 | `elbow` | elbow | revolute | `[0,1,0]` | **108.4414852068 .. 141.8582211436** | S8 |
 | — | `tool` | tool | **passive** | `[0,1,0]` | **90.0 .. 90.0**（锁定值；无独立输入 ⇒ **无自由度**） | — |
-| 4 | `gripper` | gripper | revolute | `[1,0,0]` | **0 .. 90** | S6 |
+| 4 | `gripper` | gripper | revolute | `[1,0,0]` | **10 .. 100** | S6 |
 
 **结论**：
 

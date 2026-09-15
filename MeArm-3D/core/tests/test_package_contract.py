@@ -427,6 +427,99 @@ def test_generated_by_points_at_a_real_generator_inside_its_package() -> None:
         f"实得 {checked} —— 声明被删空的话这条测试会变成空转")
 
 
+#: 生成链清单：(产物键, 生成器键, 生成器模块文件名, 生成函数名)。
+#: ★ 与上面那条**配对**：那条盯"生成器还在不在"，这条盯"产物是不是生成器
+#:   **现在**会产出的东西"。两者缺一都有洞 —— 生成器在、但产物是三天前生成的，
+#:   上游改了尺寸而下游没重跑，正是本文件开头说的"静默腐败"。
+GENERATED_CHAINS = (
+    ("simulation.mjcf", "simulation.generated_by", "gen_model.py", "build_xml"),
+    ("model.urdf", "model.generated_by", "gen_urdf.py", "build_urdf"),
+)
+
+
+def _load_generator(path: Path):
+    """按**文件路径**载入生成器模块（生成器不住在 Core 里，import 不到）。
+
+    判据是"包依赖 Core，Core 不认识包"，所以这里只能按路径加载，不能写
+    `import gen_model`。生成器自己在导入期把 `simulation/mujoco` 与 `core/python`
+    插进 `sys.path`，因此载入后 `load_robot` / `load_physics` 直接可用。
+    """
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(f"_gen_{path.stem}", path)
+    assert spec and spec.loader, f"无法为 {path} 构造 import spec"
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = mod
+    spec.loader.exec_module(mod)
+    return mod
+
+
+@pytest.mark.parametrize(
+    "artifact_key,generator_key,module_file,build_fn",
+    GENERATED_CHAINS,
+    ids=[c[0] for c in GENERATED_CHAINS],
+)
+def test_generated_artifacts_are_in_sync_with_their_generator(
+    artifact_key: str, generator_key: str, module_file: str, build_fn: str
+) -> None:
+    """★ 入库的**每一个**生成物，都必须与"现在按配置重跑生成器"的结果**逐字节相同**。
+
+    ## 为什么这条判据必须对**每一条**生成链都存在（真实教训）
+
+    MJCF 一直有这条守卫（`tests/sim/test_simulation.py::test_generated_mjcf_is_in_sync_with_config`），
+    URDF **没有** —— 于是 2026-09-15 改外观尺寸时，MJCF 被重跑了、URDF 被漏掉，
+    而 `pytest -q` 依然是 **196 passed**。那句话换成人类语言就是：
+
+        "`mearm-v1.urdf` 里仍然是 `box size="0.094 0.082 0.007"`，
+          而 robot.yaml 里那块板已经是 62.86×48.1×3 —— 没有任何一条测试会告诉你。"
+
+    这恰好是本文件开头警告的那种失败：**没人读的声明会腐败**，
+    而"生成物"就是一份被写进快照的声明。所以判据不能只覆盖我们**碰巧记得**的那条链。
+
+    ## 判据的输入**取自生成器自己**
+
+    `robot` / `physics` 由生成器模块的 `load_robot()` / `load_physics()` 取
+    （缺省即该包 manifest 声明的路径），而不是在测试里另拼一套路径 ——
+    否则"测试用的输入"与"生成时用的输入"会各自漂移，而两边看上去都对。
+
+    ## 产物路径取自 manifest，不写死
+
+    `declared_path(rid, artifact_key)`。写死字符串的话，产物随包搬迁后这里会
+    指向一个**真实存在的旧文件**，测试照样绿。
+    """
+    for rid in list_package_ids():
+        try:
+            artifact = declared_path(rid, artifact_key)
+            generator = declared_path(rid, generator_key)
+        except PackageError as exc:
+            if "未声明" in str(exc):
+                continue
+            raise
+
+        assert artifact.is_file(), f"{rid}.{artifact_key} = {artifact} 不存在"
+        assert generator.name == module_file, (
+            f"{rid}.{generator_key} = {generator.name}，但本用例登记的是 {module_file} —— "
+            "换了生成器就要换这里登记的 build 函数名")
+
+        mod = _load_generator(generator)
+        fresh = getattr(mod, build_fn)(mod.load_robot(), mod.load_physics())
+        committed = artifact.read_text(encoding="utf-8")
+
+        if committed != fresh:
+            import difflib
+
+            diff = list(difflib.unified_diff(
+                committed.splitlines(), fresh.splitlines(),
+                fromfile=f"{artifact.name}（入库）",
+                tofile=f"{module_file} 现算", lineterm="", n=1))
+            raise AssertionError(
+                f"{artifact.relative_to(PROJECT_ROOT)} 已过期 —— 改配置后必须重新生成：\n"
+                f"    python {repo_relative(generator)}\n"
+                f"差异（前 30 行）：\n" + "\n".join(diff[:30]))
+
+        assert fresh.strip(), f"{module_file} 产出了空文件 —— 守卫会变成空转"
+
+
 def test_engine_entry_agrees_with_frontend_discovery() -> None:
     """`kinematics.engine.entry`（**声明**）≡ 按约定模式扫到的引擎文件（**事实**）。
 

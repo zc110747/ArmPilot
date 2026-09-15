@@ -1,10 +1,10 @@
-# ArmPilot · mARM 虚拟建模 + 真实机械臂同步控制系统
+# MeArmPilot · mARM 虚拟建模 + 真实机械臂同步控制系统
 
 让**虚拟机械臂**与**真实机械臂**共享同一个 `RobotModel`，做到：
 
 > 用户看到的虚拟 mARM，就是现实 mARM 的实时数字映射。
 
-本仓库（`MeArm-3D`）是 ArmPilot 的**数字孪生前端 + 后端**；真实机械臂固件与服务在
+本仓库（`MeArm-3D`）是 MeArmPilot 的**数字孪生前端 + 后端**；真实机械臂固件与服务在
 同级仓库 [`MeArm-Device`](../MeArm-Device)（AVR / PlatformIO）与
 [`MeArm-RemoteControl`](../MeArm-RemoteControl)（Go）中。
 
@@ -13,7 +13,7 @@
 > 推翻了最初按固件 `SERVO_LEFT/RIGHT` 推定肩/肘的假设 —— 详见
 > [`docs/hardware-measurement.md`](docs/hardware-measurement.md) 与 `docs/decisions.md` D15–D17。
 
-![ArmPilot 控制台 · HOME / RESET 位](docs/images/armpilot-console.png)
+![MeArmPilot 控制台 · HOME / RESET 位](docs/images/armpilot-console.png)
 
 <sub>上图为 HOME 位（四舵机全 90° = 固件 RESET 位）的虚拟臂渲染，与实拍照片目视一致；J1 0.0° / J2 0.8° / J3 112.6° / Gripper 50.0°，TCP `115.0, 0, 109.2 mm`。</sub>
 
@@ -22,7 +22,7 @@
 ## 1. 架构
 
 ```
-                      ArmPilot
+                      MeArmPilot
                          │
                    RobotModel          ← robot-package/mearm-v1/model/robot.yaml（唯一数据源）
                          │
@@ -480,7 +480,7 @@ BACKEND_HTTP=http://127.0.0.1:8091 BACKEND_WS=ws://127.0.0.1:8091/ws/joint \
    官方没有独立标定段、质量来自 Onshape 导出而非称重。
 3. **官方 MJCF 没有地面 / 工作台，也没有相邻连杆的 `<contact><exclude>`。**
    ⇒ 官方模型是"悬空"的，且**相邻连杆默认会互相碰撞**（它们在关节处必然几何重叠）。
-   ArmPilot 侧若要复现"臂↔台面"碰撞，只能**在运行期另挂**碰撞体 —— 这属于"改造官方模型"，
+   MeArmPilot 侧若要复现"臂↔台面"碰撞，只能**在运行期另挂**碰撞体 —— 这属于"改造官方模型"，
    待 Phase 6 单独裁决（官方文件本身保持逐字节原样）。
 
 ★ **FK ↔ MuJoCo 实测残差（已冻结）**：MeArm **7.7e-14 mm**、SO-101 **3.3e-3 mm**
@@ -526,7 +526,7 @@ AI · 机器学习 · 强化学习（PPO/SAC）· 自训练 · 视觉识别 · �
 
 ### Phase 11–13 界面（同框可见三个新面板）
 
-![ArmPilot 控制台 · Phase 11–13](docs/images/armpilot-phase11-13.png)
+![MeArmPilot 控制台 · Phase 11–13](docs/images/armpilot-phase11-13.png)
 
 <sub>左侧 3D 视口右上角新增 **Actual Arm** 勾选框（Phase 12 幽灵臂开关）。右侧栏自上而下：
 **关节控制** → **末端目标** → **示教 · TEACH**（Phase 13）→ **连接 · TRANSPORT** →
@@ -716,7 +716,7 @@ cmd 括号/重定向陷阱与陈旧闸门的存在理由。
 |------|----|------|
 | SIM | `start.bat` 退出码 / 端口预检 / 自带探针 | `RC=0` ✅ |
 | SIM | `/healthz` → `ok=true linked=true device=sim` | ✅ |
-| SIM | 前端 `http://localhost:5273/` 200 + `<title>` | ✅（922 B，`ArmPilot · mARM 数字孪生控制台`） |
+| SIM | 前端 `http://localhost:5273/` 200 + `<title>` | ✅（922 B，`MeArmPilot · mARM 数字孪生控制台`） |
 | SIM | WS 关节闭环：`hello` → 下发 `shoulder=20` → **回读** | ✅ `0.85 → 20.00`（末端确实被驱动，不只是回显） |
 | SIM | 收尾端口释放 | ✅ |
 | | **SIM 小计** | **7/7 PASS** |

@@ -1,10 +1,11 @@
-# ArmPilot
+# MeArmPilot
 
 **mARM 机械臂全栈平台** —— 从**裸机固件** → **串口 / Web 网关** → **数字孪生与真机同步控制**，
 用**一份模型定义**贯穿仿真与物理硬件。
+ 
 
-> ArmPilot is an open-source platform for robotic arm data collection, simulation, AI training,
-> motion planning, vision-based manipulation, and real-robot deployment.
+> MeArmPilot is an open-source robotic arm platform focused on simulation,   
+> real-robot control, data collection, and extensible robot development.
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Firmware](https://img.shields.io/badge/firmware-ATmega328P%20%C2%B7%20avr--libc-8a2be2)](MeArm-Device)
@@ -12,7 +13,7 @@
 [![Frontend](https://img.shields.io/badge/frontend-React%2019%20%C2%B7%20Three.js-61DAFB)](MeArm-3D)
 [![Physics](https://img.shields.io/badge/physics-MuJoCo%203.13-brightgreen)](MeArm-3D/simulation)
 
-![ArmPilot 控制台 · HOME / RESET 位](MeArm-3D/docs/images/armpilot-console.png)
+![MeArmPilot 控制台 · HOME / RESET 位](MeArm-3D/docs/images/armpilot-console.png)
 
 <sub>HOME 位（四舵机全 90° = 固件 RESET 位）的数字孪生渲染，与实拍照片目视一致。</sub>
 
@@ -36,7 +37,7 @@
 
 ## 1. 这是什么
 
-ArmPilot 是一台 **meArm 型 4 自由度舵机机械臂**的完整开源实现，覆盖「硬件固件 → 网关服务 → 数字孪生」全链路：
+MeArmPilot 是一台 **meArm 型 4 自由度舵机机械臂**的完整开源实现，覆盖「硬件固件 → 网关服务 → 数字孪生」全链路：
 
 - **真实硬件**：Arduino Uno（ATmega328P）裸机固件驱动 4 路舵机，支持串口指令、硬件摇杆（ADC）、红外遥控（NEC）与动作序列。
 - **虚拟模型**：浏览器里的 3D 机械臂与真机共享同一个 `RobotModel`，做到「**你看到的虚拟臂，就是现实机械臂的实时映射**」。
@@ -337,7 +338,7 @@ arm-web.exe -c config.yaml
 ## 8. 仓库结构
 
 ```
-ArmPilot/
+MeArmPilot/
 ├── README.md                     # 本文件（总览）
 ├── LICENSE                       # MIT
 ├── docs/                         # 平台级文档（开发提示词记录等）

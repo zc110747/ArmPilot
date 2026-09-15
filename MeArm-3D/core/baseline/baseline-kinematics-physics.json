@@ -1,10 +1,10 @@
 {
   "note": "本文件是「运动学 + 物理」真值的冻结基线。判据是 *_core_sha256（语义核心），整文件 sha256 仅作记录。改外观几何（links[].geometry / details）不会触发失败；改 length / 限位 / 耦合 / 标定 / 质量 / 摩擦会。重新冻结：python core/tools/freeze_baseline.py --update",
-  "frozen_at": "2026-09-15 16:50:21 +0800",
+  "frozen_at": "2026-09-15 19:19:11 +0800",
   "files": {
     "robot-package/mearm-v1/model/robot.yaml": {
-      "sha256": "c0f4b3aef266d06f2ee7036cfd40a53b43576ca8c19ade1d04f54c3d6ef67e5e",
-      "kinematic_core_sha256": "f64e49ce56a50e90afab7f84394a1a091c57238e095f6b26c1f75d942fe06ee1",
+      "sha256": "01c594c77ef6edba25d5b57228501c0ed9462e45e364e758070db99e64a0e350",
+      "kinematic_core_sha256": "f4a33fc3d3dcadbd49339b2c7449666304bd199207454937ea9a2d2be2c9f30e",
       "frozen_fields": {
         "robot": [
           "id",
@@ -46,7 +46,7 @@
       ]
     },
     "robot-package/mearm-v1/physics/physics.yaml": {
-      "sha256": "c5390e09a1003cfcf27699a059032b2ed52407aaa8fc62e8b2fd7886c3abcaa9",
+      "sha256": "509f04dd2acdb0755280fc9bb665f16b9ce243afe31a21a566c1f31ef6d20e6f",
       "physics_core_sha256": "31c60be81120726938619e0d120e50baf629ba3d287a3ea7b93c3294e2c16e99",
       "frozen_sections": [
         "timestep",
@@ -262,8 +262,8 @@
           ]
         },
         "limit": {
-          "min": 0,
-          "max": 90
+          "min": 10,
+          "max": 100
         }
       }
     ],
@@ -308,9 +308,9 @@
         "id": "servo_6",
         "jointId": "gripper",
         "channel": 6,
-        "offset": 40,
+        "offset": 140,
         "scale": 1,
-        "reverse": false,
+        "reverse": true,
         "limits": {
           "min": 40,
           "max": 130

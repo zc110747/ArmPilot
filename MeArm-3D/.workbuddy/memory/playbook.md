@@ -27,6 +27,10 @@
 
 ## §2 机制与关节判定速查
 
+> **状态管理铁律**：**机器人相关状态一律进 store，组件不持局部副本。**
+> 包括 `teachTrack`（示教轨迹）这类看起来"只属于某个面板"的运行时状态 ——
+> 组件持副本会导致 UI 与真机/仿真状态分叉，且切换机器人时不重置。
+
 **关节轴**（D2，有意改写 spec 示例 yaml 的 axis 字段）：
 `base = [0,0,1]`（绕竖直轴偏航）· `shoulder/elbow/tool = [0,1,0]`（XZ 平面内俯仰）·
 `gripper = [1,0,0]`（爪沿 ±Y 分开）。
@@ -607,5 +611,140 @@ $PY robot-package/so-arm101/tools/inspect_so101_physics.py --check   # SO-101 �
 $PY core/python/robopkg/cli.py validate --all # 选择器 / manifest / 真值 / 包目录 四方对账
 ```
 
-**实测基线**（2026-09-15）：`pytest -q` = **196 passed** · `test_baseline_frozen.py` = **11 passed** ·
-`cli.py validate --all` = 通过。
+**实测基线**（2026-09-15）：`pytest -q` = **198 passed** · `test_baseline_frozen.py` = **11 passed** ·
+`cli.py validate --all` = 通过 · 前端 `vitest` = **401 passed** · `go test ./...` 全绿。
+
+---
+
+## §12 固件链路诊断与「工具自己误报」（2026-09-15）
+
+**背景**：用户报「gripper 偶发不顺畅」。固件侧加了 `STATS` 命令（读 `rx_drop`/`tx_drop`），
+真机实测 **240/240 收发、零缺失、rx_drop=0** ⇒ **没复现出缺陷**。
+
+### 12.1 唯一可信判据：独立计数器，不是收发对账
+
+| 判据 | 可信度 | 说明 |
+|---|---|---|
+| **固件 `STATS` 的 `rx_drop`** | ★★★ 一票否决 | 链路真丢字节 ⇒ 必然非 0。独立于上位机收发时序 |
+| `STATUS` 回读 target | ★★★ | 证明"固件确实接受了目标"，不是只收到指令 |
+| 脚本的"发送 vs 回执"对账 | ★ | **极易被工具自身的度量缺陷污染**（本次就是） |
+
+⇒ **铁律**：要否定"链路丢字节"这一假设，**只能**靠 `rx_drop`；不能用脚本对账。
+
+### 12.2 ★★ 诊断脚本的 4 个度量陷阱（写串口工具必查）
+
+1. **`_read_line()` 只在"读到新串口字节"时才可能返回一行** —— 缓冲里还有 200 行，
+   但串口暂无新字节 ⇒ 空转到超时返回 `None` ⇒ `drain()` 的空闲判据被假 `None` 触发、提前收工。
+   **修法**：进循环前先查 `self._buf` 是否已含完整行，**有就直接返回、完全不碰串口**。
+2. **声称 fire-and-forget 实则逐条 `wait_for`** —— 压力降到"发一条等一条"，
+   且迟到的 ACK 被塞进 `others` 而报告**从不打印** ⇒ 静默吞掉。
+3. **只填 `ack*_line` 不填 `ack*_ms`**，而 missing 统计读 `_ms is None` ⇒ **恒定**误报"全帧无 ACK"。
+4. **固定等待窗口当就绪判据** —— 见 12.3。
+
+> 与 §10「自研解析器」同源：**工具的局限会被表现成数据的性质**。
+> 自研工具给出**否定性结论**（"缺 221 条"/"文件坏了"）时，**必须先用独立手段复核**。
+
+### 12.3 板子复位后的「吞命令」窗口（Uno，可复用）
+
+开串口 → 复位（DTR 断言）。实测序列：
+
+```
+try0: ''                                  ← 窗口①（横幅还没出来）
+try1: '[meArm] ... ready' / 'STATUS ...'  ← 复位横幅（~1.6s 才到）
+try2: ''                                  ← 窗口②（横幅之后又吞一条）
+try3..: 'OK STATS rx_drop=0 tx_drop=0'    ← 之后稳定
+```
+
+★ **DTR 边沿并非每次都触发复位**（连续开关端口时尤其如此）⇒
+**"是否看到横幅"不能当就绪判据**。唯一可靠定义是**能应答** ⇒ 用**重试探针**
+（反复发一条轻量命令直到收到回执）。
+**不是固件缺陷**：主循环非阻塞（`cmd_poll()` 每轮都跑），是复位后 UART 的稳定窗口。
+
+### 12.4 固件侧的两条改动（仍有价值，但不修已证实的缺陷）
+
+- `uart_putc()` 去掉 `while (tx_full())` 忙等 → **丢字节 + 计数**。
+  理由：阻塞主循环会让它**停止读 RX**，反而可能丢**整条指令**且无痕迹。
+- RX ISR 环满时**计数**（原为完全静默）。
+- `TX_BUF_SZ` 128→256。占用：FLASH 12582→12848 B（39.8%）/ RAM 708→844 B（41.2%）。
+- 新命令 `STATS [CLEAR]` → `OK STATS rx_drop=N tx_drop=N`（8 位**饱和**计数，读到 255 别当"恰好 255"）。
+
+### 12.5 工具
+
+`robot-package/mearm-v1/tools/probe_gripper_link.py`（4 处缺陷已修，文件头含完整复盘）·
+`probe_gripper_ws.py`（WS 旁听真实前端）· `watch_gripper_live.py`（轮询 `/healthz`）。
+
+**仍未复现用户症状**。下一步方向：① 用 `probe_gripper_ws.py` 旁听**真实前端**（而非脚本复刻）；
+② 追问"不顺畅"的**物理表现**（卡顿/不到位/异响）；③ 考虑舵机**供电/电流**（堵转）这类非链路原因。
+
+---
+
+## §13 改真值的连锁清单（D80 实践，**照抄这个顺序**）
+
+改 `robot.yaml` 的 `kinematics` / `actuators` 或 `physics.yaml` 的物理量时，
+**必须按序**完成下面 5 步，漏一步就会被守卫抓到（或更糟：静默不一致）。
+
+| # | 动作 | 判据 / 坑 |
+|---|---|---|
+| ① | 重生成产物：`tools/gen_model.py`（MJCF）+ `tools/gen_urdf.py`（URDF） | 产物过期 ⇒ `test_generated_mjcf_is_in_sync_with_config` 报红（**守卫正常工作**） |
+| ② | `core/tools/freeze_baseline.py --update` | ★ **冻结基线的键 = 真值文件的仓库相对路径** ⇒ `--update` 后**哈希必须逐位不变**；变了说明路径动了 |
+| ③ | 重采集黄金数据：`gen_mearm_v1_baseline.py` + `run_sim2sim.py --freeze` | 不重跑 ⇒ Sim2Sim 回归必红 |
+| ④ | 修**写死旧值的断言**（前端 + Go 都有） | ★ **能引用 `limits.min/max` 就别写死端点**，否则每次修订都制造假红 |
+| ⑤ | 同步文档（4 份：`serial-v1.md` / `coordinate-system.md` / `hardware-measurement.md` / `ARCHITECTURE_ANALYSIS.md`） | **文档↔配置一致性在 pytest 里盯** |
+
+### ★★ 最容易踩的一条：方向类标定会翻转"钳位端"
+
+改 `reverse`（或等价的方向翻转）时，**逐处检查"越界钳位"断言钳的是哪一端**。
+
+D80 实录：`servo_6` 由 `θ+40` 改为 `-θ+140` ⇒ **θ 越大舵机角越小**。
+`TestSerialClampedEchoSurvivesInOKJR` 原本用 `θ=200` 触发"钳到**上限**"，
+新映射下 `θ=200` 会钳到**下限** ⇒ 必须改用 **`θ=-200`** 才保持原意。
+
+⇒ 通则：**改方向后，把所有"越界用例"逐个重算一遍期望值**，
+不要只看"还报不报错"（报错方向反了照样是绿的）。
+
+### ★ 冻结基线的"语义核心"边界（D55）
+
+判据是**语义核心哈希**，不是整文件：
+
+- **放行**：改**外观**（`links[].geometry` / `details`）—— 换 STL 网格、改尺寸不报错
+- **报错**：改**运动学**（`length` / 轴限位耦合 / `actuators`）或**物理量** ⇒ 逐字段列差异
+
+### ★ `content_hash` 的语义陷阱
+
+`manifest.model.generated_by` 描述的是**「生成 model.urdf 的生成器」**，
+**不是** `model.config`（`robot.yaml` 永远是真值、永远进哈希）。
+
+实测位置 `core/python/robopkg/content_hash.py`：
+```python
+add(manifest.model.config, is_generated=False, label="model.config")            # L178 ← 必须 False
+add(manifest.model.urdf,   is_generated=manifest.model.generated_by is not None) # L180
+add(manifest.model.physics, is_generated=False, label="model.physics")           # L181
+```
+即：**只有 `model.urdf` / `simulation.mjcf` 这类产物才 `is_generated=True`**；
+`model.config`（robot.yaml）/ `model.physics` / 各 `entry` / `tests.cases` 一律 `False`。
+
+### ★ 已放弃的路线（别再试，省得重复劳动）
+
+| 路线 | 放弃理由（实测） |
+|---|---|
+| **CAD→URDF 直接接入** | `3d-structure/local_mu28fwc1_g8139u_urdf_stl/robot.urdf` **只有 1 link / 0 joint**、111 件未指派、且 **mm 尺寸配 m 原点的 1000× 单位错** ⇒ joint origin/rpy/axis/limit 全部**无输入可取** |
+| **STEP 反推 `length`** | 已证 **STEP 姿态 ≠ 零点位**（yaml 零点位下肩肘应差 22.6°，CAD 实测 0.00°=共线）⇒ 唯一路径是**标尺实拍** |
+| 自研 STEP 解析器 | 误判"0/241 可达"（见 §10 复盘）⇒ 一律用 OCCT |
+
+### ★ 夹爪（S6）真机标定：`S6=40 张开 / S6=130 闭合`（ADR D80）
+
+```yaml
+# robot.yaml · actuators.servo_6
+offset: 140
+scale: 1
+reverse: true        # servo = -θ + 140
+# joints.gripper.limit = 10..100   （由舵机硬限位 40..130 反算）
+```
+三端点自洽：`θ=10 → S6=130`（闭合）/ `θ=50 → S6=90`（**HOME，固件开机位**）/ `θ=100 → S6=40`（张开）。
+
+⚠️ **不能只翻 `reverse`**：`homePose.gripper=50` 必须反算出 S6=90，
+而旧关节限位 `0..90` 本身是照**旧（错）方向**定的 ⇒ **限位必须一并由舵机硬限位反算**。
+（只改 offset 的两种尝试都会撞车：`offset=130` ⇒ HOME 变 80；`offset=140` ⇒ 闭合端 140 超限。）
+
+⚠️ **遗留**：真机方向仅来自**用户口述**，**无相机判据**（`verify_pose.py` 没有爪开合反解）。
+要变成"可独立复核的读数"，需为夹爪设计近景拍摄 + 爪间距量化的标准流程。

@@ -82,7 +82,7 @@ describe('Phase 1 · 标定层', () => {
     expect(servo[9]).toBeCloseTo(102, 9); // base     : 12 × 1 + 90
     expect(servo[7]).toBeCloseTo(117.5796, 4); // shoulder : 20 × 1.44018 + 88.776
     expect(servo[8]).toBeCloseTo(72.3288, 4); // elbow    : -120 × 2.39401 + 359.61
-    expect(servo[6]).toBeCloseTo(110, 9); // gripper  : 70 × 1 + 40
+    expect(servo[6]).toBeCloseTo(70, 9); // gripper  : -70 × 1 + 140（reverse）
 
     const back = servoChannelsToJointState(model, servo);
     for (const [id, value] of Object.entries(joints)) {
@@ -92,7 +92,7 @@ describe('Phase 1 · 标定层', () => {
 
   it('单关节查询：jointToServoChannels 只返回该关节的舵机通道', () => {
     expect(jointToServoChannels(model, 'base', 0)).toEqual({ 9: 90 });
-    expect(jointToServoChannels(model, 'gripper', 0)).toEqual({ 6: 40 });
+    expect(jointToServoChannels(model, 'gripper', 0)).toEqual({ 6: 140 });
   });
 
   it('标定表只对可动关节建条目，固定关节（tool）被排除', () => {

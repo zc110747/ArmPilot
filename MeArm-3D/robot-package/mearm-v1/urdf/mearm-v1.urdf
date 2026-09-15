@@ -102,7 +102,7 @@
               <child link="jaw_link"/>
               <origin xyz="0 0 0.04" rpy="0 0 0"/>
               <axis xyz="1 0 0"/>
-              <limit lower="0" upper="1.57079633" effort="0.1765" velocity="10"/>
+              <limit lower="0.174532925" upper="1.74532925" effort="0.1765" velocity="10"/>
             </joint>
 
   <!-- ============================================================
@@ -115,7 +115,7 @@
       <actuator name="servo_9" joint="base" channel="9" offset="90" scale="1" reverse="false"/>
       <actuator name="servo_7" joint="shoulder" channel="7" offset="88.776" scale="1.44018" reverse="false"/>
       <actuator name="servo_8" joint="elbow" channel="8" offset="359.61" scale="2.39401" reverse="true"/>
-      <actuator name="servo_6" joint="gripper" channel="6" offset="40" scale="1" reverse="false"/>
+      <actuator name="servo_6" joint="gripper" channel="6" offset="140" scale="1" reverse="true"/>
     </actuators>
     <home_pose>
       <joint name="base" deg="0"/>

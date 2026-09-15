@@ -70,12 +70,14 @@ describe('Phase 4 · 关节控制 → RobotState', () => {
   it('HOME / ZERO 动作切换位姿', () => {
     store().setJoint('shoulder', 40);
     store().goZero();
-    // ZERO = 关节空间原点经限位钳位：小臂（绝对角，可达 108.44..141.86°）落到最竖直可达角
+    // ZERO = 关节空间原点经限位钳位：小臂（绝对角，可达 108.44..141.86°）落到最竖直可达角，
+    // 夹爪（10..100）落到最小角 = 完全闭合。两处都**引用模型限位**而不是写死端点，
+    // 否则每次标定/限位修订（如 D80 的夹爪方向修正）都会制造一条假红。
     expect(store().commandJoints).toEqual({
       base: 0,
       shoulder: 0,
       elbow: jointById(model, 'elbow')!.limits.min,
-      gripper: 0,
+      gripper: jointById(model, 'gripper')!.limits.min,
     });
     expect(store().endEffector.position).toEqual(endEffectorPosition(model, store().commandJoints));
 
@@ -120,7 +122,7 @@ describe('Phase 4 · 关节控制 → RobotState', () => {
     expect(store().commandJoints.base).toBe(60);
     expect(store().commandJoints.shoulder).toBe(jointById(model, 'shoulder')!.limits.min);
     expect(store().commandJoints.elbow).toBe(jointById(model, 'elbow')!.limits.max);
-    expect(store().commandJoints.gripper).toBe(0);
+    expect(store().commandJoints.gripper).toBe(jointById(model, 'gripper')!.limits.min);
   });
 
   it('无连接时点 Real Robot 被拒绝：mode 保持 Simulation，但日志有拒绝原因', () => {
